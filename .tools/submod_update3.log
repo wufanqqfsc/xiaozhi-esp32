@@ -1,0 +1,20 @@
+Cloning into '/Users/sfan/.espressif/v5.5.4/esp-idf/components/bt/controller/lib_esp32c5/esp32c5-bt-lib'...
+From https://github.com/espressif/esp32c5-bt-lib
+ * branch            1a570a59b6d694b8829c82555f445d88bf26f295 -> FETCH_HEAD
+Submodule path 'components/bt/controller/lib_esp32c5/esp32c5-bt-lib': checked out '1a570a59b6d694b8829c82555f445d88bf26f295'
+fatal: Unable to create '/Users/sfan/.espressif/v5.5.4/esp-idf/.git/modules/components/bt/esp_ble_mesh/lib/lib/shallow.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+Unable to fetch in submodule path 'components/bt/esp_ble_mesh/lib/lib'; trying to directly fetch e44762384ed104a0ebc78f134eeba5f3ab648ddc:
+fatal: Unable to create '/Users/sfan/.espressif/v5.5.4/esp-idf/.git/modules/components/bt/esp_ble_mesh/lib/lib/shallow.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+fatal: Fetched in submodule path 'components/bt/esp_ble_mesh/lib/lib', but it did not contain e44762384ed104a0ebc78f134eeba5f3ab648ddc. Direct fetching of that commit failed.

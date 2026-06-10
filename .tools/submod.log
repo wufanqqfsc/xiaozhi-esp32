@@ -1,0 +1,21 @@
+[start] 20:59:49
+OK (51.0s): components/bt/esp_ble_mesh/lib/lib
+OK (2.6s): components/bt/host/nimble/nimble
+OK (16.0s): components/cmock/CMock
+OK (2.7s): components/esp_coex/lib
+FAIL fetch: fatal: Unable to read current working directory: No such file or directory
+error: remote did not send all necessary objects
+fatal: Unable to read current working directory: No such file or directory
+: components/esp_phy/lib
+OK (41.5s): components/esp_wifi/lib
+OK (2.0s): components/heap/tlsf
+SKIP: components/json/cJSON
+OK (2.5s): components/lwip/lwip
+FAIL fetch: fatal: Unable to read current working directory: No such file or directory
+fatal: fetch-pack: invalid index-pack output
+: components/mbedtls/mbedtls
+SKIP: components/openthread/lib
+SKIP: components/openthread/openthread
+OK (5.2s): components/protobuf-c/protobuf-c
+OK (2.1s): components/spiffs/spiffs
+[done] 21:07:40
