@@ -85,23 +85,28 @@ void AttitudeDisplay::SetupUI()
     // 阶段0: 玄黑径向渐变背景（底层，不属于4层）
     CreateBackground();
 
-    // 层级0: 中心太极图（迭代13，target.png 中心元素）
+    // ========== 由内到外按密度梯度创建图层 (迭代18 密度梯度重构) ==========
+    // 密度梯度: 1 → 4 → 10 → 12 → 64, 由内到外密度递增
+    // r=44 太极图(1) → r=72 4方位(4) → r=100 天干(10) → r=128 地支(12) → r=160 64卦(64)
+
+    // 层级0: 中心太极图 (1个, 极低密度)
     CreateLayer0Taiji();
 
     // 默认启动太极图自动旋转 (1分钟转一圈)
-    // 任务在 CompassTaiji::StartAutoRotation 中创建, 不需要在本函数中管理
     CompassTaiji::StartAutoRotation(60000);
     ESP_LOGI(TAG, "Taiji auto rotation started (period=60s)");
 
-    // 层级1.5: 64 卦符号层（迭代14b/15，target.png 中圈元素）
-    // 64 卦沿 r=100px 圆周分布
-    CreateLayer1Bagua();
+    // 层级1: 4 方位点 (4个, 低密度) - r=72
+    // (CreateCompassPoints() 在 line 124 由 SetupUI 末尾调用)
 
-    // 层级2: 12 地支（迭代16，target.png 大字层）
+    // 层级2: 10 天干 (10个, 中密度) - r=100
+    CreateLayer3Tiangan();
+
+    // 层级3: 12 地支 (12个, 中高密度) - r=128
     CreateLayer2Dizhi();
 
-    // 层级3: 10 天干（迭代17，target.png 大字层）
-    CreateLayer3Tiangan();
+    // 层级4: 64 卦 (64个, 极高密度) - r=160
+    CreateLayer1Bagua();
 
     // 层级一: 核心信息区 (0~54px 半径范围)
     CreateLayer1CoreInfo();
@@ -115,66 +120,60 @@ void AttitudeDisplay::SetupUI()
     // 层级四: 边界留白区 (144~178px 半径范围)
     CreateLayer4Boundary();
 
-    // 方位圆点（设计文档第5节：4个绝对方位的实心圆点）
+    // 方位圆点（设计文档第5节：4个绝对方位的实心圆点，迭代18: r=170→72 紧邻太极图）
     CreateCompassPoints();
 
     ESP_LOGI(TAG, "SetupUI completed with theme: %s (4-layer concentric layout)",
              AttitudeTheme::GetInstance().GetThemeName());
 }
 
-// 层级0: 中心太极图（迭代13，target.png 核心视觉）
-// 创建一个直径 160px 的太极图（半径 80px）
+// 层级0: 中心太极图（迭代13/18，target.png 核心视觉）
+// 迭代18密度梯度重构: 半径 80→48→44 (最小圆心, 1个元素, 极低密度)
 void AttitudeDisplay::CreateLayer0Taiji()
 {
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
-    const int TAIJI_RADIUS = 48;  // 太极图半径 (迭代15: 80→48, 60% 缩小, 腾出空间)
+    const int TAIJI_RADIUS = 44;  // 太极图半径 (迭代18密度梯度: 48→44, 极低密度中心)
 
     ESP_LOGI(TAG, "Creating Layer0 Taiji diagram (radius=%d)", TAIJI_RADIUS);
 
     CompassTaiji::Create(attitude_container_, CENTER_X, CENTER_Y, TAIJI_RADIUS);
 }
 
-// ========== Layer 1.5: 64 卦符号层 (迭代14b/15) ==========
-// 在太极图外圈绘制 64 卦符号 (每 5.625° 一个)
-// 8 个主卦 (八卦) 用鎏金 #D4AF37
-// 56 个变卦用白银 #C0C0C0
-// 迭代15: 半径调整 (140→100→70) 匹配 target.png, 配合太极图缩小
+// ========== Layer 1.5: 64 卦符号层 (迭代14b/15/18) ==========
+// 迭代18 密度梯度重构: 64 卦 r=70→160 (移至最外圈, 极高密度)
+// 64 个卦象在 r=160 圆周上, 弧长 15.7px, 需缩小卦象尺寸
 void AttitudeDisplay::CreateLayer1Bagua()
 {
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
-    const int BAGUA_RADIUS = 70;  // 64 卦所在的圆周半径 (迭代15调整: 100→70 配合太极图 r=48)
+    const int BAGUA_RADIUS = 160;  // 64 卦所在的圆周半径 (迭代18密度梯度: 70→160, 最外圈, 64个/5.625°)
 
     ESP_LOGI(TAG, "Creating Layer1 64 bagua (radius=%d)", BAGUA_RADIUS);
 
     CompassBagua::Create(attitude_container_, CENTER_X, CENTER_Y, BAGUA_RADIUS);
 }
 
-// ========== Layer 2: 12 地支层 (迭代16) ==========
-// 鎏金大字: 子丑寅卯辰巳午未申酉戌亥
-// 沿 r=110px 圆周均匀分布 (target.png 风格: 64 卦 r=70 → 12 地支 r=110 间距 40px)
-// 密度梯度: 64 卦 (64个/5.625°) → 12 地支 (12个/30°), 由高密度到低密度
+// ========== Layer 2: 12 地支层 (迭代16/18) ==========
+// 迭代18 密度梯度重构: 12 地支 r=110→128 (中高密度)
 void AttitudeDisplay::CreateLayer2Dizhi()
 {
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
-    const int DIZHI_RADIUS = 110;  // 12 地支所在的圆周半径 (target.png 风格)
+    const int DIZHI_RADIUS = 128;  // 12 地支所在的圆周半径 (迭代18密度梯度: 110→128)
 
     ESP_LOGI(TAG, "Creating Layer2 12 dizhi (radius=%d)", DIZHI_RADIUS);
 
     CompassDizhi::Create(attitude_container_, CENTER_X, CENTER_Y, DIZHI_RADIUS);
 }
 
-// ========== Layer 3: 10 天干层 (迭代17) ==========
-// 鎏金小字: 甲乙丙丁戊己庚辛壬癸
-// 沿 r=140px 圆周均匀分布 (target.png 风格: 12 地支 r=110 → 天干 r=140 间距 30px)
-// 密度梯度: 12 地支 (12个) → 天干 (10个), 两者密度接近, 间距较小
+// ========== Layer 3: 10 天干层 (迭代17/18) ==========
+// 迭代18 密度梯度重构: 天干 r=140→100 (中密度)
 void AttitudeDisplay::CreateLayer3Tiangan()
 {
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
-    const int TIANGAN_RADIUS = 140;  // 10 天干所在的圆周半径 (target.png 风格)
+    const int TIANGAN_RADIUS = 100;  // 10 天干所在的圆周半径 (迭代18密度梯度: 140→100)
 
     ESP_LOGI(TAG, "Creating Layer3 10 tiangan (radius=%d)", TIANGAN_RADIUS);
 
@@ -444,8 +443,8 @@ void AttitudeDisplay::CreateCompassPoints()
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
     const int POINT_SIZE = 6;
-    const int POINTS_RADIUS = 170;  // 4 方位点 r=170 圆周 (target.png 风格: 距天干 r=140 留 30px 间距)
-                                     // 密度梯度: 天干 (10个) → 4 方位 (4个), 由低密度到极低密度
+    const int POINTS_RADIUS = 72;  // 4 方位点 r=72 圆周 (迭代18密度梯度: 170→72, 低密度, 紧邻太极图)
+                                     // 密度梯度: 太极图(1) → 4 方位(4) → 天干(10) → 地支(12) → 64卦(64)
 
     // 北 (上)
     dir_n_label_ = lv_obj_create(attitude_container_);

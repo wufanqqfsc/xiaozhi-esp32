@@ -75,9 +75,10 @@ const int CompassBagua::main_gua_indices_[8] = {
 };
 
 // 绘制一个爻 (阳爻=实线, 阴爻=虚线两段)
-static void DrawYao(lv_obj_t* canvas, int cx, int y, bool is_yang, lv_color_t color, int width = 5, int gap = 2) {
+// 迭代18: 缩小尺寸以适应 r=160 外圈 - 12x12 卦象
+static void DrawYao(lv_obj_t* canvas, int cx, int y, bool is_yang, lv_color_t color, int width, int gap) {
     if (is_yang) {
-        // 阳爻: 实线 (一段长 9 像素)
+        // 阳爻: 实线
         for (int dx = -width; dx <= width; dx++) {
             lv_canvas_set_px(canvas, cx + dx, y, color, LV_OPA_COVER);
         }
@@ -94,24 +95,29 @@ static void DrawYao(lv_obj_t* canvas, int cx, int y, bool is_yang, lv_color_t co
 
 // 绘制一个卦象 (6 个爻) 在 canvas 上的指定中心位置
 // hexagram: 6 个 bit, bit 0 = 底爻, bit 5 = 顶爻
-static void DrawHexagram(lv_obj_t* canvas, int cx, int cy, uint8_t hexagram, lv_color_t color) {
-    const int yao_height = 3;  // 每个爻占 3 像素
-    const int yao_gap = 1;     // 爻之间间隔 1 像素
+// 迭代18: 自适应卦象尺寸 (12x12 或 18x18)
+static void DrawHexagram(lv_obj_t* canvas, int cx, int cy, uint8_t hexagram, lv_color_t color, int size) {
+    // 紧凑绘制: 每爻 1px, 爻间 0.5px 间隙, 6 爻总高 ~ 9px
+    const int yao_height = 1;   // 每个爻占 1 像素 (紧凑)
+    const int yao_gap = 1;      // 爻之间间隔 1 像素
     const int total_height = (yao_height + yao_gap) * 6 - yao_gap;  // 6 爻总高度
 
+    // 爻宽: 主卦 3px, 变卦 2px
+    int yao_width = (size >= 20) ? 3 : 2;
+    int yao_gap_inner = 1;
+
     // 从底爻 (bit 0) 到顶爻 (bit 5) 绘制
-    // 底爻在 cy + total_height/2 位置, 顶爻在 cy - total_height/2
     int start_y = cy + total_height / 2;
     for (int i = 0; i < 6; i++) {
         bool is_yang = (hexagram >> i) & 1;
-        int yao_y = start_y - i * (yao_height + yao_gap) - yao_height / 2;
-        DrawYao(canvas, cx, yao_y, is_yang, color, 5, 2);
+        int yao_y = start_y - i * (yao_height + yao_gap);
+        DrawYao(canvas, cx, yao_y, is_yang, color, yao_width, yao_gap_inner);
     }
 }
 
 // 创建一个卦象的 canvas 并绘制
 // size: 卦象的尺寸 (宽度=高度)
-static lv_obj_t* CreateHexagramCanvas(lv_obj_t* parent, int cx, int cy, uint8_t hexagram, lv_color_t color, int size = 22) {
+static lv_obj_t* CreateHexagramCanvas(lv_obj_t* parent, int cx, int cy, uint8_t hexagram, lv_color_t color, int size) {
     // 分配 canvas buffer (ARGB8888 透明)
     size_t buf_size = size * size * 4;
     uint8_t* buf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -136,7 +142,7 @@ static lv_obj_t* CreateHexagramCanvas(lv_obj_t* parent, int cx, int cy, uint8_t 
 
     // 绘制卦象在 canvas 中心
     int center = size / 2;
-    DrawHexagram(canvas, center, center, hexagram, color);
+    DrawHexagram(canvas, center, center, hexagram, color, size);
 
     return canvas;
 }
@@ -161,6 +167,9 @@ void CompassBagua::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     // 起始角度: 0° 在北方 (顶部), 顺时针排列
     const float angle_step_rad = 2.0f * M_PI / 64.0f;
 
+    // 迭代18: 卦象尺寸需 ≥ 24px 高 (6 爻 x (3px 爻 + 1px 间隙) = 24px)
+    // r=130 圆周上 5.625° 间隔 = 弧长 12.8px
+    // 主卦 24x24 (填充弧长但可能略重叠), 变卦 18x18
     for (int i = 0; i < 64; i++) {
         // 角度: 从 -90° 开始 (北方), 顺时针
         float angle = -M_PI / 2.0f + i * angle_step_rad;
@@ -181,12 +190,14 @@ void CompassBagua::Create(lv_obj_t* parent, int cx, int cy, int radius) {
         lv_color_t color = is_main ? main_gold_ : variant_silver_;
 
         // 创建卦象 canvas
-        // 卦象大小: 主卦稍大 (28px), 变卦稍小 (20px)
-        int size = is_main ? 28 : 20;
+        // 迭代18: 卦象紧凑尺寸 (适配 r=160 外圈)
+        // r=160 圆周上 5.625° 间隔 = 弧长 15.7px
+        // 主卦 12x12, 变卦 8x8, 紧凑绘制 (每爻 1px, 6 爻总高 9-11px)
+        int size = is_main ? 12 : 8;
         bagua_labels_[i] = CreateHexagramCanvas(bagua_container_, px, py, hexagrams_[i], color, size);
     }
 
-    ESP_LOGI(TAG, "64 bagua created successfully");
+    ESP_LOGI(TAG, "64 bagua created successfully at radius=%d (size: main=12, variant=8)", radius);
 }
 
 void CompassBagua::UpdateTheme() {
