@@ -1,0 +1,326 @@
+I (4979) main: Taking first screenshot...
+I (4979) main: Taking scheduled screenshot #1...
+
+[SCREENSHOT #1]
+I (4979) SnapshotService: Executing snapshot...
+
+assert failed: tlsf_free tlsf.c:630 (!block_is_free(block) && "block already marked as free")
+
+
+Backtrace: 0x403852e5:0x3fcee070 0x403852ad:0x3fcee090 0x4038cef5:0x3fcee0b0 0x4038bcbb:0x3fcee1d0 0x4038bb76:0x3fcee1f0 0x4037a0f7:0x3fcee210 0x4038cf25:0x3fcee230 0x420c8a2d:0x3fcee250 0x420c8b9d:0x3fcee270 0x420bdcb9:0x3fcee290 0x420bddb0:0x3fcee2b0 0x420bde29:0x3fcee2d0 0x420bfd2c:0x3fcee2f0 0x420b6229:0x3fcee400 0x420b6b33:0x3fcee520 0x421b19a9:0x3fcee560 0x420b79ec:0x3fcee580 0x420b7afc:0x3fcee5a0 0x420bc5b4:0x3fcee5e0 0x420bc169:0x3fcee740 0x420bc88c:0x3fcee840 0x420bc939:0x3fcee860 0x420bc9df:0x3fcee890 0x420bd0a5:0x3fcee8e0 0x420c8946:0x3fcee970 0x420b1884:0x3fcee9a0
+
+
+
+
+ELF file SHA256: 55db13ffe
+
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0x2b (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4038272f
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x548
+load:0x403c8700,len:0xc3c
+load:0x403cb700,len:0x2d9c
+entry 0x403c8908
+I (34) octal_psram: vendor id    : 0x0d (AP)
+I (34) octal_psram: dev id       : 0x02 (generation 3)
+I (34) octal_psram: density      : 0x03 (64 Mbit)
+I (36) octal_psram: good-die     : 0x01 (Pass)
+I (40) octal_psram: Latency      : 0x01 (Fixed)
+I (44) octal_psram: VCC          : 0x01 (3V)
+I (48) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (53) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (58) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (62) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (68) octal_psram: DriveStrength: 0x00 (1/1)
+I (72) MSPI Timing: Enter psram timing tuning
+I (76) esp_psram: Found 8MB PSRAM device
+I (79) esp_psram: Speed: 80MHz
+I (82) cpu_start: Multicore app
+I (96) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (97) cpu_start: Pro cpu start user code
+I (97) cpu_start: cpu freq: 240000000 Hz
+I (98) app_init: Application information:
+I (102) app_init: Project name:     xiaozhi
+I (106) app_init: App version:      2.2.6
+I (110) app_init: Compile time:     Jun 12 2026 14:17:55
+I (115) app_init: ELF file SHA256:  55db13ffe...
+I (119) app_init: ESP-IDF:          v5.5.4-dirty
+I (124) efuse_init: Min chip rev:     v0.0
+I (127) efuse_init: Max chip rev:     v0.99 
+I (131) efuse_init: Chip rev:         v0.2
+I (135) heap_init: Initializing. RAM available for dynamic allocation:
+I (141) heap_init: At 3FCAEA68 len 0003ACA8 (235 KiB): RAM
+I (147) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (152) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (157) heap_init: At 600FE000 len 00001FD8 (7 KiB): RTCRAM
+I (162) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (169) spi_flash: detected chip: generic
+I (173) spi_flash: flash io: qio
+I (176) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (182) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (189) main_task: Started on CPU0
+I (199) esp_psram: Reserving pool of 96K of internal memory for DMA/internal allocations
+I (199) main_task: Calling app_main()
+I (209) SnapshotService: Snapshot service initialized (console-based)
+I (209) main: Snapshot service initialized
+I (209) SnapshotService: Snapshot service started (synchronous mode)
+I (219) Board: UUID=18faf160-9f71-480f-87f0-2adf082eb400 SKU=esp32-s3-touch-lcd-1.85b
+W (229) i2c.master: Please check pull-up resistances whether be connected properly. Otherwise unexpected behavior would happen. For more detailed information, please read docs
+[1.85B] TCA9554 not present, skipping initialization
+[1.85B] Waiting for LCD power up...
+I (749) waveshare_lcd_1_85: Initialize QSPI bus
+I (749) waveshare_lcd_1_85: Install panel IO
+I (749) waveshare_lcd_1_85: Install ST77916 panel driver
+-------------------------------------- Version selection -------------------------------------- 
+Register 0x04 data: 00 02 7f 7f
+LCD communication parameters are set successfully -- SPI
+I (759) waveshare_lcd_1_85: Forcing vendor-specific initialization for ESP32-S3-Touch-LCD-1.85B
+------------------------------------- End of version selection------------------------------------- 
+I (779) st77916: LCD panel create success, version: 1.0.1
+I (1039) Display: Power management not supported
+I (1089) LcdDisplay: Turning display on
+I (1089) LcdDisplay: Initialize LVGL library
+I (1089) LcdDisplay: Use 2MB of PSRAM for image cache
+I (1089) LcdDisplay: Initialize LVGL port
+I (1089) LcdDisplay: Adding LCD display
+I (1089) LVGL: Starting LVGL task
+I (1099) AttitudeDisplay: AttitudeDisplay constructed, 360x360
+I (1099) button: IoT Button Version: 4.1.7
+I (1109) Backlight: Set brightness to 75
+I (1109) StateMachine: State: unknown -> starting
+I (1119) AttitudeDisplay: Background created with theme colors
+I (1129) AttitudeDisplay: Decoration circles created with theme colors
+I (1129) AttitudeDisplay: Top info ring created with theme colors
+I (1139) AttitudeDisplay: Bottom interpretation area created with theme colors
+I (1139) AttitudeDisplay: Bubble created with theme colors
+I (1149) AttitudeDisplay: SetupUI completed with theme: Aurora
+W (1239) LcdDisplay: SetChatMessage('system', 'esp32-s3-touch-lcd-1.85b/2.2.6') failed: chat_message_label_ is nullptr (SetupUI() was called but label not created)
+I (1239) NoAudioCodec: Simplex channels created
+I (1249) AudioCodec: Audio codec started
+I (1249) MCP: Add tool: self.get_device_status
+I (1249) MCP: Add tool: self.audio_speaker.set_volume
+I (1259) MCP: Add tool: self.screen.set_brightness
+I (1259) MCP: Add tool: self.screen.set_theme
+I (1269) MCP: Add tool: self.get_system_info [user]
+I (1269) MCP: Add tool: self.reboot [user]
+I (1279) MCP: Add tool: self.upgrade_firmware [user]
+I (1279) MCP: Add tool: self.screen.get_info [user]
+I (1289) MCP: Add tool: self.screen.snapshot [user]
+I (1289) MCP: Add tool: self.screen.preview_image [user]
+I (1299) MCP: Add tool: self.assets.set_download_url [user]
+I (1299) WifiManager: Initializing...
+I (1299) pp: pp rom version: e7ae62f
+I (1309) net80211: net80211 rom version: e7ae62f
+I (1319) wifi:wifi driver task: 3fce3ce8, prio:23, stack:6144, core=0
+I (1319) wifi:wifi firmware version: 0947e8b
+I (1319) wifi:wifi certification version: v7.0
+I (1329) wifi:config NVS flash: disabled
+I (1329) wifi:config nano formatting: enabled
+I (1329) wifi:Init data frame dynamic rx buffer num: 6
+I (1339) wifi:Init dynamic rx mgmt buffer num: 5
+I (1339) wifi:Init management short buffer num: 32
+I (1349) wifi:Init dynamic tx buffer num: 32
+I (1349) wifi:Init static tx FG buffer num: 2
+I (1359) wifi:Init static rx buffer size: 1600
+I (1359) wifi:Init static rx buffer num: 3
+I (1359) wifi:Init dynamic rx buffer num: 6
+I (1369) wifi_init: rx ba win: 3
+I (1369) wifi_init: accept mbox: 6
+I (1369) wifi_init: tcpip mbox: 16
+I (1379) wifi_init: udp mbox: 6
+I (1379) wifi_init: tcp mbox: 6
+I (1379) wifi_init: tcp tx win: 5760
+I (1389) wifi_init: tcp rx win: 5760
+I (1389) wifi_init: tcp mss: 1440
+I (1389) WifiManager: Initialized
+W (1389) SsidManager: NVS namespace wifi doesn't exist
+I (2899) StateMachine: State: starting -> wifi_configuring
+I (2899) WifiManager: Starting config AP
+I (2899) DnsServer: Starting DNS server
+I (2899) wifi:Set ps type: 0, coexist: 0
+
+I (2899) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+I (2939) wifi:mode : sta (a0:f2:62:e4:3a:40) + softAP (a0:f2:62:e4:3a:41)
+I (2939) wifi:enable tsf
+I (2939) wifi:Total power save buffer number: 16
+I (2949) wifi:Init max length of beacon: 752/752
+I (2949) wifi:Init max length of beacon: 752/752
+I (2959) WifiConfigurationAp: Access Point started with SSID Xiaozhi-3A41
+I (2959) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1
+I (2969) WifiConfigurationAp: Web server started
+I (2969) WifiBoard: WiFi config mode entered
+I (2979) main: Screenshot task started
+I (2979) main: Screenshot task created successfully
+W (2989) Application: Alert [gear] 配网模式: 手机连接热点 Xiaozhi-3A41，浏览器访问 http://192.168.4.1
+W (2999) Display: SetStatus('配网模式') failed: status_label_ is nullptr (SetupUI() was called but label not created)
+W (3009) LcdDisplay: SetEmotion('gear') failed: emoji_image_ is nullptr (SetupUI() was called but emoji image not created)
+W (3019) LcdDisplay: SetChatMessage('system', '手机连接热点 Xiaozhi-3A41，浏览器访问 http://192.168.4.1') failed: chat_message_label_ is nullptr (SetupUI() was called but label not created)
+I (3039) AudioCodec: Set output enable to true
+I (3039) AudioService: Resampling audio from 16000 to 24000
+I (4979) main: Taking first screenshot...
+I (4979) main: Taking scheduled screenshot #1...
+
+[SCREENSHOT #1]
+I (4979) SnapshotService: Executing snapshot...
+
+assert failed: tlsf_free tlsf.c:630 (!block_is_free(block) && "block already marked as free")
+
+
+Backtrace: 0x403852e5:0x3fcee070 0x403852ad:0x3fcee090 0x4038cef5:0x3fcee0b0 0x4038bcbb:0x3fcee1d0 0x4038bb76:0x3fcee1f0 0x4037a0f7:0x3fcee210 0x4038cf25:0x3fcee230 0x420c8a2d:0x3fcee250 0x420c8b9d:0x3fcee270 0x420bdcb9:0x3fcee290 0x420bddb0:0x3fcee2b0 0x420bde29:0x3fcee2d0 0x420bfd2c:0x3fcee2f0 0x420b6229:0x3fcee400 0x420b6b33:0x3fcee520 0x421b19a9:0x3fcee560 0x420b79ec:0x3fcee580 0x420b7afc:0x3fcee5a0 0x420bc5b4:0x3fcee5e0 0x420bc169:0x3fcee740 0x420bc88c:0x3fcee840 0x420bc939:0x3fcee860 0x420bc9df:0x3fcee890 0x420bd0a5:0x3fcee8e0 0x420c8946:0x3fcee970 0x420b1884:0x3fcee9a0
+
+
+
+
+ELF file SHA256: 55db13ffe
+
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0x2b (SPI_FAST_FLASH_BOOT)
+Saved PC:0x403860a9
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x548
+load:0x403c8700,len:0xc3c
+load:0x403cb700,len:0x2d9c
+entry 0x403c8908
+I (34) octal_psram: vendor id    : 0x0d (AP)
+I (34) octal_psram: dev id       : 0x02 (generation 3)
+I (34) octal_psram: density      : 0x03 (64 Mbit)
+I (36) octal_psram: good-die     : 0x01 (Pass)
+I (40) octal_psram: Latency      : 0x01 (Fixed)
+I (44) octal_psram: VCC          : 0x01 (3V)
+I (48) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (53) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (58) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (62) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (68) octal_psram: DriveStrength: 0x00 (1/1)
+I (72) MSPI Timing: Enter psram timing tuning
+I (76) esp_psram: Found 8MB PSRAM device
+I (79) esp_psram: Speed: 80MHz
+I (82) cpu_start: Multicore app
+I (96) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (97) cpu_start: Pro cpu start user code
+I (97) cpu_start: cpu freq: 240000000 Hz
+I (98) app_init: Application information:
+I (102) app_init: Project name:     xiaozhi
+I (106) app_init: App version:      2.2.6
+I (110) app_init: Compile time:     Jun 12 2026 14:17:55
+I (115) app_init: ELF file SHA256:  55db13ffe...
+I (119) app_init: ESP-IDF:          v5.5.4-dirty
+I (124) efuse_init: Min chip rev:     v0.0
+I (127) efuse_init: Max chip rev:     v0.99 
+I (131) efuse_init: Chip rev:         v0.2
+I (135) heap_init: Initializing. RAM available for dynamic allocation:
+I (141) heap_init: At 3FCAEA68 len 0003ACA8 (235 KiB): RAM
+I (147) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (152) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (157) heap_init: At 600FE000 len 00001FD8 (7 KiB): RTCRAM
+I (162) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (169) spi_flash: detected chip: generic
+I (173) spi_flash: flash io: qio
+I (176) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (182) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (189) main_task: Started on CPU0
+I (199) esp_psram: Reserving pool of 96K of internal memory for DMA/internal allocations
+I (199) main_task: Calling app_main()
+I (209) SnapshotService: Snapshot service initialized (console-based)
+I (209) main: Snapshot service initialized
+I (209) SnapshotService: Snapshot service started (synchronous mode)
+I (219) Board: UUID=18faf160-9f71-480f-87f0-2adf082eb400 SKU=esp32-s3-touch-lcd-1.85b
+W (229) i2c.master: Please check pull-up resistances whether be connected properly. Otherwise unexpected behavior would happen. For more detailed information, please read docs
+[1.85B] TCA9554 not present, skipping initialization
+[1.85B] Waiting for LCD power up...
+I (749) waveshare_lcd_1_85: Initialize QSPI bus
+I (749) waveshare_lcd_1_85: Install panel IO
+I (749) waveshare_lcd_1_85: Install ST77916 panel driver
+-------------------------------------- Version selection -------------------------------------- 
+Register 0x04 data: 00 02 7f 7f
+LCD communication parameters are set successfully -- SPI
+I (759) waveshare_lcd_1_85: Forcing vendor-specific initialization for ESP32-S3-Touch-LCD-1.85B
+------------------------------------- End of version selection------------------------------------- 
+I (779) st77916: LCD panel create success, version: 1.0.1
+I (1039) Display: Power management not supported
+I (1089) LcdDisplay: Turning display on
+I (1089) LcdDisplay: Initialize LVGL library
+I (1089) LcdDisplay: Use 2MB of PSRAM for image cache
+I (1089) LcdDisplay: Initialize LVGL port
+I (1089) LcdDisplay: Adding LCD display
+I (1089) LVGL: Starting LVGL task
+I (1099) AttitudeDisplay: AttitudeDisplay constructed, 360x360
+I (1099) button: IoT Button Version: 4.1.7
+I (1109) Backlight: Set brightness to 75
+I (1109) StateMachine: State: unknown -> starting
+I (1119) AttitudeDisplay: Background created with theme colors
+I (1129) AttitudeDisplay: Decoration circles created with theme colors
+I (1129) AttitudeDisplay: Top info ring created with theme colors
+I (1139) AttitudeDisplay: Bottom interpretation area created with theme colors
+I (1139) AttitudeDisplay: Bubble created with theme colors
+I (1149) AttitudeDisplay: SetupUI completed with theme: Aurora
+W (1239) LcdDisplay: SetChatMessage('system', 'esp32-s3-touch-lcd-1.85b/2.2.6') failed: chat_message_label_ is nullptr (SetupUI() was called but label not created)
+I (1239) NoAudioCodec: Simplex channels created
+I (1249) AudioCodec: Audio codec started
+I (1249) MCP: Add tool: self.get_device_status
+I (1249) MCP: Add tool: self.audio_speaker.set_volume
+I (1259) MCP: Add tool: self.screen.set_brightness
+I (1259) MCP: Add tool: self.screen.set_theme
+I (1269) MCP: Add tool: self.get_system_info [user]
+I (1269) MCP: Add tool: self.reboot [user]
+I (1279) MCP: Add tool: self.upgrade_firmware [user]
+I (1279) MCP: Add tool: self.screen.get_info [user]
+I (1289) MCP: Add tool: self.screen.snapshot [user]
+I (1289) MCP: Add tool: self.screen.preview_image [user]
+I (1299) MCP: Add tool: self.assets.set_download_url [user]
+I (1299) WifiManager: Initializing...
+I (1299) pp: pp rom version: e7ae62f
+I (1309) net80211: net80211 rom version: e7ae62f
+I (1319) wifi:wifi driver task: 3fce3ce8, prio:23, stack:6144, core=0
+I (1319) wifi:wifi firmware version: 0947e8b
+I (1319) wifi:wifi certification version: v7.0
+I (1329) wifi:config NVS flash: disabled
+I (1329) wifi:config nano formatting: enabled
+I (1329) wifi:Init data frame dynamic rx buffer num: 6
+I (1339) wifi:Init dynamic rx mgmt buffer num: 5
+I (1339) wifi:Init management short buffer num: 32
+I (1349) wifi:Init dynamic tx buffer num: 32
+I (1349) wifi:Init static tx FG buffer num: 2
+I (1359) wifi:Init static rx buffer size: 1600
+I (1359) wifi:Init static rx buffer num: 3
+I (1359) wifi:Init dynamic rx buffer num: 6
+I (1369) wifi_init: rx ba win: 3
+I (1369) wifi_init: accept mbox: 6
+I (1369) wifi_init: tcpip mbox: 16
+I (1379) wifi_init: udp mbox: 6
+I (1379) wifi_init: tcp mbox: 6
+I (1379) wifi_init: tcp tx win: 5760
+I (1389) wifi_init: tcp rx win: 5760
+I (1389) wifi_init: tcp mss: 1440
+I (1389) WifiManager: Initialized
+W (1389) SsidManager: NVS namespace wifi doesn't exist
+I (2899) StateMachine: State: starting -> wifi_configuring
+I (2899) WifiManager: Starting config AP
+I (2899) DnsServer: Starting DNS server
+I (2899) wifi:Set ps type: 0, coexist: 0
+
+I (2899) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+I (2939) wifi:mode : sta (a0:f2:62:e4:3a:40) + softAP (a0:f2:62:e4:3a:41)
+I (2949) wifi:enable tsf
+I (2949) wifi:Total power save buffer number: 16
+I (2949) wifi:Init max length of beacon: 752/752
+I (2949) wifi:Init max length of beacon: 752/752
+I (2959) WifiConfigurationAp: Access Point started with SSID Xiaozhi-3A41
+I (2959) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1
+I (2969) WifiConfigurationAp: Web server started
+I (2979) WifiBoard: WiFi config mode entered
+I (2979) main: Screenshot task started
+I (2979) main: Screenshot task created successfully
+W (2989) Application: Alert [gear] 配网模式: 手机连接热点 Xiaozhi-3A41，浏览器访问 http://192.168.4.1
+W (2999) Display: SetStatus('配网模式') failed: status_label_ is nullptr (SetupUI() was called but label not created)
+W (3009) LcdDisplay: SetEmotion('gear') failed: emoji_image_ is nullptr (SetupUI() was called but emoji image not created)
+W (3019) LcdDisplay: SetChatMessage('system', '手机连接热点 Xiaozhi-3A41，浏览器访问 http://192.168.4.1') failed: chat_message_label_ is nullptr (SetupUI() was called but label not created)
+I (3039) AudioCodec: Set output enable to true
+I (3039) AudioService: Resampling audio from 16000 to 24000

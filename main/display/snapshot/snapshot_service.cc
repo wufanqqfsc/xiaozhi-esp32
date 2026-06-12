@@ -3,6 +3,7 @@
 #include "board.h"
 #include "jpg/image_to_jpeg.h"
 #include <esp_log.h>
+#include <esp_lvgl_port.h>
 #include <cstdio>
 #include <cstring>
 
@@ -92,108 +93,139 @@ void SnapshotService::UARTTask(void* arg) {
 
 esp_err_t SnapshotService::ExecuteSnapshot() {
     ESP_LOGI(TAG, "Executing snapshot...");
-    
+
     uint8_t* jpeg_data = nullptr;
     size_t jpeg_len = 0;
-    
+
     // 捕获并编码
     if (!CaptureAndEncode(&jpeg_data, &jpeg_len)) {
         ESP_LOGE(TAG, "Failed to capture and encode");
         SendACK(SNAPSHOT_ERR_NO_MEM);
         return ESP_FAIL;
     }
-    
+
     ESP_LOGI(TAG, "JPEG encoded, size: %d bytes", (int)jpeg_len);
-    
+
     // 发送数据
     esp_err_t ret = SendData(jpeg_data, jpeg_len);
-    
-    // 释放内存
+
+    // 释放JPEG数据（image_to_jpeg 用 malloc 分配）
     free(jpeg_data);
-    
+
     return ret;
 }
 
 bool SnapshotService::CaptureAndEncode(uint8_t** jpeg_data, size_t* jpeg_len) {
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
-    
+
     if (!display) {
         ESP_LOGE(TAG, "Display not available");
         return false;
     }
-    
+
     // 获取屏幕尺寸
     int width = display->width();
     int height = display->height();
-    
-    // 使用LVGL快照功能
-    lv_draw_buf_t* draw_buf = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
+
+    // LVGL 快照和刷新必须在 LVGL 线程中执行（lvgl_port 互斥锁保护）
+    lv_draw_buf_t* draw_buf = nullptr;
+
+    if (lvgl_port_lock(2000)) {  // 等待最多2秒获取锁
+        // 在LVGL线程中执行截图
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(lv_display_get_default());
+        draw_buf = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
+        lvgl_port_unlock();
+    } else {
+        ESP_LOGE(TAG, "Failed to acquire LVGL lock");
+        return false;
+    }
+
     if (!draw_buf) {
         ESP_LOGE(TAG, "Failed to take snapshot");
         return false;
     }
-    
+
     // 获取快照数据指针（RGB565格式，每像素2字节）
-    uint8_t* rgb_data = (uint8_t*)draw_buf->data;
+    uint8_t* src_data = (uint8_t*)draw_buf->data;
     size_t rgb_size = width * height * 2;  // RGB565: 2 bytes per pixel
-    
-    // 转换为JPEG
-    bool ret = image_to_jpeg(rgb_data, rgb_size, width, height, 
-                            V4L2_PIX_FMT_RGB565, 80, jpeg_data, jpeg_len);
-    
-    // 释放快照缓冲区
+
+    // 先复制数据，因为LVGL的draw_buf可能不能直接修改
+    uint8_t* rgb_data = (uint8_t*)heap_caps_malloc(rgb_size, MALLOC_CAP_SPIRAM);
+    if (!rgb_data) {
+        ESP_LOGE(TAG, "Failed to allocate buffer for image processing");
+        lv_draw_buf_destroy(draw_buf);
+        return false;
+    }
+    memcpy(rgb_data, src_data, rgb_size);
+
+    // 释放LVGL快照缓冲区（复制完后立即释放）
     lv_draw_buf_destroy(draw_buf);
-    
+    draw_buf = nullptr;
+
+    // 转换为JPEG（不需要LVGL锁，可在当前线程执行）
+    bool ret = image_to_jpeg(rgb_data, rgb_size, width, height,
+                            V4L2_PIX_FMT_RGB565, 80, jpeg_data, jpeg_len);
+
+    // 释放RGB数据（必须用 heap_caps_free 释放 PSRAM 内存）
+    heap_caps_free(rgb_data);
+    rgb_data = nullptr;
+
     if (!ret) {
         ESP_LOGE(TAG, "JPEG encoding failed");
         return false;
     }
-    
+
     return true;
 }
 
 esp_err_t SnapshotService::SendData(const uint8_t* data, size_t len) {
     // 计算Base64编码后的长度
     size_t base64_len = Base64EncodeLength(len);
-    uint8_t* base64_data = (uint8_t*)malloc(base64_len);
+    // 使用 SPIRAM 分配大块内存（Base64 后约 17KB，普通 RAM 容易不足）
+    uint8_t* base64_data = (uint8_t*)heap_caps_malloc(base64_len, MALLOC_CAP_SPIRAM);
     if (!base64_data) {
-        ESP_LOGE(TAG, "Failed to allocate Base64 buffer");
-        return ESP_ERR_NO_MEM;
+        // 回退到普通内存
+        base64_data = (uint8_t*)malloc(base64_len);
+        if (!base64_data) {
+            ESP_LOGE(TAG, "Failed to allocate Base64 buffer");
+            return ESP_ERR_NO_MEM;
+        }
     }
-    
+
     // 进行Base64编码
     Base64Encode(data, len, base64_data);
-    
+
     ESP_LOGI(TAG, "JPEG size: %d bytes, Base64 size: %d bytes", (int)len, (int)base64_len);
-    
+
     // 使用 printf 直接输出 Base64 数据，分块输出避免缓冲问题
     printf("\n===SCREENSHOT_START===\n");
     fflush(stdout);
-    
+
     // 分块输出，每块 500 字符
     const size_t chunk_size = 500;
     size_t offset = 0;
-    while (offset < base64_len) {
-        size_t remaining = base64_len - offset;
+    while (offset < base64_len - 1) {  // -1 排除 null 终止符
+        size_t remaining = base64_len - 1 - offset;
         size_t to_write = (remaining < chunk_size) ? remaining : chunk_size;
-        
+
         printf("%.*s", (int)to_write, (char*)base64_data + offset);
         offset += to_write;
-        
+
         // 每块后刷新
-        if (offset % chunk_size == 0 || offset >= base64_len) {
+        if (offset % chunk_size == 0 || offset >= base64_len - 1) {
             fflush(stdout);
             vTaskDelay(pdMS_TO_TICKS(10));  // 短暂延迟
         }
     }
-    
+
     printf("\n===SCREENSHOT_END===\n");
     fflush(stdout);
     ESP_LOGI(TAG, "Screenshot data sent");
-    
+
     free(base64_data);
-    
+
     ESP_LOGI(TAG, "Data send complete");
     return ESP_OK;
 }

@@ -35,6 +35,7 @@ v1 的稳定版本为 1.9.2，可以通过 `git checkout v1` 来切换到 v1 版
 - 通过设备端 MCP 实现设备控制（音量、灯光、电机、GPIO 等）
 - 通过云端 MCP 扩展大模型能力（智能家居控制、PC桌面操作、知识搜索、邮件收发等）
 - 自定义唤醒词、字体、表情与聊天背景，支持网页端在线修改 ([自定义Assets生成器](https://github.com/78/xiaozhi-assets-generator))
+- 串口截图功能，通过 USB-Serial/JTAG 端口获取屏幕截图 ([截图使用说明](doc/SNAPSHOT_USAGE.md))
 
 ## 硬件
 

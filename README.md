@@ -35,6 +35,7 @@ The stable version of v1 is 1.9.2. You can switch to v1 by running `git checkout
 - Device-side MCP for device control (Speaker, LED, Servo, GPIO, etc.)
 - Cloud-side MCP to extend large model capabilities (smart home control, PC desktop operation, knowledge search, email, etc.)
 - Customizable wake words, fonts, emojis, and chat backgrounds with online web-based editing ([Custom Assets Generator](https://github.com/78/xiaozhi-assets-generator))
+- Serial port screenshot capture via USB-Serial/JTAG port ([Screenshot Usage](doc/SNAPSHOT_USAGE.md))
 
 ## Hardware
 

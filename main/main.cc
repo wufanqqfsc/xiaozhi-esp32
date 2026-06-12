@@ -21,41 +21,41 @@ static void screenshot_task(void* arg) {
     auto& svc = SnapshotService::GetInstance();
     int count = 0;
     const int max_screenshots = 3;
-    
-    ESP_LOGI(TAG, "Screenshot task started");
+
+    ESP_LOGI(TAG, "[screenshot_task] started on core %d", xPortGetCoreID());
     fflush(stdout);
-    
+
     // 短暂等待屏幕初始化
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    
-    ESP_LOGI(TAG, "Taking first screenshot...");
+    vTaskDelay(pdMS_TO_TICKS(3000));
+
+    ESP_LOGI(TAG, "[screenshot_task] delay 3s done, will take first screenshot");
     fflush(stdout);
-    
+
     while (count < max_screenshots) {
-        ESP_LOGI(TAG, "Taking scheduled screenshot #%d...", count + 1);
+        ESP_LOGI(TAG, "[screenshot_task] Taking screenshot #%d...", count + 1);
         printf("\n[SCREENSHOT #%d]\n", count + 1);
         fflush(stdout);
-        
+
         // 执行截图
         esp_err_t ret = svc.TakeSnapshot();
-        
+
         if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "Screenshot #%d completed", count + 1);
+            ESP_LOGI(TAG, "[screenshot_task] Screenshot #%d completed", count + 1);
         } else {
-            ESP_LOGE(TAG, "Screenshot #%d failed: %d", count + 1, ret);
+            ESP_LOGE(TAG, "[screenshot_task] Screenshot #%d failed: 0x%x", count + 1, ret);
         }
-        
+
         count++;
-        
+
         // 等待下一个截图
         if (count < max_screenshots) {
-            ESP_LOGI(TAG, "Waiting 2s before next screenshot...");
+            ESP_LOGI(TAG, "[screenshot_task] Waiting 2s before next screenshot...");
             fflush(stdout);
-            vTaskDelay(pdMS_TO_TICKS(2000));  // 2秒后再次截图
+            vTaskDelay(pdMS_TO_TICKS(2000));
         }
     }
-    
-    ESP_LOGI(TAG, "All scheduled screenshots completed");
+
+    ESP_LOGI(TAG, "[screenshot_task] All screenshots done, deleting task");
     vTaskDelete(NULL);
 }
 
