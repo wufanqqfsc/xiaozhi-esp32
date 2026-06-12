@@ -4,6 +4,8 @@
 #include "board.h"
 #include "compass_taiji.h"
 #include "compass_bagua.h"
+#include "compass_dizhi.h"
+#include "compass_tiangan.h"
 #include <esp_log.h>
 #include <cstdio>
 #include <inttypes.h>
@@ -91,9 +93,15 @@ void AttitudeDisplay::SetupUI()
     CompassTaiji::StartAutoRotation(60000);
     ESP_LOGI(TAG, "Taiji auto rotation started (period=60s)");
 
-    // 层级1.5: 64 卦符号层（迭代14b，target.png 中圈元素）
-    // 64 卦沿 r=140px 圆周分布
+    // 层级1.5: 64 卦符号层（迭代14b/15，target.png 中圈元素）
+    // 64 卦沿 r=100px 圆周分布
     CreateLayer1Bagua();
+
+    // 层级2: 12 地支（迭代16，target.png 大字层）
+    CreateLayer2Dizhi();
+
+    // 层级3: 10 天干（迭代17，target.png 大字层）
+    CreateLayer3Tiangan();
 
     // 层级一: 核心信息区 (0~54px 半径范围)
     CreateLayer1CoreInfo();
@@ -120,26 +128,57 @@ void AttitudeDisplay::CreateLayer0Taiji()
 {
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
-    const int TAIJI_RADIUS = 80;  // 太极图半径
+    const int TAIJI_RADIUS = 48;  // 太极图半径 (迭代15: 80→48, 60% 缩小, 腾出空间)
 
     ESP_LOGI(TAG, "Creating Layer0 Taiji diagram (radius=%d)", TAIJI_RADIUS);
 
     CompassTaiji::Create(attitude_container_, CENTER_X, CENTER_Y, TAIJI_RADIUS);
 }
 
-// ========== Layer 1.5: 64 卦符号层 (迭代14b) ==========
+// ========== Layer 1.5: 64 卦符号层 (迭代14b/15) ==========
 // 在太极图外圈绘制 64 卦符号 (每 5.625° 一个)
 // 8 个主卦 (八卦) 用鎏金 #D4AF37
 // 56 个变卦用白银 #C0C0C0
+// 迭代15: 半径调整 (140→100→70) 匹配 target.png, 配合太极图缩小
 void AttitudeDisplay::CreateLayer1Bagua()
 {
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
-    const int BAGUA_RADIUS = 140;  // 64 卦所在的圆周半径
+    const int BAGUA_RADIUS = 70;  // 64 卦所在的圆周半径 (迭代15调整: 100→70 配合太极图 r=48)
 
     ESP_LOGI(TAG, "Creating Layer1 64 bagua (radius=%d)", BAGUA_RADIUS);
 
     CompassBagua::Create(attitude_container_, CENTER_X, CENTER_Y, BAGUA_RADIUS);
+}
+
+// ========== Layer 2: 12 地支层 (迭代16) ==========
+// 鎏金大字: 子丑寅卯辰巳午未申酉戌亥
+// 沿 r=110px 圆周均匀分布 (target.png 风格: 64 卦 r=70 → 12 地支 r=110 间距 40px)
+// 密度梯度: 64 卦 (64个/5.625°) → 12 地支 (12个/30°), 由高密度到低密度
+void AttitudeDisplay::CreateLayer2Dizhi()
+{
+    const int CENTER_X = 180;
+    const int CENTER_Y = 180;
+    const int DIZHI_RADIUS = 110;  // 12 地支所在的圆周半径 (target.png 风格)
+
+    ESP_LOGI(TAG, "Creating Layer2 12 dizhi (radius=%d)", DIZHI_RADIUS);
+
+    CompassDizhi::Create(attitude_container_, CENTER_X, CENTER_Y, DIZHI_RADIUS);
+}
+
+// ========== Layer 3: 10 天干层 (迭代17) ==========
+// 鎏金小字: 甲乙丙丁戊己庚辛壬癸
+// 沿 r=140px 圆周均匀分布 (target.png 风格: 12 地支 r=110 → 天干 r=140 间距 30px)
+// 密度梯度: 12 地支 (12个) → 天干 (10个), 两者密度接近, 间距较小
+void AttitudeDisplay::CreateLayer3Tiangan()
+{
+    const int CENTER_X = 180;
+    const int CENTER_Y = 180;
+    const int TIANGAN_RADIUS = 140;  // 10 天干所在的圆周半径 (target.png 风格)
+
+    ESP_LOGI(TAG, "Creating Layer3 10 tiangan (radius=%d)", TIANGAN_RADIUS);
+
+    CompassTiangan::Create(attitude_container_, CENTER_X, CENTER_Y, TIANGAN_RADIUS);
 }
 
 // 浅灰渐变背景（主题色值驱动）
@@ -405,12 +444,13 @@ void AttitudeDisplay::CreateCompassPoints()
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
     const int POINT_SIZE = 6;
-    const int POINT_OFFSET = 18;  // 距屏幕边缘 18px (设计文档要求)
+    const int POINTS_RADIUS = 170;  // 4 方位点 r=170 圆周 (target.png 风格: 距天干 r=140 留 30px 间距)
+                                     // 密度梯度: 天干 (10个) → 4 方位 (4个), 由低密度到极低密度
 
     // 北 (上)
     dir_n_label_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(dir_n_label_, POINT_SIZE, POINT_SIZE);
-    lv_obj_set_pos(dir_n_label_, CENTER_X - POINT_SIZE/2, POINT_OFFSET);
+    lv_obj_set_pos(dir_n_label_, CENTER_X - POINT_SIZE/2, CENTER_Y - POINTS_RADIUS - POINT_SIZE/2);
     lv_obj_set_style_radius(dir_n_label_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(dir_n_label_, theme_colors.point_default, 0);
     lv_obj_set_style_border_width(dir_n_label_, 0, 0);
@@ -418,7 +458,7 @@ void AttitudeDisplay::CreateCompassPoints()
     // 南 (下)
     dir_s_label_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(dir_s_label_, POINT_SIZE, POINT_SIZE);
-    lv_obj_set_pos(dir_s_label_, CENTER_X - POINT_SIZE/2, 360 - POINT_OFFSET - POINT_SIZE);
+    lv_obj_set_pos(dir_s_label_, CENTER_X - POINT_SIZE/2, CENTER_Y + POINTS_RADIUS - POINT_SIZE/2);
     lv_obj_set_style_radius(dir_s_label_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(dir_s_label_, theme_colors.point_default, 0);
     lv_obj_set_style_border_width(dir_s_label_, 0, 0);
@@ -426,7 +466,7 @@ void AttitudeDisplay::CreateCompassPoints()
     // 西 (左)
     dir_w_label_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(dir_w_label_, POINT_SIZE, POINT_SIZE);
-    lv_obj_set_pos(dir_w_label_, POINT_OFFSET, CENTER_Y - POINT_SIZE/2);
+    lv_obj_set_pos(dir_w_label_, CENTER_X - POINTS_RADIUS - POINT_SIZE/2, CENTER_Y - POINT_SIZE/2);
     lv_obj_set_style_radius(dir_w_label_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(dir_w_label_, theme_colors.point_default, 0);
     lv_obj_set_style_border_width(dir_w_label_, 0, 0);
@@ -434,12 +474,12 @@ void AttitudeDisplay::CreateCompassPoints()
     // 东 (右)
     dir_e_label_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(dir_e_label_, POINT_SIZE, POINT_SIZE);
-    lv_obj_set_pos(dir_e_label_, 360 - POINT_OFFSET - POINT_SIZE, CENTER_Y - POINT_SIZE/2);
+    lv_obj_set_pos(dir_e_label_, CENTER_X + POINTS_RADIUS - POINT_SIZE/2, CENTER_Y - POINT_SIZE/2);
     lv_obj_set_style_radius(dir_e_label_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(dir_e_label_, theme_colors.point_default, 0);
     lv_obj_set_style_border_width(dir_e_label_, 0, 0);
 
-    ESP_LOGI(TAG, "Compass points (N/E/S/W) created with 6x6 dots");
+    ESP_LOGI(TAG, "Compass points (N/E/S/W) created with 6x6 dots at r=%d", POINTS_RADIUS);
 }
 
 // 更新状态颜色 (公开API, 供外部调用改变状态等级)
