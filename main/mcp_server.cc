@@ -17,6 +17,7 @@
 #include "settings.h"
 #include "lvgl_theme.h"
 #include "lvgl_display.h"
+#include "attitude_display.h"
 
 #define TAG "MCP"
 
@@ -94,6 +95,58 @@ void McpServer::AddCommonTools() {
                     return true;
                 }
                 return false;
+            });
+    }
+
+    // 太极图旋转控制 (用于按键触发, MCP 也可调用)
+    // 仅当 display 是 AttitudeDisplay 时可用
+    auto attitude_display = dynamic_cast<AttitudeDisplay*>(display);
+    if (attitude_display != nullptr) {
+        // 顺时针旋转 15° (按键按下)
+        AddTool("self.attitude.taiji_rotate_cw",
+            "Rotate the Taiji diagram clockwise by 15° (button trigger).",
+            PropertyList(),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                attitude_display->RotateTaiji();
+                return true;
+            });
+
+        // 逆时针旋转 15°
+        AddTool("self.attitude.taiji_rotate_ccw",
+            "Rotate the Taiji diagram counter-clockwise by 15°.",
+            PropertyList(),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                attitude_display->RotateTaijiCCW();
+                return true;
+            });
+
+        // 设置指定角度
+        AddTool("self.attitude.taiji_set_rotation",
+            "Set the Taiji diagram rotation angle. Angle is in 0.1° units (e.g., 15° = 150).",
+            PropertyList({
+                Property("angle", kPropertyTypeInteger, 0, 3600)
+            }),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                int angle = properties["angle"].value<int>();
+                attitude_display->SetTaijiRotation(angle);
+                return true;
+            });
+
+        // 获取当前角度
+        AddTool("self.attitude.taiji_get_rotation",
+            "Get the current Taiji diagram rotation angle (0.1° units).",
+            PropertyList(),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                return attitude_display->GetTaijiRotation();
+            });
+
+        // 重置旋转
+        AddTool("self.attitude.taiji_reset_rotation",
+            "Reset the Taiji diagram rotation to 0°.",
+            PropertyList(),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                attitude_display->ResetTaijiRotation();
+                return true;
             });
     }
 

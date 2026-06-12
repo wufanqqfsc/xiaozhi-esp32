@@ -13,6 +13,8 @@
 
 #include "application.h"
 #include "snapshot_service.h"
+#include "board.h"
+#include "attitude_display.h"
 
 #define TAG "main"
 
@@ -20,7 +22,7 @@
 static void screenshot_task(void* arg) {
     auto& svc = SnapshotService::GetInstance();
     int count = 0;
-    const int max_screenshots = 3;
+    const int max_screenshots = 1;  // 仅截图 1 次, 避免阻塞旋转任务
 
     ESP_LOGI(TAG, "[screenshot_task] started on core %d", xPortGetCoreID());
     fflush(stdout);

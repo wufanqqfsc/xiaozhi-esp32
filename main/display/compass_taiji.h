@@ -24,6 +24,53 @@ public:
      */
     static void UpdateTheme();
 
+    /**
+     * 顺时针旋转太极图（按键触发）
+     * @param delta_angle 旋转角度（0.1°单位），正值=顺时针
+     */
+    static void Rotate(int delta_angle);
+
+    /**
+     * 设置太极图旋转角度
+     * @param angle 旋转角度（0.1°单位），0~3600 表示 0°~360°
+     */
+    static void SetRotation(int angle);
+
+    /**
+     * 获取当前旋转角度
+     * @return 当前角度（0.1°单位）
+     */
+    static int GetRotation();
+
+    /**
+     * 重置旋转角度为 0
+     */
+    static void ResetRotation();
+
+    /**
+     * 启动自动旋转
+     * @param period_ms 旋转周期 (毫秒) - 转 360° 所需时间
+     *                  默认 60000ms = 1分钟转一圈
+     */
+    static void StartAutoRotation(int period_ms = 60000);
+
+    /**
+     * 停止自动旋转
+     */
+    static void StopAutoRotation();
+
+    /**
+     * 检查是否在自动旋转中
+     */
+    static bool IsAutoRotating();
+
+    // 内部访问 (供 auto_rotation_task 调用) - public 让全局函数可访问
+    static int GetStepInternal() { return auto_rotation_step_; }
+    static int GetIntervalInternal() { return auto_rotation_interval_ms_; }
+
+    // 自动旋转 FreeRTOS 任务入口 (类静态成员, 可访问 private 成员)
+    static void AutoRotationTaskEntry(void* arg);
+
 private:
     // 太极图组件句柄（使用静态变量，便于跨实例访问）
     static lv_obj_t* taiji_container_;
@@ -33,6 +80,15 @@ private:
     static lv_obj_t* black_dot_;          // 阴中黑点
     static lv_obj_t* outer_ring_;         // 外圈鎏金高亮环
     static lv_obj_t* outer_glow_;         // 外圈发光
+    static lv_obj_t* canvas_;             // 太极图画布（用于旋转）
+    static int current_rotation_;         // 当前旋转角度 (0.1°单位)
+
+    // 自动旋转控制
+    static void* auto_rotation_task_handle_;  // FreeRTOS 任务句柄
+    static bool auto_rotation_running_;       // 是否正在自动旋转
+    static int auto_rotation_period_ms_;      // 旋转周期 (ms)
+    static int auto_rotation_step_;           // 每步旋转角度 (0.1°单位)
+    static int auto_rotation_interval_ms_;    // 步进间隔 (ms)
 
     /**
      * 创建一个圆形 lv_obj

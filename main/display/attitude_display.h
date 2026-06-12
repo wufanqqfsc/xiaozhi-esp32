@@ -66,6 +66,26 @@ public:
     // 应用当前主题到所有UI元素
     void ApplyCurrentTheme();
 
+    // 太极图旋转控制 (按键触发)
+    // 顺时针旋转 15°
+    void RotateTaiji();
+    // 逆时针旋转 15°
+    void RotateTaijiCCW();
+    // 设置太极图旋转角度
+    void SetTaijiRotation(int angle);
+    // 获取太极图当前角度
+    int GetTaijiRotation();
+    // 重置太极图
+    void ResetTaijiRotation();
+
+    // 太极图自动旋转控制 (1分钟转一圈)
+    // 启动自动旋转, period_ms = 转 360° 所需时间 (默认 60000ms = 1分钟)
+    void StartTaijiAutoRotation(int period_ms = 60000);
+    // 停止自动旋转
+    void StopTaijiAutoRotation();
+    // 是否在自动旋转中
+    bool IsTaijiAutoRotating();
+
 private:
     // 主容器
     lv_obj_t* attitude_container_ = nullptr;

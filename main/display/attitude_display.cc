@@ -85,6 +85,11 @@ void AttitudeDisplay::SetupUI()
     // 层级0: 中心太极图（迭代13，target.png 中心元素）
     CreateLayer0Taiji();
 
+    // 默认启动太极图自动旋转 (1分钟转一圈)
+    // 任务在 CompassTaiji::StartAutoRotation 中创建, 不需要在本函数中管理
+    CompassTaiji::StartAutoRotation(60000);
+    ESP_LOGI(TAG, "Taiji auto rotation started (period=60s)");
+
     // 层级一: 核心信息区 (0~54px 半径范围)
     CreateLayer1CoreInfo();
 
@@ -431,4 +436,63 @@ void AttitudeDisplay::UpdateStateColor(int level)
         lv_color_t state_color = AttitudeTheme::GetInstance().GetStateColor(level);
         lv_obj_set_style_arc_color(layer3_progress_arc_, state_color, LV_PART_INDICATOR);
     }
+}
+
+// ====================== 太极图旋转控制 (按键触发) ======================
+// 顺时针旋转 15°
+// LVGL 中 1° = 10 (0.1°单位), 所以 15° = 150
+void AttitudeDisplay::RotateTaiji()
+{
+    DisplayLockGuard lock(this);
+    CompassTaiji::Rotate(150);  // 顺时针 15°
+}
+
+// 逆时针旋转 15°
+void AttitudeDisplay::RotateTaijiCCW()
+{
+    DisplayLockGuard lock(this);
+    CompassTaiji::Rotate(-150);  // 逆时针 15°
+}
+
+// 设置太极图旋转角度
+void AttitudeDisplay::SetTaijiRotation(int angle)
+{
+    DisplayLockGuard lock(this);
+    // angle 是 0.1°单位, 例如 15° = 150
+    CompassTaiji::SetRotation(angle);
+}
+
+// 获取太极图当前角度
+int AttitudeDisplay::GetTaijiRotation()
+{
+    DisplayLockGuard lock(this);
+    return CompassTaiji::GetRotation();
+}
+
+// 重置太极图
+void AttitudeDisplay::ResetTaijiRotation()
+{
+    DisplayLockGuard lock(this);
+    CompassTaiji::ResetRotation();
+}
+
+// 启动太极图自动旋转
+void AttitudeDisplay::StartTaijiAutoRotation(int period_ms)
+{
+    DisplayLockGuard lock(this);
+    CompassTaiji::StartAutoRotation(period_ms);
+}
+
+// 停止太极图自动旋转
+void AttitudeDisplay::StopTaijiAutoRotation()
+{
+    DisplayLockGuard lock(this);
+    CompassTaiji::StopAutoRotation();
+}
+
+// 是否在自动旋转中
+bool AttitudeDisplay::IsTaijiAutoRotating()
+{
+    DisplayLockGuard lock(this);
+    return CompassTaiji::IsAutoRotating();
 }

@@ -3,6 +3,9 @@
 #include <cstring>
 #include <cmath>
 #include <esp_heap_caps.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <esp_lvgl_port.h>
 
 static const char* TAG = "CompassTaiji";
 
@@ -14,6 +17,15 @@ lv_obj_t* CompassTaiji::white_dot_ = nullptr;
 lv_obj_t* CompassTaiji::black_dot_ = nullptr;
 lv_obj_t* CompassTaiji::outer_ring_ = nullptr;
 lv_obj_t* CompassTaiji::outer_glow_ = nullptr;
+lv_obj_t* CompassTaiji::canvas_ = nullptr;
+int CompassTaiji::current_rotation_ = 0;
+
+// 自动旋转控制
+void* CompassTaiji::auto_rotation_task_handle_ = nullptr;
+bool CompassTaiji::auto_rotation_running_ = false;
+int CompassTaiji::auto_rotation_period_ms_ = 60000;
+int CompassTaiji::auto_rotation_step_ = 0;
+int CompassTaiji::auto_rotation_interval_ms_ = 50;
 
 /**
  * 填充圆 (中点圆算法 + 水平扫描线)
@@ -36,8 +48,6 @@ static inline void FillCircle(lv_obj_t* canvas, int cx, int cy, int r,
  * @param radius 整体半径（外圆半径）
  */
 void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
-
     ESP_LOGI(TAG, "Creating Taiji diagram at (%d, %d) radius=%d", cx, cy, radius);
 
     int canvas_size = radius * 2;
@@ -86,7 +96,13 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     lv_obj_set_style_shadow_width(canvas, 0, 0);
     // 关键: 关闭 image recolor (防止默认色调覆盖透明像素)
     lv_obj_set_style_image_recolor_opa(canvas, LV_OPA_TRANSP, 0);
+    // 关键: 启用反走样, 旋转时边缘更平滑
+    lv_image_set_antialias(canvas, true);
+    // 关键: 旋转中心点设为画布中心, 旋转时不会偏移
+    lv_image_set_pivot(canvas, canvas_size / 2, canvas_size / 2);
     lv_obj_clear_flag(canvas, LV_OBJ_FLAG_CLICKABLE);
+    // 保存 canvas 句柄用于后续旋转
+    canvas_ = canvas;
 
     // ========== 4. 绘制太极图 ==========
     lv_color_t white = lv_color_white();
@@ -185,4 +201,157 @@ void CompassTaiji::UpdateTheme() {
     if (outer_glow_ != nullptr) {
         lv_obj_set_style_border_color(outer_glow_, theme_colors.border_line, 0);
     }
+}
+
+// ====================== 旋转控制 ======================
+// 按键触发太极图顺时针旋转
+
+/**
+ * 顺时针旋转太极图（按键触发）
+ * @param delta_angle 旋转角度（0.1°单位），正值=顺时针
+ *                    例如 15° = 150
+ */
+void CompassTaiji::Rotate(int delta_angle) {
+    SetRotation(current_rotation_ + delta_angle);
+}
+
+/**
+ * 设置太极图旋转角度
+ * @param angle 旋转角度（0.1°单位），0~3600 表示 0°~360°
+ *              LVGL 中 3600 = 360°
+ * 注意: 调用方需要持有 LVGL 锁!
+ */
+void CompassTaiji::SetRotation(int angle) {
+    if (canvas_ == nullptr) {
+        ESP_LOGW(TAG, "SetRotation: canvas_ is null, ignoring");
+        return;
+    }
+    // 归一化到 0~3600 范围
+    int normalized = angle % 3600;
+    if (normalized < 0) normalized += 3600;
+    current_rotation_ = normalized;
+    lv_image_set_rotation(canvas_, normalized);
+    // 触发重绘, 确保 canvas 旋转后屏幕能立即看到
+    lv_obj_invalidate(canvas_);
+    ESP_LOGI(TAG, "Taiji rotation set to %.1f°", normalized / 10.0);
+}
+
+/**
+ * 获取当前旋转角度
+ */
+int CompassTaiji::GetRotation() {
+    return current_rotation_;
+}
+
+/**
+ * 重置旋转角度为 0
+ */
+void CompassTaiji::ResetRotation() {
+    SetRotation(0);
+}
+
+// ====================== 自动旋转控制 ======================
+// 1 分钟 (60秒) 转 360°
+
+/**
+ * 自动旋转 FreeRTOS 任务 (CompassTaiji 静态成员, 可访问 private 成员)
+ * 每 50ms 旋转 0.3° (3 个 0.1°单位)
+ * 1 分钟 = 60000ms / 50ms = 1200 步 × 3 单位 = 3600 单位 = 360°
+ *
+ * 注意: 必须在 LVGL 锁内调用 lv_image_set_rotation
+ */
+void CompassTaiji::AutoRotationTaskEntry(void* arg) {
+    ESP_LOGI("CompassTaiji", "Auto rotation task started");
+    int rotation_count = 0;
+    while (IsAutoRotating()) {
+        // 获取 LVGL 锁 (无 timeout, 等待直到获取)
+        if (lvgl_port_lock(0)) {
+            // 旋转
+            Rotate(GetStepInternal());
+            rotation_count++;
+            if (rotation_count % 20 == 0) {
+                ESP_LOGI("CompassTaiji", "Rotation progress: %d steps (%.1f°)",
+                         rotation_count, rotation_count * GetStepInternal() / 10.0);
+            }
+            // 释放锁
+            lvgl_port_unlock();
+        } else {
+            ESP_LOGW("CompassTaiji", "Failed to acquire LVGL lock, skipping this step");
+        }
+        // 等待
+        vTaskDelay(pdMS_TO_TICKS(GetIntervalInternal()));
+    }
+    ESP_LOGI("CompassTaiji", "Auto rotation task stopped (total %d rotations)", rotation_count);
+    auto_rotation_task_handle_ = nullptr;
+    vTaskDelete(NULL);
+}
+
+/**
+ * 启动自动旋转
+ * @param period_ms 旋转周期 (毫秒) - 转 360° 所需时间
+ *                  默认 60000ms = 1分钟转一圈
+ */
+void CompassTaiji::StartAutoRotation(int period_ms) {
+    if (auto_rotation_running_) {
+        ESP_LOGW(TAG, "Auto rotation already running");
+        return;
+    }
+    if (canvas_ == nullptr) {
+        ESP_LOGE(TAG, "StartAutoRotation: canvas_ is null, ignoring");
+        return;
+    }
+
+    auto_rotation_period_ms_ = period_ms;
+    auto_rotation_interval_ms_ = 50;  // 50ms 步进
+    // 计算每步旋转角度 (0.1°单位):
+    // 360° = 3600 单位 (0.1°单位)
+    // 步数 = period_ms / interval_ms
+    // 每步 = 3600 / 步数 (0.1°单位)
+    int steps = auto_rotation_period_ms_ / auto_rotation_interval_ms_;
+    auto_rotation_step_ = (steps > 0) ? (3600 / steps) : 0;
+
+    if (auto_rotation_step_ <= 0) {
+        ESP_LOGE(TAG, "Invalid auto rotation step: %d (period=%dms)", auto_rotation_step_, period_ms);
+        return;
+    }
+
+    auto_rotation_running_ = true;
+
+    // 创建 FreeRTOS 任务
+    BaseType_t ret = xTaskCreate(
+        AutoRotationTaskEntry,
+        "taiji_auto_rot",
+        2048,                    // 栈大小
+        nullptr,                 // 参数
+        1,                       // 优先级 (低)
+        (TaskHandle_t*)&auto_rotation_task_handle_  // 任务句柄
+    );
+
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create auto rotation task");
+        auto_rotation_running_ = false;
+        return;
+    }
+
+    ESP_LOGI(TAG, "Auto rotation started: period=%dms, step=%.1f°/step, interval=%dms",
+             auto_rotation_period_ms_, auto_rotation_step_ / 10.0, auto_rotation_interval_ms_);
+}
+
+/**
+ * 停止自动旋转
+ */
+void CompassTaiji::StopAutoRotation() {
+    if (!auto_rotation_running_) {
+        return;
+    }
+    auto_rotation_running_ = false;
+    // 任务会自己检测到停止标志并退出
+    ESP_LOGI(TAG, "Auto rotation stop requested");
+}
+
+/**
+ * 检查是否在自动旋转中
+ */
+bool CompassTaiji::IsAutoRotating() {
+    return auto_rotation_running_;
 }
