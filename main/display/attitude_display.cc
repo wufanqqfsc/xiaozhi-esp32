@@ -165,16 +165,14 @@ void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
     // 后续迭代会在层级二（动态指示区）实现姿态指示
 }
 
-// 设置解读文字 (已废弃: 4层布局无底部解读区)
-// 保留以保持 API 兼容
+// 设置解读文字 (已废弃: 迭代14清理)
+// 保留空实现以保持 API 兼容
 void AttitudeDisplay::SetInterpretation(const std::string& text)
 {
-    // 4层同心圆布局不再有底部解读区域
-    // 状态文字现在通过 layer3_state_label_ 在层级三显示
-    DisplayLockGuard lock(this);
-    if (layer3_state_label_ != nullptr) {
-        lv_label_set_text(layer3_state_label_, text.c_str());
-    }
+    // 迭代14清理: layer3_state_label_ 已被移除
+    // 4层布局不再有解读区域
+    // 该 API 保留以保持向后兼容, 但不再生效
+    (void)text;  // 防止未使用警告
 }
 
 void AttitudeDisplay::SetTheme(Theme* theme)
@@ -209,24 +207,13 @@ void AttitudeDisplay::ApplyCurrentTheme()
         lv_obj_set_style_bg_color(bg_layer_center_, theme_colors.bg_inner, 0);
     }
 
-    // 2. 层级一: 核心信息区
-    if (ui_main_text_ != nullptr) {
-        lv_obj_set_style_text_color(ui_main_text_, theme_colors.text_main, 0);
-    }
-    if (ui_sub_text_ != nullptr) {
-        lv_obj_set_style_text_color(ui_sub_text_, theme_colors.text_sub, 0);
-    }
-    if (ui_angle_value_ != nullptr) {
-        lv_obj_set_style_text_color(ui_angle_value_, theme_colors.text_high, 0);
-    }
+    // 2. 层级一: 核心信息区 (迭代14清理, 文本已移除, 容器仍存在)
 
     // 3. 层级二: 动态指示区
     if (layer2_inner_ring_ != nullptr) {
         lv_obj_set_style_arc_color(layer2_inner_ring_, theme_colors.border_line, 0);
     }
-    if (layer2_indicator_line_ != nullptr) {
-        lv_obj_set_style_line_color(layer2_indicator_line_, theme_colors.text_main, 0);
-    }
+    // layer2_indicator_line_ 已废弃（迭代14清理）
 
     // 4. 层级三: 状态进度区
     if (layer3_bg_arc_ != nullptr) {
@@ -236,9 +223,7 @@ void AttitudeDisplay::ApplyCurrentTheme()
         lv_color_t state_color = AttitudeTheme::GetInstance().GetStateColor(current_state_level_);
         lv_obj_set_style_arc_color(layer3_progress_arc_, state_color, LV_PART_INDICATOR);
     }
-    if (layer3_state_label_ != nullptr) {
-        lv_obj_set_style_text_color(layer3_state_label_, theme_colors.text_main, 0);
-    }
+    // layer3_state_label_ 已废弃（迭代14清理）
 
     // 5. 层级四: 边界留白区
     if (layer4_outer_ring_ != nullptr) {
@@ -264,11 +249,15 @@ void AttitudeDisplay::ApplyCurrentTheme()
 // 层级一: 核心信息区 (0~54px 半径范围)
 void AttitudeDisplay::CreateLayer1CoreInfo()
 {
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
+    // 迭代14清理: 移除所有核心信息区文本
+    // 原 "姿态平衡仪" / "Balance OK" / "0.0°" 文字已废弃
+    // 中心 0~54px 区域由太极图（迭代13）取代
+
+    // 保留 layer1_container_ 引用, 但不创建任何文本
+    // 容器可以保留用于后续添加 64 卦符号的占位
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
 
-    // 容器：108x108 区域 (覆盖半径0~54px)
     layer1_container_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(layer1_container_, 108, 108);
     lv_obj_set_pos(layer1_container_, CENTER_X - 54, CENTER_Y - 54);
@@ -276,27 +265,8 @@ void AttitudeDisplay::CreateLayer1CoreInfo()
     lv_obj_set_style_bg_opa(layer1_container_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(layer1_container_, 0, 0);
     lv_obj_set_style_pad_all(layer1_container_, 0, 0);
+    lv_obj_clear_flag(layer1_container_, LV_OBJ_FLAG_CLICKABLE);
 
-    // 主标题 (位置: y=125, 鎏金黄)
-    ui_main_text_ = lv_label_create(layer1_container_);
-    lv_label_set_text(ui_main_text_, "姿态平衡仪");
-    lv_obj_set_style_text_font(ui_main_text_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(ui_main_text_, theme_colors.text_main, 0);
-    lv_obj_align(ui_main_text_, LV_ALIGN_TOP_MID, 0, 8);
-
-    // 副标题 (位置: y=160, 银灰)
-    ui_sub_text_ = lv_label_create(layer1_container_);
-    lv_label_set_text(ui_sub_text_, "Balance OK");
-    lv_obj_set_style_text_font(ui_sub_text_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(ui_sub_text_, theme_colors.text_sub, 0);
-    lv_obj_align(ui_sub_text_, LV_ALIGN_CENTER, 0, -4);
-
-    // 倾角数值 (位置: y=195, 纯白高亮)
-    ui_angle_value_ = lv_label_create(layer1_container_);
-    lv_label_set_text(ui_angle_value_, "0.0°");
-    lv_obj_set_style_text_font(ui_angle_value_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(ui_angle_value_, theme_colors.text_high, 0);
-    lv_obj_align(ui_angle_value_, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     ESP_LOGI(TAG, "Layer1 CoreInfo created (0~54px)");
 }
@@ -326,21 +296,11 @@ void AttitudeDisplay::CreateLayer2DynamicIndicator()
     lv_obj_set_style_opa(layer2_inner_ring_, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_clear_flag(layer2_inner_ring_, LV_OBJ_FLAG_CLICKABLE);
 
-    // 中心角度指示线 (lv_line, 从圆心向上, 长度36px, 半径54~90px)
-    static lv_point_precise_t indicator_line_points_[2];
-    indicator_line_points_[0].x = CENTER_X;
-    indicator_line_points_[0].y = CENTER_Y - 54;  // 起点：层级一外边界
-    indicator_line_points_[1].x = CENTER_X;
-    indicator_line_points_[1].y = CENTER_Y - 90;  // 终点：层级二外边界
+    // 迭代14清理: 移除中心角度指示线 (lv_line)
+    // 原参考线 (从圆心向上, 半径54~90px) 已废弃
+    // 该区域未来由 64 卦符号层填充
 
-    layer2_indicator_line_ = lv_line_create(attitude_container_);
-    lv_line_set_points(layer2_indicator_line_, indicator_line_points_, 2);
-    lv_obj_set_style_line_width(layer2_indicator_line_, 2, 0);
-    lv_obj_set_style_line_color(layer2_indicator_line_, theme_colors.text_main, 0);
-    lv_obj_set_style_line_opa(layer2_indicator_line_, LV_OPA_80, 0);
-    lv_obj_set_style_line_rounded(layer2_indicator_line_, true, 0);
-
-    ESP_LOGI(TAG, "Layer2 DynamicIndicator created (54~90px)");
+    ESP_LOGI(TAG, "Layer2 DynamicIndicator created (54~90px, indicator line removed)");
 }
 
 // 层级三: 状态进度区 (90~144px 半径范围)
@@ -350,13 +310,9 @@ void AttitudeDisplay::CreateLayer3StatusProgress()
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
 
-    // 状态文字 (浮在进度环上方) - 字号小, 银灰色
-    layer3_state_label_ = lv_label_create(attitude_container_);
-    lv_label_set_text(layer3_state_label_, "BALANCE");
-    lv_obj_set_style_text_font(layer3_state_label_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(layer3_state_label_, theme_colors.text_sub, 0);
-    lv_obj_set_style_text_opa(layer3_state_label_, LV_OPA_70, 0);
-    lv_obj_align(layer3_state_label_, LV_ALIGN_CENTER, 0, -90);  // 在层级三顶部位置
+    // 迭代14清理: 移除 "BALANCE" 状态文字
+    // 原 lv_label "BALANCE" 已废弃
+    // 该区域未来由 12 地支层填充
 
     // 背景环 (lv_arc, 直径 260, 半径 130px, 颜色=card_bg)
     // 使用 LVGL 主题模式可防止默认主题覆盖我们的样式

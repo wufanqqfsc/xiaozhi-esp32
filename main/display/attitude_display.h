@@ -90,20 +90,18 @@ private:
     lv_obj_t* dir_w_label_ = nullptr;          // 西
 
     // 4层同心圆布局成员（迭代2重构）
-    // 层级一: 核心信息区 (0~54px)
-    lv_obj_t* layer1_container_ = nullptr;     // 核心信息容器
-    lv_obj_t* ui_main_text_ = nullptr;         // 主标题 "姿态平衡仪"
-    lv_obj_t* ui_sub_text_ = nullptr;          // 副标题 "Balance OK"
-    lv_obj_t* ui_angle_value_ = nullptr;       // 倾角数值 "0.00°"
+    // 层级一: 核心信息区 (0~54px) - 已废弃（迭代14清理）
+    // 文字 (姿态平衡仪/Balance OK/0.0°) 已被移除, 中心由太极图取代
+    lv_obj_t* layer1_container_ = nullptr;     // 核心信息容器 (保留为空)
 
     // 层级二: 动态指示区 (54~90px)
     lv_obj_t* layer2_inner_ring_ = nullptr;    // 内圈装饰细线 (lv_arc 模拟圆环)
-    lv_obj_t* layer2_indicator_line_ = nullptr; // 中心角度指示线 (lv_line)
+    // 中心角度指示线 (lv_line) - 已废弃（迭代14清理）
 
     // 层级三: 状态进度区 (90~144px)
     lv_obj_t* layer3_bg_arc_ = nullptr;        // 背景环
     lv_obj_t* layer3_progress_arc_ = nullptr;  // 进度环 (动态变色)
-    lv_obj_t* layer3_state_label_ = nullptr;   // 状态文字 (例如 "BALANCE OK")
+    // 状态文字 "BALANCE" - 已废弃（迭代14清理）
 
     // 层级四: 边界留白区 (144~178px)
     lv_obj_t* layer4_outer_ring_ = nullptr;    // 1px 鎏金外圆环

@@ -53,46 +53,40 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     lv_obj_clear_flag(taiji_container_, LV_OBJ_FLAG_CLICKABLE);
 
     // ========== 2. 外圈鎏金高亮环 ==========
-    outer_ring_ = lv_obj_create(taiji_container_);
-    lv_obj_set_size(outer_ring_, canvas_size, canvas_size);
-    lv_obj_set_pos(outer_ring_, 0, 0);
-    lv_obj_set_style_radius(outer_ring_, radius, 0);
-    lv_obj_set_style_bg_opa(outer_ring_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(outer_ring_, 2, 0);
-    lv_obj_set_style_border_color(outer_ring_, theme_colors.border_line, 0);
-    lv_obj_set_style_border_opa(outer_ring_, LV_OPA_100, 0);
-    lv_obj_clear_flag(outer_ring_, LV_OBJ_FLAG_CLICKABLE);
-
-    // 外圈发光（半透明鎏金外层）
-    outer_glow_ = lv_obj_create(taiji_container_);
-    lv_obj_set_size(outer_glow_, canvas_size + 8, canvas_size + 8);
-    lv_obj_set_pos(outer_glow_, -4, -4);
-    lv_obj_set_style_radius(outer_glow_, radius + 4, 0);
-    lv_obj_set_style_bg_opa(outer_glow_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(outer_glow_, 1, 0);
-    lv_obj_set_style_border_color(outer_glow_, theme_colors.border_line, 0);
-    lv_obj_set_style_border_opa(outer_glow_, LV_OPA_40, 0);
-    lv_obj_clear_flag(outer_glow_, LV_OBJ_FLAG_CLICKABLE);
+    // 关键修复: 移除 lv_obj 边框（会显示矩形外框）
+    // 改用 canvas 直接绘制鎏金外圈, 避免矩形边框问题
+    outer_ring_ = nullptr;
+    outer_glow_ = nullptr;
 
     // ========== 3. 创建 canvas 画布 ==========
-    // 分配画布缓冲区 (RGB565, 2 字节/像素)
-    uint32_t buf_size = canvas_size * canvas_size * sizeof(lv_color16_t);
+    // 关键: 使用 ARGB8888 格式, 每个像素 4 字节, 包含 alpha 通道
+    // 这才能让未绘制的像素真正透明, 避免矩形边框残留
+    uint32_t buf_size = canvas_size * canvas_size * sizeof(uint32_t);  // ARGB8888 = 4 bytes/pixel
 
     // 优先从 PSRAM 分配大块内存
-    lv_color16_t* canvas_buf = (lv_color16_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+    uint32_t* canvas_buf = (uint32_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
     if (!canvas_buf) {
-        canvas_buf = (lv_color16_t*)malloc(buf_size);
+        canvas_buf = (uint32_t*)malloc(buf_size);
     }
     if (!canvas_buf) {
         ESP_LOGE(TAG, "Failed to allocate canvas buffer (%u bytes)", buf_size);
         return;
     }
+    // 初始化为透明黑色 (alpha=0 表示完全透明)
     memset(canvas_buf, 0, buf_size);
 
     // 创建 canvas 对象
     lv_obj_t* canvas = lv_canvas_create(taiji_container_);
-    lv_canvas_set_buffer(canvas, canvas_buf, canvas_size, canvas_size, LV_COLOR_FORMAT_RGB565);
+    lv_canvas_set_buffer(canvas, canvas_buf, canvas_size, canvas_size, LV_COLOR_FORMAT_ARGB8888);
     lv_obj_set_pos(canvas, 0, 0);
+    // 关键修复: 设置画布背景为完全透明, 防止矩形边框残留
+    lv_obj_set_style_bg_opa(canvas, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(canvas, 0, 0);
+    lv_obj_set_style_outline_width(canvas, 0, 0);
+    lv_obj_set_style_shadow_width(canvas, 0, 0);
+    // 关键: 关闭 image recolor (防止默认色调覆盖透明像素)
+    lv_obj_set_style_image_recolor_opa(canvas, LV_OPA_TRANSP, 0);
+    lv_obj_clear_flag(canvas, LV_OBJ_FLAG_CLICKABLE);
 
     // ========== 4. 绘制太极图 ==========
     lv_color_t white = lv_color_white();
@@ -156,6 +150,27 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
 
     // 步骤 6: 绘制阴中白点 (位于下半小圆中心，即阳鱼区域)
     FillCircle(canvas, center_x, center_y + half_r, dot_r, white);
+
+    // 步骤 7: 鎏金外圈 (替代 lv_obj border 避免矩形外框)
+    // 鎏金 #D4AF37 = R212 G175 B55 = 0xD4AF37
+    lv_color_t gold = lv_color_hex(0xD4AF37);
+    // 绘制半径 (r-1) 到 (r+1) 之间的鎏金环 (2px 宽)
+    for (int rr = r - 1; rr <= r + 1; rr++) {
+        if (rr <= 0) continue;
+        int rr_sq = rr * rr;
+        for (int y = -rr; y <= rr; y++) {
+            int dy_sq = y * y;
+            int x_max = (int)std::sqrt((float)(rr_sq - dy_sq));
+            // 只画圆周上的点 (最后一圈), 避免填满整个圆
+            int inner_y = abs(y);
+            int x_max_inner = (rr > 1) ? (int)std::sqrt((float)((rr-1) * (rr-1) - inner_y * inner_y)) : 0;
+            for (int x = -x_max; x <= x_max; x++) {
+                if (abs(x) > x_max_inner) {
+                    lv_canvas_set_px(canvas, center_x + x, center_y + y, gold, LV_OPA_COVER);
+                }
+            }
+        }
+    }
 
     ESP_LOGI(TAG, "Taiji diagram created successfully (%dx%d canvas)", canvas_size, canvas_size);
 }
