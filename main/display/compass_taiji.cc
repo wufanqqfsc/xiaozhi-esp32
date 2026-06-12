@@ -151,19 +151,20 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     // 步骤 6: 绘制阴中白点 (位于下半小圆中心，即阳鱼区域)
     FillCircle(canvas, center_x, center_y + half_r, dot_r, white);
 
-    // 步骤 7: 鎏金外圈 (替代 lv_obj border 避免矩形外框)
+    // 步骤 7: 鎏金外圈 (1px 宽, 替代 lv_obj border 避免矩形外框)
     // 鎏金 #D4AF37 = R212 G175 B55 = 0xD4AF37
     lv_color_t gold = lv_color_hex(0xD4AF37);
-    // 绘制半径 (r-1) 到 (r+1) 之间的鎏金环 (2px 宽)
-    for (int rr = r - 1; rr <= r + 1; rr++) {
-        if (rr <= 0) continue;
+    // 绘制半径 r-1 处的鎏金环 (1px 宽)
+    // 只画圆周上的一圈, 避免填满整个圆
+    int rr = r - 1;  // 鎏金环半径
+    if (rr > 0) {
         int rr_sq = rr * rr;
+        int inner_r = rr - 1;  // 内圆半径
+        int inner_r_sq = inner_r * inner_r;
         for (int y = -rr; y <= rr; y++) {
             int dy_sq = y * y;
             int x_max = (int)std::sqrt((float)(rr_sq - dy_sq));
-            // 只画圆周上的点 (最后一圈), 避免填满整个圆
-            int inner_y = abs(y);
-            int x_max_inner = (rr > 1) ? (int)std::sqrt((float)((rr-1) * (rr-1) - inner_y * inner_y)) : 0;
+            int x_max_inner = (inner_r > 0) ? (int)std::sqrt((float)(inner_r_sq - dy_sq)) : 0;
             for (int x = -x_max; x <= x_max; x++) {
                 if (abs(x) > x_max_inner) {
                     lv_canvas_set_px(canvas, center_x + x, center_y + y, gold, LV_OPA_COVER);
