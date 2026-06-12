@@ -5,8 +5,8 @@ AttitudeTheme& AttitudeTheme::GetInstance() {
     return instance;
 }
 
-AttitudeTheme::AttitudeTheme() : current_theme_(AttitudeThemeType::THEME_AURORA) {
-    ApplyAuroraTheme();
+AttitudeTheme::AttitudeTheme() : current_theme_(AttitudeThemeType::THEME_TAIJI) {
+    ApplyTaijiTheme();
 }
 
 void AttitudeTheme::SetTheme(AttitudeThemeType theme) {
@@ -60,21 +60,21 @@ void AttitudeTheme::ApplyAuroraTheme() {
 }
 
 void AttitudeTheme::ApplyTaijiTheme() {
-    // 背景色
-    colors_.bg_outer    = lv_color_hex(0xF5F0E1);
-    colors_.bg_inner    = lv_color_hex(0xF9F5EB);
+    // 背景色（设计文档6.1节：玄黑径向渐变）
+    colors_.bg_outer    = lv_color_hex(0x0A0A0A);  // 外圈玄黑
+    colors_.bg_inner    = lv_color_hex(0x121212);  // 中心深邃黑
 
-    // 文字色
-    colors_.text_main   = lv_color_hex(0x0A0A0A);
-    colors_.text_sub    = lv_color_hex(0x5C5C5C);
-    colors_.text_high   = lv_color_hex(0xB82601);
+    // 文字色（设计文档6.2节）
+    colors_.text_main   = lv_color_hex(0xD4AF37);  // 鎏金黄（主标题、核心数据）
+    colors_.text_sub    = lv_color_hex(0xC0C0C0);  // 银灰（辅助说明文字）
+    colors_.text_high   = lv_color_hex(0xFFFFFF);  // 纯白（高亮警告）
 
-    // 装饰色
-    colors_.border_line = lv_color_hex(0xD4C8B8);
-    colors_.card_bg     = lv_color_hex(0xF0E9DA);
-    colors_.point_default = lv_color_hex(0xD4AF37);
+    // 装饰色（设计文档6.3节）
+    colors_.border_line = lv_color_hex(0xD4AF37);  // 鎏金（边框、分割线）
+    colors_.card_bg     = lv_color_hex(0x1A1A1A);  // 暗黑金（卡片底色）
+    colors_.point_default = lv_color_hex(0xD4AF37); // 鎏金（方位圆点）
 
-    // 姿态五档状态色（国风五行配色）
+    // 姿态五档状态色（设计文档6.4节：国风五行配色）
     colors_.state_normal = lv_color_hex(0x2E5E4E);  // 古玉青-平衡
     colors_.state_light  = lv_color_hex(0x4A6FA5);  // 青花蓝-微倾
     colors_.state_mid    = lv_color_hex(0xD4AF37);  // 鎏金黄-中倾

@@ -89,46 +89,41 @@ private:
     lv_obj_t* dir_s_label_ = nullptr;          // 南
     lv_obj_t* dir_w_label_ = nullptr;          // 西
 
-    // 迭代2: 顶部信息栏
-    lv_obj_t* top_info_container_ = nullptr;   // 顶部信息容器
-    lv_obj_t* network_icon_ = nullptr;         // 网络状态图标
-    lv_obj_t* time_label_ = nullptr;           // 时间显示
-    lv_obj_t* battery_icon_ = nullptr;         // 电量图标
+    // 4层同心圆布局成员（迭代2重构）
+    // 层级一: 核心信息区 (0~54px)
+    lv_obj_t* layer1_container_ = nullptr;     // 核心信息容器
+    lv_obj_t* ui_main_text_ = nullptr;         // 主标题 "姿态平衡仪"
+    lv_obj_t* ui_sub_text_ = nullptr;          // 副标题 "Balance OK"
+    lv_obj_t* ui_angle_value_ = nullptr;       // 倾角数值 "0.00°"
 
-    // 迭代2: 底部解读区域
-    lv_obj_t* bottom_interpret_ = nullptr;     // 底部解读容器
-    lv_obj_t* interpret_icon_ = nullptr;       // 状态图标
-    lv_obj_t* interpret_text_ = nullptr;       // 解读文字
+    // 层级二: 动态指示区 (54~90px)
+    lv_obj_t* layer2_inner_ring_ = nullptr;    // 内圈装饰细线 (lv_arc 模拟圆环)
+    lv_obj_t* layer2_indicator_line_ = nullptr; // 中心角度指示线 (lv_line)
 
-    // 迭代3: 气泡水平仪组件
-    lv_obj_t* bubble_center_marker_ = nullptr; // 中心准星（十字+小圆）
-    lv_obj_t* bubble_h_axis_ = nullptr;       // 水平刻度线
-    lv_obj_t* bubble_v_axis_ = nullptr;       // 垂直刻度线
-    lv_obj_t* bubble_obj_ = nullptr;          // 气泡主体
-    lv_obj_t* bubble_glow_ = nullptr;         // 气泡光晕
-    lv_obj_t* bubble_highlight_ = nullptr;     // 气泡高光点
+    // 层级三: 状态进度区 (90~144px)
+    lv_obj_t* layer3_bg_arc_ = nullptr;        // 背景环
+    lv_obj_t* layer3_progress_arc_ = nullptr;  // 进度环 (动态变色)
+    lv_obj_t* layer3_state_label_ = nullptr;   // 状态文字 (例如 "BALANCE OK")
 
-    // 气泡状态
-    int bubble_offset_x_ = 0;                  // 当前 X 偏移（-60 ~ +60）
-    int bubble_offset_y_ = 0;                  // 当前 Y 偏移（-60 ~ +60）
-    int bubble_level_ = 0;                     // 倾斜等级 (0-4)
-
-    // 迭代4: 太极阴阳图组件（已跳过）
+    // 层级四: 边界留白区 (144~178px)
+    lv_obj_t* layer4_outer_ring_ = nullptr;    // 1px 鎏金外圆环
 
     // 状态数据
     float current_pitch_ = 0.0f;
     float current_roll_ = 0.0f;
     float current_yaw_ = 0.0f;
+    int current_state_level_ = 0;              // 当前状态等级 0-4
 
-    // 内部辅助方法
-    void CreateBackground();                   // 创建背景渐变
-    void CreateDecorationCircles();            // 创建装饰圆
-    void CreateTopInfoRing();                  // 创建顶部信息栏
-    void CreateBottomInterpretation();         // 创建底部解读区域
-    void CreateBubbleAndCrosshair();           // 创建气泡和十字准星
-    void SetBubblePosition(int offset_x, int offset_y);  // 设置气泡位置
-    void SetBubbleLevel(int level);            // 设置倾斜等级（改变颜色）
+    // 内部辅助方法（4层同心圆布局）
+    void CreateBackground();                   // 阶段0: 背景渐变（不属于4层，仅底层）
+    void CreateLayer0Taiji();                  // 迭代13: Target 中心太极图
+    void CreateLayer1CoreInfo();                // 层级一: 核心信息区
+    void CreateLayer2DynamicIndicator();       // 层级二: 动态指示区
+    void CreateLayer3StatusProgress();         // 层级三: 状态进度区
+    void CreateLayer4Boundary();               // 层级四: 边界留白区
+    void CreateCompassPoints();                // 4个方位实心圆点（设计文档第5节）
     void ApplyThemeToAttitudeUI();             // 应用主题
+    void UpdateStateColor(int level);          // 更新状态颜色
 };
 
 #endif // ATTITUDE_DISPLAY_H
