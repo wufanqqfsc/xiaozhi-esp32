@@ -14,7 +14,7 @@ import shutil
 from datetime import datetime
 
 # ====================== 可配置参数 ======================
-SERIAL_PORT = '/dev/cu.usbmodem1101'
+SERIAL_PORT = '/dev/cu.usbmodem101'
 BAUDRATE = 115200
 TIMEOUT_SECONDS = 10  # 超过10秒未完成则主动退出
 LOG_DIR = 'screenshots/logs'

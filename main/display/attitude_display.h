@@ -135,6 +135,7 @@ private:
     // 内部辅助方法（4层同心圆布局）
     void CreateBackground();                   // 阶段0: 背景渐变（不属于4层，仅底层）
     void CreateLayer0Taiji();                  // 迭代13: Target 中心太极图
+    void CreateLayer1Bagua();                  // 迭代14b: 64 卦符号层
     void CreateLayer1CoreInfo();                // 层级一: 核心信息区
     void CreateLayer2DynamicIndicator();       // 层级二: 动态指示区
     void CreateLayer3StatusProgress();         // 层级三: 状态进度区

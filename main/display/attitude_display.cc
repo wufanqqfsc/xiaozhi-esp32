@@ -3,6 +3,7 @@
 #include "application.h"
 #include "board.h"
 #include "compass_taiji.h"
+#include "compass_bagua.h"
 #include <esp_log.h>
 #include <cstdio>
 #include <inttypes.h>
@@ -90,6 +91,10 @@ void AttitudeDisplay::SetupUI()
     CompassTaiji::StartAutoRotation(60000);
     ESP_LOGI(TAG, "Taiji auto rotation started (period=60s)");
 
+    // 层级1.5: 64 卦符号层（迭代14b，target.png 中圈元素）
+    // 64 卦沿 r=140px 圆周分布
+    CreateLayer1Bagua();
+
     // 层级一: 核心信息区 (0~54px 半径范围)
     CreateLayer1CoreInfo();
 
@@ -120,6 +125,21 @@ void AttitudeDisplay::CreateLayer0Taiji()
     ESP_LOGI(TAG, "Creating Layer0 Taiji diagram (radius=%d)", TAIJI_RADIUS);
 
     CompassTaiji::Create(attitude_container_, CENTER_X, CENTER_Y, TAIJI_RADIUS);
+}
+
+// ========== Layer 1.5: 64 卦符号层 (迭代14b) ==========
+// 在太极图外圈绘制 64 卦符号 (每 5.625° 一个)
+// 8 个主卦 (八卦) 用鎏金 #D4AF37
+// 56 个变卦用白银 #C0C0C0
+void AttitudeDisplay::CreateLayer1Bagua()
+{
+    const int CENTER_X = 180;
+    const int CENTER_Y = 180;
+    const int BAGUA_RADIUS = 140;  // 64 卦所在的圆周半径
+
+    ESP_LOGI(TAG, "Creating Layer1 64 bagua (radius=%d)", BAGUA_RADIUS);
+
+    CompassBagua::Create(attitude_container_, CENTER_X, CENTER_Y, BAGUA_RADIUS);
 }
 
 // 浅灰渐变背景（主题色值驱动）
