@@ -3,7 +3,6 @@
 #include "application.h"
 #include "board.h"
 #include "compass_taiji.h"
-#include "compass_bagua.h"
 #include "compass_dizhi.h"
 #include "compass_tiangan.h"
 #include <esp_log.h>
@@ -85,9 +84,9 @@ void AttitudeDisplay::SetupUI()
     // 阶段0: 玄黑径向渐变背景（底层，不属于4层）
     CreateBackground();
 
-    // ========== 由内到外按密度梯度创建图层 (迭代18 密度梯度重构) ==========
-    // 密度梯度: 1 → 4 → 10 → 12 → 64, 由内到外密度递增
-    // r=44 太极图(1) → r=72 4方位(4) → r=100 天干(10) → r=128 地支(12) → r=160 64卦(64)
+    // ========== 由内到外按密度梯度创建图层 (迭代18 密度梯度重构, 迭代19 移除 64 卦) ==========
+    // 密度梯度: 1 → 4 → 10 → 12, 由内到外密度递增
+    // r=44 太极图(1) → r=72 4方位(4) → r=100 天干(10) → r=128 地支(12)
 
     // 层级0: 中心太极图 (1个, 极低密度)
     CreateLayer0Taiji();
@@ -105,8 +104,8 @@ void AttitudeDisplay::SetupUI()
     // 层级3: 12 地支 (12个, 中高密度) - r=128
     CreateLayer2Dizhi();
 
-    // 层级4: 64 卦 (64个, 极高密度) - r=160
-    CreateLayer1Bagua();
+    // 迭代19: 移除 64 卦符号层 (r=160)
+    // ~~CreateLayer1Bagua();~~
 
     // 层级一: 核心信息区 (0~54px 半径范围)
     CreateLayer1CoreInfo();
@@ -138,20 +137,6 @@ void AttitudeDisplay::CreateLayer0Taiji()
     ESP_LOGI(TAG, "Creating Layer0 Taiji diagram (radius=%d)", TAIJI_RADIUS);
 
     CompassTaiji::Create(attitude_container_, CENTER_X, CENTER_Y, TAIJI_RADIUS);
-}
-
-// ========== Layer 1.5: 64 卦符号层 (迭代14b/15/18) ==========
-// 迭代18 密度梯度重构: 64 卦 r=70→160 (移至最外圈, 极高密度)
-// 64 个卦象在 r=160 圆周上, 弧长 15.7px, 需缩小卦象尺寸
-void AttitudeDisplay::CreateLayer1Bagua()
-{
-    const int CENTER_X = 180;
-    const int CENTER_Y = 180;
-    const int BAGUA_RADIUS = 160;  // 64 卦所在的圆周半径 (迭代18密度梯度: 70→160, 最外圈, 64个/5.625°)
-
-    ESP_LOGI(TAG, "Creating Layer1 64 bagua (radius=%d)", BAGUA_RADIUS);
-
-    CompassBagua::Create(attitude_container_, CENTER_X, CENTER_Y, BAGUA_RADIUS);
 }
 
 // ========== Layer 2: 12 地支层 (迭代16/18) ==========
