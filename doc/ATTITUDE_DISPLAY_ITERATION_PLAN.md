@@ -13,16 +13,8 @@
 | 迭代 | 状态 | 完成日期 | 备注 |
 |------|------|----------|------|
 | 迭代1: 项目基础框架 | ✅ 已完成 | 2026-06-10 | AttitudeDisplay基础框架，显示测试文字 |
-| 迭代2: 圆形背景和基础UI布局 | 🔄 待开始 | - | - |
-| 迭代3: 水平仪气泡组件 | 🔄 待开始 | - | - |
-| 迭代4: 姿态数据卡片 | 🔄 待开始 | - | - |
-| 迭代5: 主题系统扩展 | 🔄 待开始 | - | - |
-| 迭代6: IMU驱动集成 | 🔄 待开始 | - | - |
-| 迭代7: 数据绑定与动态UI | 🔄 待开始 | - | - |
-| 迭代8: AI解读系统 | 🔄 待开始 | - | - |
-| 迭代9: 动画效果增强 | 🔄 待开始 | - | - |
-| 迭代10: 语音交互集成 | 🔄 待开始 | - | - |
-| 迭代11: 系统整合与优化 | 🔄 待开始 | - | - |
+| 迭代2~11 | 🔄 待开始 | - | UI迭代(2-11)将在截图功能验证后继续 |
+| **迭代12: 串口截图功能** | 🔴 **下一个迭代** | - | **优先级最高：便于后续UI迭代的调试验证** |
 
 ---
 
@@ -31,6 +23,14 @@
 ### 迭代路线图
 
 ```
+🔴 迭代 12: 串口截图功能 (2-3 天) ← 【下一个迭代，优先级最高】
+├── Step 12.1: 设计串口截图协议
+├── Step 12.2: 实现 ESP32 端 UART1 监听任务
+├── Step 12.3: 集成 LVGL snapshot + JPEG 编码 + Base64
+├── Step 12.4: 实现 Host 端 Python 接收脚本
+├── Step 12.5: 硬件连接与功能验证
+└── Step 12.6: 添加 console 命令触发截图
+
 迭代 1: 项目基础框架 (2-3 天)
 ├── Step 1.1: 分析现有代码结构
 ├── Step 1.2: 创建 AttitudeDisplay 类基础框架
@@ -1228,4 +1228,217 @@ AttitudeDisplay 中气泡相关的成员：
 ├── // 设置 X 动画
 ├── lv_anim_init(&bubble_x_anim_);
 ├── lv_anim_set_var(&bubble_x_anim_, this);  // 设置动画关联对象
-├── lv_anim_set_values(&b
+├── lv_anim_set_values(&bubble_x_anim_, bubble_x_, x_offset);  // 起始/目标值
+├── lv_anim_set_time(&bubble_x_anim_, anim_time);
+├── lv_anim_set_path_cb(&bubble_x_anim_, lv_anim_path_ease_out);
+├── lv_anim_set_exec_cb(&bubble_x_anim_, [](void* obj, int32_t val) {
+│   auto* self = static_cast<AttitudeDisplay*>(obj);
+│   // 更新气泡 X 位置
+│   self->bubble_x_ = val;
+│   lv_obj_set_x(self->bubble_obj_, self->bubble_x_ + 180 - 15);
+│   // 同时更新光晕位置
+│   lv_obj_set_x(self->bubble_glow_outer_, self->bubble_x_ + 180 - 25);
+│   lv_obj_set_x(self->bubble_glow_inner_, self->bubble_x_ + 180 - 20);
+│});
+├── lv_anim_start(&bubble_x_anim_);
+│
+└── // 同样方式设置 Y 动画...
+```
+
+---
+
+### 迭代 12: 串口截图功能
+
+**目标**: 通过 USB-UART 模块实现 Host 主机获取 ESP32 屏幕截图的功能，便于 UI Debug 和测试验证。
+
+**关键文件参考**:
+- `main/display/lvgl_display/lvgl_display.cc` - SnapshotToJpeg() 实现
+- `main/mcp_server.h` - Base64 编码实现
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.85b/config.h` - GPIO 定义
+- `scripts/screenshot_client.py` - Host 端 Python 脚本（新建）
+
+**技术要点**:
+- 使用 UART1（GPIO17=TX, GPIO18=RX）作为截图数据通道，不与 console UART0 冲突
+- 波特率 921600，确保快速传输 ~40KB JPEG（约 0.4 秒）
+- 帧格式：[0xAA 0x55] [4B:payload_size] [base64_data] [0xAA 0x55]
+- 复用已有 LVGL snapshot API 和 JPEG 编码器
+
+**交付物**:
+- 新文件：`main/screen_capture.cc` - ESP32 端串口截图模块
+- 新文件：`scripts/screenshot_client.py` - Host 端 Python 接收脚本
+- 修改：`main/boards/waveshare/esp32-s3-touch-lcd-1.85b/esp32-s3-touch-lcd-1.85b.cc` - 添加初始化调用
+- 修改：`main/CMakeLists.txt` - 添加 screen_capture.cc 编译
+
+**硬件连接要求**:
+```
+ESP32 GPIO17 (TX) ──── RX ──── CH340/FTDI USB-UART ──── Host USB
+ESP32 GPIO18 (RX) ──── TX ──── CH340/FTDI USB-UART ──── Host USB
+GND               ──── GND ──── CH340/FTDI USB-UART ──── Host USB
+```
+
+---
+
+**Step 12.1: 设计串口截图协议**
+
+**帧格式定义**:
+```
+帧结构 (binary):
+┌──────────┬─────────────────┬─────────────────────────────┬──────────┐
+│  帧头    │  Payload 大小   │        Base64 JPEG 数据      │  帧尾    │
+│  2 bytes │    4 bytes      │       N bytes               │  2 bytes │
+│ 0xAA 0x55 │ 大端序 uint32  │  JPEG 的 base64 编码       │ 0xAA 0x55 │
+└──────────┴─────────────────┴─────────────────────────────┴──────────┘
+
+命令协议:
+- Host → ESP32: "SCR\n" (ASCII, 终止符为 \n 或 \r)
+- ESP32 → Host: 上述帧格式的截图数据
+```
+
+**协议参数**:
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| UART 端口 | UART_NUM_1 | 避免与 console (UART0) 冲突 |
+| TX GPIO | GPIO_NUM_17 | ESP32 发送数据到 Host |
+| RX GPIO | GPIO_NUM_18 | ESP32 接收 Host 命令 |
+| 波特率 | 921600 | 高速传输 |
+| JPEG 质量 | 70 (可调) | 平衡质量与大小 |
+| 超时时间 | 10 秒 | 防止无限等待 |
+
+---
+
+**Step 12.2: 实现 ESP32 端 UART1 监听任务**
+
+**设计要点**:
+```
+ScreenCapture 单例类结构:
+├── Init()                     // 初始化 UART1，启动监听任务
+├── UartListenerTask()         // FreeRTOS 任务，监听 "SCR\n" 命令
+├── CaptureAndSend()           // 截图 + 编码 + 发送帧
+├── SendFrame(data, len)       // 发送单帧数据
+└── is_capturing_              // 原子标志，防止重入
+
+任务优先级:
+- 监听任务: 低优先级 (priority=2)，避免抢占 UI
+- 截图操作: 在任务中执行，不阻塞主线程
+```
+
+**实现注意事项**:
+- 使用 `uart_driver_install` 安装驱动，缓冲区大小 8KB
+- 非阻塞读取，避免永久阻塞
+- 状态机解析命令：收到 'S' 开始，收到 '\n' 结束
+- 使用 `pdMS_TO_TICKS(100)` 超时，定期让出 CPU
+
+---
+
+**Step 12.3: 集成 LVGL snapshot + JPEG 编码 + Base64**
+
+**数据流**:
+```
+LVGL screen
+    │
+    ├── lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB565)
+    │       ↓
+    │   lv_draw_buf_t* (raw RGB565)
+    │       ↓
+    │   字节序 swap (__builtin_bswap16)
+    │       ↓
+    │   image_to_jpeg_cb() → std::string jpeg_data
+    │       ↓
+    │   mbedtls_base64_encode() → std::string b64_data
+    │       ↓
+    │   UART1 发送帧
+```
+
+**关键代码复用**:
+- `LvglDisplay::SnapshotToJpeg()` 中的 LVGL 锁机制
+- `mbedtls_base64_encode()` 来自 mcp_server.h
+- `image_to_jpeg_cb()` 已在项目中使用
+
+---
+
+**Step 12.4: 实现 Host 端 Python 接收脚本**
+
+**脚本功能**:
+```
+screenshot_client.py 功能:
+├── 列出可用串口 (--list)
+├── 连接到指定串口 (--port)
+├── 发送 "SCR\n" 命令触发截图
+├── 解析二进制帧 (状态机)
+├── Base64 解码 JPEG
+├── 保存到指定目录 (--output)
+├── 支持连续截图模式 (--count, --loop, --watch)
+```
+
+**使用方式**:
+```bash
+# 单次截图
+python3 screenshot_client.py --port /dev/cu.usbserial-xxx --output ./screenshots
+
+# 连续截图（每 5 秒一张，共 10 张）
+python3 screenshot_client.py --port /dev/cu.usbserial-xxx --output ./shots --count 10 --loop 5
+
+# 持续监控模式（每 3 秒截一张）
+python3 screenshot_client.py --port /dev/cu.usbserial-xxx --output ./shots --watch
+```
+
+---
+
+**Step 12.5: 硬件连接与功能验证**
+
+**验证步骤**:
+1. **硬件连接**:
+   - ESP32 GPIO17 → USB-UART RX
+   - ESP32 GPIO18 → USB-UART TX
+   - GND → GND
+   - USB-UART 插入 Host USB
+
+2. **编译烧录**:
+   ```bash
+   ./build_and_flash.sh
+   ```
+
+3. **启动监听**:
+   ```bash
+   python3 scripts/screenshot_client.py --port /dev/cu.usbserial-xxx --output ./shots
+   ```
+
+4. **观察日志**:
+   - ESP32 串口日志应显示 "ScreenCapture initialized on GPIO17/18"
+   - Python 脚本应显示 "SCR command sent" 和 "Saved: screenshot_xxx.jpg"
+
+---
+
+**Step 12.6: 添加 console 命令触发截图**（可选）
+
+**功能扩展**:
+```
+在 console 中添加命令:
+├── scr         # 立即触发一次截图（发送到 UART1）
+├── scr on      # 开启自动截图模式（每 10 秒一次）
+├── scr off     # 关闭自动截图模式
+└── scr help    # 显示帮助信息
+
+实现方式:
+- 使用 ESP-IDF console 组件注册命令
+- 调用 ScreenCapture::GetInstance().CaptureAndSend()
+```
+
+---
+
+**关键风险与注意事项**:
+
+| 风险 | 描述 | 缓解措施 |
+|------|------|----------|
+| GPIO 冲突 | GPIO17/18 可能与其他功能共用 | 检查 board config，确保未被 QSPI/触摸/I2S 使用 |
+| 内存不足 | JPEG 编码需要约 60KB 内存 | 使用 PSRAM；分块发送；降低 JPEG 质量 |
+| 帧同步丢失 | UART 传输错误导致解析失败 | 使用定界符 + 大小校验；解析失败自动重新同步 |
+| UI 阻塞 | 截图时 LVGL 锁占用过长 | 使用低优先级任务；短超时锁；非阻塞读取 |
+
+**验收标准**:
+- [ ] ESP32 启动时打印 "ScreenCapture initialized" 日志
+- [ ] Host 发送 "SCR\n" 后 1 秒内收到完整帧
+- [ ] 截图 JPEG 可正常打开，分辨率 360×360
+- [ ] 连续截图 10 次无崩溃，内存稳定
+- [ ] Host 脚本支持 macOS/Linux/Windows
+- [ ] 可选: console 命令 `scr` 可触发截图
