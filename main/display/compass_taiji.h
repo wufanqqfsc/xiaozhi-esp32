@@ -58,6 +58,12 @@ public:
      */
     static bool IsAutoRotating();
 
+    /** 太极容器句柄（鱼眼须创建为其子对象以共旋转） */
+    static lv_obj_t* GetContainer();
+
+    /** 当前太极外径（像素） */
+    static int GetRadius();
+
     // 内部访问 (供 auto_rotation_task 调用) - public 让全局函数可访问
     static int GetStepInternal() { return auto_rotation_step_; }
     static int GetIntervalInternal() { return auto_rotation_interval_ms_; }
@@ -74,7 +80,8 @@ private:
     static lv_obj_t* black_dot_;          // 阴中黑点
     static lv_obj_t* outer_ring_;         // 外圈鎏金高亮环
     static lv_obj_t* outer_glow_;         // 外圈发光
-    static lv_obj_t* canvas_;             // 太极图画布（用于旋转）
+    static lv_obj_t* canvas_;             // 太极图画布
+    static int taiji_radius_;             // 外圆半径（与鱼眼尺寸联动）
     static int current_rotation_;         // 当前旋转角度 (0.1°单位)
 
     // 自动旋转控制

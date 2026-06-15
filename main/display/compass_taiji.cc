@@ -2,6 +2,7 @@
 #include <esp_log.h>
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -18,6 +19,7 @@ lv_obj_t* CompassTaiji::black_dot_ = nullptr;
 lv_obj_t* CompassTaiji::outer_ring_ = nullptr;
 lv_obj_t* CompassTaiji::outer_glow_ = nullptr;
 lv_obj_t* CompassTaiji::canvas_ = nullptr;
+int CompassTaiji::taiji_radius_ = 0;
 int CompassTaiji::current_rotation_ = 0;
 
 // 自动旋转控制
@@ -43,6 +45,40 @@ static inline void FillCircle(lv_obj_t* canvas, int cx, int cy, int r,
     }
 }
 
+/** 抗锯齿圆环描边（用于鎏金外圈，边缘更圆滑） */
+static void DrawRingAA(lv_obj_t* canvas, int cx, int cy, float radius, float width,
+                       lv_color_t color) {
+    const float half = width * 0.5f;
+    const float inner = radius - half;
+    const float outer = radius + half;
+    const int bound = (int)std::ceil(outer + 1.0f);
+
+    for (int y = -bound; y <= bound; y++) {
+        for (int x = -bound; x <= bound; x++) {
+            const float dist = std::sqrt((float)(x * x + y * y));
+            if (dist < inner - 1.0f || dist > outer + 1.0f) {
+                continue;
+            }
+
+            float alpha = 1.0f;
+            const float inner_edge = dist - inner;
+            if (inner_edge < 1.0f) {
+                alpha = std::fmin(alpha, std::fmax(0.0f, inner_edge));
+            }
+            const float outer_edge = outer - dist;
+            if (outer_edge < 1.0f) {
+                alpha = std::fmin(alpha, std::fmax(0.0f, outer_edge));
+            }
+            if (alpha <= 0.0f) {
+                continue;
+            }
+
+            const lv_opa_t opa = static_cast<lv_opa_t>(alpha * static_cast<float>(LV_OPA_COVER));
+            lv_canvas_set_px(canvas, cx + x, cy + y, color, opa);
+        }
+    }
+}
+
 /**
  * 在 (cx, cy) 为圆心创建太极图
  * @param radius 整体半径（外圆半径）
@@ -50,6 +86,7 @@ static inline void FillCircle(lv_obj_t* canvas, int cx, int cy, int r,
 void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     ESP_LOGI(TAG, "Creating Taiji diagram at (%d, %d) radius=%d", cx, cy, radius);
 
+    taiji_radius_ = radius;
     int canvas_size = radius * 2;
 
     // ========== 1. 容器（透明）==========
@@ -61,6 +98,8 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     lv_obj_set_style_border_width(taiji_container_, 0, 0);
     lv_obj_set_style_pad_all(taiji_container_, 0, 0);
     lv_obj_clear_flag(taiji_container_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_transform_pivot_x(taiji_container_, radius, 0);
+    lv_obj_set_style_transform_pivot_y(taiji_container_, radius, 0);
 
     // ========== 2. 外圈鎏金高亮环 ==========
     // 关键修复: 移除 lv_obj 边框（会显示矩形外框）
@@ -98,10 +137,7 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     lv_obj_set_style_image_recolor_opa(canvas, LV_OPA_TRANSP, 0);
     // 关键: 启用反走样, 旋转时边缘更平滑
     lv_image_set_antialias(canvas, true);
-    // 关键: 旋转中心点设为画布中心, 旋转时不会偏移
-    lv_image_set_pivot(canvas, canvas_size / 2, canvas_size / 2);
     lv_obj_clear_flag(canvas, LV_OBJ_FLAG_CLICKABLE);
-    // 保存 canvas 句柄用于后续旋转
     canvas_ = canvas;
 
     // ========== 4. 绘制太极图 ==========
@@ -112,8 +148,10 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     int center_x = r;  // 画布中心
     int center_y = r;
 
-    int half_r = r / 2;      // 上下小半圆半径
-    int dot_r = r / 6;       // 中心点半径
+    int half_r = r / 2;
+    int dot_r = r / 6;       // 与 FISHEYE_ICON_SIZE/2 一致（radius=108 时 dot_r=18）
+
+    // 步骤 1~4: 阴阳鱼本体（鱼眼圆点由 WiFi/BLE 图标控件替代，不在 canvas 上绘制）
 
     // 步骤 1: 填充白色大圆 (阳鱼)
     FillCircle(canvas, center_x, center_y, r, white);
@@ -161,33 +199,13 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
         }
     }
 
-    // 步骤 5: 绘制阳中黑点 (位于上半小圆中心，即阴鱼区域)
-    FillCircle(canvas, center_x, center_y - half_r, dot_r, black);
+    // 步骤 5~6: 鱼眼由 AttitudeDisplay 在 taiji_container_ 上叠加 WiFi/BLE 图标，此处不绘制 canvas 圆点
+    (void)dot_r;
 
-    // 步骤 6: 绘制阴中白点 (位于下半小圆中心，即阳鱼区域)
-    FillCircle(canvas, center_x, center_y + half_r, dot_r, white);
-
-    // 步骤 7: 鎏金外圈 (1px 宽, 替代 lv_obj border 避免矩形外框)
-    // 鎏金 #D4AF37 = R212 G175 B55 = 0xD4AF37
+    // 步骤 7: 鎏金外圈（3px 抗锯齿）
+    constexpr float kTaijiGoldRingWidth = 3.0f;
     lv_color_t gold = lv_color_hex(0xD4AF37);
-    // 绘制半径 r-1 处的鎏金环 (1px 宽)
-    // 只画圆周上的一圈, 避免填满整个圆
-    int rr = r - 1;  // 鎏金环半径
-    if (rr > 0) {
-        int rr_sq = rr * rr;
-        int inner_r = rr - 1;  // 内圆半径
-        int inner_r_sq = inner_r * inner_r;
-        for (int y = -rr; y <= rr; y++) {
-            int dy_sq = y * y;
-            int x_max = (int)std::sqrt((float)(rr_sq - dy_sq));
-            int x_max_inner = (inner_r > 0) ? (int)std::sqrt((float)(inner_r_sq - dy_sq)) : 0;
-            for (int x = -x_max; x <= x_max; x++) {
-                if (abs(x) > x_max_inner) {
-                    lv_canvas_set_px(canvas, center_x + x, center_y + y, gold, LV_OPA_COVER);
-                }
-            }
-        }
-    }
+    DrawRingAA(canvas, center_x, center_y, (float)r - 1.0f, kTaijiGoldRingWidth, gold);
 
     ESP_LOGI(TAG, "Taiji diagram created successfully (%dx%d canvas)", canvas_size, canvas_size);
 }
@@ -211,17 +229,15 @@ void CompassTaiji::Rotate(int delta_angle) {
  * 注意: 调用方需要持有 LVGL 锁!
  */
 void CompassTaiji::SetRotation(int angle) {
-    if (canvas_ == nullptr) {
-        ESP_LOGW(TAG, "SetRotation: canvas_ is null, ignoring");
+    if (taiji_container_ == nullptr) {
+        ESP_LOGW(TAG, "SetRotation: taiji_container_ is null, ignoring");
         return;
     }
-    // 归一化到 0~3600 范围
     int normalized = angle % 3600;
     if (normalized < 0) normalized += 3600;
     current_rotation_ = normalized;
-    lv_image_set_rotation(canvas_, normalized);
-    // 触发重绘, 确保 canvas 旋转后屏幕能立即看到
-    lv_obj_invalidate(canvas_);
+    lv_obj_set_style_transform_rotation(taiji_container_, normalized, 0);
+    lv_obj_invalidate(taiji_container_);
     ESP_LOGI(TAG, "Taiji rotation set to %.1f°", normalized / 10.0);
 }
 
@@ -285,8 +301,8 @@ void CompassTaiji::StartAutoRotation(int period_ms) {
         ESP_LOGW(TAG, "Auto rotation already running");
         return;
     }
-    if (canvas_ == nullptr) {
-        ESP_LOGE(TAG, "StartAutoRotation: canvas_ is null, ignoring");
+    if (taiji_container_ == nullptr) {
+        ESP_LOGE(TAG, "StartAutoRotation: taiji_container_ is null, ignoring");
         return;
     }
 
@@ -343,4 +359,12 @@ void CompassTaiji::StopAutoRotation() {
  */
 bool CompassTaiji::IsAutoRotating() {
     return auto_rotation_running_;
+}
+
+lv_obj_t* CompassTaiji::GetContainer() {
+    return taiji_container_;
+}
+
+int CompassTaiji::GetRadius() {
+    return taiji_radius_;
 }

@@ -3,8 +3,9 @@
 > **目标硬件**: Waveshare ESP32-S3-Touch-LCD-1.85B (ESP32-S3R8, 360x360 QSPI LCD, 8MB PSRAM + 16MB Flash)
 > **产品定位**: 基于 ESP32-S3 的 AI 语音交互设备，融合太极罗盘视觉与 Xiaozhi 语音协议；WiFi 已可用，BLE / 触控 / 传感器驱动按路线图接入。
 
-> **📋 文档状态 (v1.6)**:
-> - **【已实现】** 章节 1–3（部分）、5.1–5.5、6、7.1、8–11：描述当前 Target2 固件（4 层同心圆 + 太极 30s/圈 + 4 方位圆点 + 状态进度环）。
+> **📋 文档状态 (v1.7)**:
+> - **【已实现】** 章节 1–3（部分）、5.1–5.5、6、7.1、8–11：4 层同心圆 + 太极 30s/圈 + 4 方位圆点 + 状态进度环（迭代 0 基线）。
+> - **【进行中】** 章节 7.2 / 迭代 1：鱼眼 36×36 与太极 R=108 **一体旋转**。
 > - **【规划中】** 章节 4、7.2–7.6、附录 A：鱼眼、AI 运势、BLE 等；附录 A 中的八卦名/卦象/方位大字为 **Target1 历史参考，不再实施**。
 > - **【硬件有 · 固件未集成】** 见 §1.1.1：板卡自带外设与当前板级驱动的差异。
 > - **【验收清单】** 迭代拆分与勾选验收见 [`ai_compass_iteration_acceptance.md`](ai_compass_iteration_acceptance.md)。
@@ -128,21 +129,18 @@ AI 罗盘 (Xiaozhi Compass)
 
 | 层级 | 元素 | 半径范围 | 行为 | 技术实现 |
 |-----|-----|---------|-----|---------|
-| L0 中心 | 太极图 | 0-44 | **30秒逆时针旋转一圈** | LVGL canvas (88×88) + ARGB8888 |
+| L0 中心 | 太极图 + WiFi/BLE 鱼眼 | 0-108 | **30秒逆时针旋转（容器整体）** | canvas 216×216 + 鱼眼 36×36×2 |
 | L1 内层 | 核心信息容器 | 0-54 | 固定不动 | LVGL obj 透明容器 |
-| L2 中层 | 内环指示器 | 54-90 | 固定不动 | LVGL arc (1px 金色) |
+| L2 中层 | 内环指示器 | 108-178 | 固定不动 | LVGL arc 1px 鎏金，**r=143**（太极与外圈中线） |
 | L3 外层 | 状态进度环 | 90-144 | 5 档颜色状态 | LVGL arc (4px) + 背景弧 |
 | L4 外圈 | 金色边框 | 144-178 | 固定不动 | LVGL obj + 1px 金色边框 |
-| 分隔 | 方位点 | r=72 | 固定不动，4个方向 | 6×6 鎏金色圆点 (N/E/S/W) |
+| 分隔 | ~~方位点~~ | — | — | **已移除** 原 r=72 四处 6×6 鎏金圆点（迭代 1 视觉简化） |
 
 **太极图绘制算法** ([compass_taiji.cc](../main/display/compass_taiji.cc)):
-1. **内存分配**: 优先 PSRAM 分配 canvas buffer (ARGB8888, 4BPP) - 88×88 = ~31KB，远小于 8MB PSRAM
-2. **阳鱼绘制**: 填充白色大圆（左半）
-3. **阴鱼绘制**: 右半圆填充黑色
-4. **阴阳互抱**: 上半黑圆内绘制白色小圆，下半白圆内绘制黑色小圆
-5. **点睛**: 阴阳鱼各点一个反向色小圆
-6. **鎏金环**: 绘制圆周 1px 宽的金色环 (`#D4AF37`)
-7. **旋转**: FreeRTOS 任务每 50ms 更新角度（约 600 步 = 30 秒一圈）
+1. **外径联动鱼眼**：`TAIJI_RADIUS = (FISHEYE_ICON_SIZE/2)×6 = 108`，canvas **216×216** ARGB8888（约 186KB PSRAM）
+2. **鱼眼替代 canvas 圆点**：阴阳鱼眼位不绘制小圆，由 36×36 WiFi/BLE 图标叠加
+3. **一体旋转**：`lv_obj_set_style_transform_rotation(taiji_container_, …)`，鱼眼为容器子对象，与太极同步 30s/圈
+4. **阳鱼/阴鱼/互抱**：同经典算法；鎏金外环 1px
 
 **罗盘组件层级（真实代码结构）**:
 ```
@@ -153,7 +151,7 @@ screen (lv_screen_active()) ─ 360×360
 │   ├── background_ (深色背景 0x0A0A0A)
 │   │   └── bg_layer_center_ (中心微亮层 0x121212, 300圆)
 │   ├── layer1_container_ (核心信息容器, 108×108)
-│   ├── layer2_inner_ring_ (内环指示器, r=80, 1px 金色)
+│   ├── layer2_inner_ring_ (内环指示器, r=143, 1px 鎏金，太极 R=108 与外圈 R=178 之间)
 │   ├── layer3_bg_arc_ (状态进度背景弧, r=130, 4px 深色)
 │   ├── layer3_progress_arc_ (状态进度弧, r=140, 4px 彩色)
 │   ├── layer4_outer_ring_ (外圈边框, 356×356, 1px 金色)
@@ -161,8 +159,10 @@ screen (lv_screen_active()) ─ 360×360
 │   ├── dir_e_label_ (东, 6×6 鎏金圆点)
 │   ├── dir_s_label_ (南, 6×6 鎏金圆点)
 │   └── dir_w_label_ (西, 6×6 鎏金圆点)
-│
-└── compass_taiji (太极图, 88×88 canvas, 自动旋转 30s/圈)
+│   └── taiji_container_ (Layer0, 216×216, r=108, 30s/圈容器旋转)
+│       ├── canvas (阴阳鱼本体)
+│       ├── wifi_fisheye (36×36, 上眼)
+│       └── ble_fisheye (36×36, 下眼)
 ```
 
 **实现文件**:
@@ -387,7 +387,7 @@ main/
 │   │   ├── gif/                  # GIF 动图解码
 │   │   └── emoji_collection.h/cc # 表情集合
 │   ├── lcd_display.h/cc          # LCD 通用显示 (含气泡/滚动消息)
-│   ├── compass_taiji.h/cc        # ⭐ 太极图组件（88×88 canvas, 30s 旋转, r=44）
+│   ├── compass_taiji.h/cc        # ⭐ 太极图（216×216 canvas, r=108, 容器旋转 30s/圈 + 鱼眼）
 │   ├── attitude_display.h/cc     # ⭐ 4 层同心圆罗盘 UI（Target2）
 │   ├── snapshot/                 # 截图服务 (屏幕→JPEG)
 │   └── snapshot_service.cc       # 屏幕快照
@@ -424,6 +424,7 @@ main/
    └─ fortune.huangli(date) → 黄历宜忌
 
 2. 客户端 (Target2): 扩展 AttitudeDisplay
+   ├─ CreateWifiFisheye / CreateBleFisheye → 36×36 鱼眼叠在 taiji_container_ 鱼眼位
    ├─ EnterAnimatingState() → 3s：太极保持 30s/圈 + 亮度/外圈/鱼眼/进度环脉冲
    ├─ HighlightDirection(dir) → 指定 N/E/S/W 方位 **6×6 圆点** 颜色脉冲（金↔白，不改位置）
    ├─ HighlightGua(index) → **结果卡内** 卦名/卦象小图颜色脉冲（环上无八卦组件）
@@ -482,11 +483,12 @@ main/
    ├─ round_mask: 360×360 圆屏遮罩 (radius=180)
    ├─ attitude_container_: 罗盘主容器
    ├─ CreateBackground() → 深色底 + 中心微亮圆 (300×300)
-   ├─ CreateLayer0Taiji() → CompassTaiji::Create(cx=180, cy=180, r=44)
-   │   └─ 88×88 ARGB8888 canvas，30s/圈自动旋转
-   ├─ CompassTaiji::StartAutoRotation(30000)
+   ├─ CompassTaiji::Create(cx=180, cy=180, r=108)  # FISHEYE 36px → R=108
+   │   └─ 216×216 ARGB8888 canvas；鱼眼位由 WiFi/BLE 图标填充
+   ├─ CreateWifiFisheye / CreateBleFisheye on taiji_container_
+   ├─ CompassTaiji::StartAutoRotation(30000)  # 容器整体旋转
    ├─ CreateLayer1CoreInfo() → 透明核心容器 108×108 (r=54)
-   ├─ CreateLayer2DynamicIndicator() → 内环细弧 r=80, 1px 鎏金
+   ├─ CreateLayer2DynamicIndicator() → 内环细弧 **r=(108+178)/2=143**, 1px 鎏金
    ├─ CreateLayer3StatusProgress() → 背景弧 r=130 + 进度弧 r=140, 4px
    ├─ CreateLayer4Boundary() → 外圈边框 356×356, 1px 鎏金 (r=178)
    └─ CreateCompassPoints() → N/E/S/W 四个 6×6 鎏金圆点, r=72 圆周
@@ -500,9 +502,11 @@ main/
 └── attitude_container_ (360×360)
     ├── background_ (0x0A0A0A)
     │   └── bg_layer_center_ (300×300, 0x121212)
-    ├── compass_taiji (Layer0, 88×88 canvas, r=44, 30s/圈旋转)
+    ├── compass_taiji (Layer0, 216×216 canvas, r=108, 30s/圈容器旋转)
+    │   ├── wifi_fisheye (36×36, 上眼)
+    │   └── ble_fisheye (36×36, 下眼)
     ├── layer1_container_ (108×108 透明核心区, r=54)
-    ├── layer2_inner_ring_ (160×160 arc, 有效半径 r=80, 1px 鎏金)
+    ├── layer2_inner_ring_ (286×286 arc, 有效半径 r=143, 1px 鎏金)
     ├── layer3_bg_arc_ (260×260, r=130, 4px 深色背景弧)
     ├── layer3_progress_arc_ (280×280, r=140, 4px 状态色进度弧)
     ├── layer4_outer_ring_ (356×356, r=178, 1px 鎏金外边框)
@@ -521,11 +525,16 @@ main/
 #define VALID_RADIUS              178
 
 #define LAYER1_CORE_RADIUS        54    // Layer1 核心容器半径
-#define LAYER2_INDIC_RADIUS       90    // Layer2 内环指示（arc 外径参考）
+#define LAYER2_ARC_RADIUS       143   // (TAIJI_RADIUS + LAYER4_BOUNDARY_RADIUS) / 2
+#define LAYER2_INDIC_RADIUS     LAYER2_ARC_RADIUS
 #define LAYER3_PROGRESS_RADIUS    144   // Layer3 进度环外径参考
 #define LAYER4_BOUNDARY_RADIUS    178   // Layer4 外圈边框
 
-// 太极图: CreateLayer0Taiji() 内 TAIJI_RADIUS = 44 → canvas 88×88
+// 太极与鱼眼（迭代 1）
+#define FISHEYE_ICON_SIZE     36
+#define TAIJI_RADIUS          108   // (FISHEYE_ICON_SIZE/2) * 6
+#define TAIJI_CANVAS_SIZE     216
+
 // 方位点: CreateCompassPoints() 内 POINTS_RADIUS = 72, POINT_SIZE = 6
 ```
 
@@ -533,9 +542,9 @@ main/
 
 | 旋转对象 | 周期 | 每 50ms 步进 (0.1°单位) | 说明 |
 |---------|------|------------------------|------|
-| 太极图 | **30 秒/圈** | 3600 / (30000/50) = **6** (0.6°/step) | `compass_taiji.cc` FreeRTOS 任务 ✅ |
+| 太极图 + 鱼眼 | **30 秒/圈** | 3600 / (30000/50) = **6** (0.6°/step) | `taiji_container_` transform 旋转 ✅ |
+| WiFi/BLE 鱼眼 | **随太极旋转** | — | `taiji_container_` 子对象 36×36 |
 | 方位圆点 | **固定不动** | — | 6×6 圆点，r=72 |
-| 八卦名 / 卦象 | — | — | ❌ 未实现（见 [附录 A](#附录-a-target1-显示设计参考未实现)） |
 
 **自动旋转实现**（[compass_taiji.cc](../main/display/compass_taiji.cc)）:
 ```cpp
@@ -701,9 +710,9 @@ Windows 下可先加载 IDF 环境：`.\scripts\idf_env.ps1`
 |-----|-----|---------|---------|
 | ESP32 LVGL 显示系统 | ✅ 已完成 | `main/display/lvgl_display.cc` | QSPI ST77916, 360×360 |
 | 4 层同心圆布局 (Target2) | ✅ 已完成 | `main/display/attitude_display.cc` | Layer0 太极 / Layer1 空 / Layer2 细环 / Layer3 进度环 / Layer4 外环 |
-| 太极图组件 | ✅ 已完成 | `main/display/compass_taiji.cc` | 88×88 canvas, 30s/圈, r=44 |
+| 太极图 + 鱼眼 | ✅ 迭代0 基线 / 🟡 迭代1 扩容 | `compass_taiji.cc` + `attitude_display.cc` | 迭代0: r=44；迭代1: **r=108** + 36px 鱼眼共旋转 |
 | 4 方位实心圆点 | ✅ 已完成 | `main/display/attitude_display.cc` | 6×6 圆点, 鎏金, r=72 圆周, 固定不动 |
-| 内圈细环 (Layer2) | ✅ 已完成 | `main/display/attitude_display.cc` | r=80, 1px 鎏金细环 |
+| 内圈细环 (Layer2) | 🟡 随太极放大 | `attitude_display.cc` | **r=143**（原 r=80），太极与外圈之间 |
 | 状态进度环 (Layer3) | ✅ 已完成 | `main/display/attitude_display.cc` | r=140 进度环 + r=130 背景环, lv_arc, 4px 宽 |
 | 外圈金色边框 (Layer4) | ✅ 已完成 | `main/display/attitude_display.cc` | r=178, 1px 鎏金边 |
 | 主题色值 (固定, 玄黑+鎏金) | ✅ 已完成 | `main/display/attitude_theme.h` | 1 组固定色值 + 5 档状态色 (normal/light/mid/heavy/danger) |
@@ -718,36 +727,34 @@ Windows 下可先加载 IDF 环境：`.\scripts\idf_env.ps1`
 
 ---
 
-### 阶段二：视觉框架扩展 — 鱼眼状态图标（🟡 【规划中】）
+### 阶段二：视觉框架扩展 — 鱼眼状态图标（🟡 【进行中 · v1.7 一体旋转】）
 
-**目标**：在太极图内部位置创建两个 36×36 圆形图标作为鱼眼：
-- **上方鱼眼** = WiFi 状态图标：圆心 (180, 144)，实际 pos (162, 126)
-- **下方鱼眼** = 蓝牙状态图标：圆心 (180, 216)，实际 pos (162, 198)
+**目标**：WiFi / BLE **36×36** 圆形图标作为太极阴阳鱼的鱼眼，与太极 **一体旋转**（30s/圈）。
 
-**★ 关键设计变更：伪旋转方案**
-- 旧方案：鱼眼随太极图 30s/圈 旋转 → 问题：符号会上下颠倒，无法辨识
-- 新方案：鱼眼位置永久固定，不随太极图旋转 → 效果：视觉上鱼眼"漂浮"在太极图之上，符号永远正立可读
+**★ 关键设计（v1.7，替代伪旋转）**：
+- **一体旋转**：鱼眼创建在 `taiji_container_` 内；`lv_obj_set_style_transform_rotation` 作用于容器，鱼眼与 canvas 同步旋转
+- **尺寸联动**：鱼眼保持 **36×36**；太极外径 **`TAIJI_RADIUS = (36/2)×6 = 108`**，canvas **216×216**；canvas 不绘制阴阳鱼眼圆点，由图标替代
+- **局部坐标**（相对容器）：上眼 WiFi `(90, 36)`，下眼 BLE `(90, 144)`（圆心分别在 `y=R/2`、`y=3R/2`）
 
 **开发任务（预估 1 周）**：
 
 | # | 具体任务 | 修改文件 | 验收标准 |
 |---|---------|---------|---------|
-| 1 | 添加鱼眼参数宏 + 状态枚举 | `display/attitude_display.h` | `FISHEYE_ICON_SIZE=36` / `FISHEYE_WIFI_POS_X=162/Y=126` / `FISHEYE_BLE_POS_X=162/Y=198` + `enum WifiStatus` / `enum BleStatus` |
-| 2 | 创建 WiFi 鱼眼 icon（金色描边 + 内部 WiFi 符号 18px） | `display/attitude_display.cc` → 新增 `CreateWifiFisheye()` | pos(162,126) 圆形可见，内部符号清晰，创建在 screen 上，lv_obj_move_foreground() |
-| 3 | 创建 BLE 鱼眼 icon（白底 + 内部 BT 符号 18px） | `display/attitude_display.cc` → 新增 `CreateBleFisheye()` | pos(162,198) 圆形可见，内部符号清晰 |
-| 4 | **静态状态驱动**：`UpdateWifiFisheye(status)` / `UpdateBleFisheye(status)` | `display/attitude_display.cc` → 新增 + `public:` 方法声明 | 手动设置状态：WiFi 已连 → 金色填充；WiFi 断开 → 灰色；BLE 已连 → 白底金色符号；BLE 广播 → 白色脉冲；BLE 关闭 → 灰色 |
-| 5 | 鱼眼脉冲动画（CONNECTING / ADVERTISING 状态） | `display/attitude_display.cc` → 用 `lv_anim_t` 周期 opa 变化 | WiFi 扫描中 / BLE 广播时，图标 opacity 或 color 在 150↔255 之间 300ms 脉冲 |
-| 6 | 编译 & 烧录 & 真机验证 | `build_and_flash.sh` | 上电 → 两个鱼眼位于太极图正确位置 → 位置固定不旋转（伪旋转） → 手动切换 WiFi/BLE 状态测试 → 无错位/无崩溃/无遮挡 |
+| 1 | 鱼眼/太极宏 + 状态枚举 | `attitude_display.h` | `FISHEYE_ICON_SIZE=36` / `TAIJI_RADIUS=108` + `enum WifiStatus/BleStatus` |
+| 2 | 太极 R=108，canvas 鱼眼位留白 | `compass_taiji.cc` | 216×216 canvas；不绘阴阳鱼眼小圆 |
+| 3 | 容器级旋转 + `GetContainer()` | `compass_taiji.cc/.h` | 鱼眼与太极同步 30s/圈 |
+| 4 | WiFi/BLE 鱼眼叠在 `taiji_container_` | `attitude_display.cc` | local (90,36)/(90,144)；36px 与鱼眼 socket 对齐 |
+| 5 | `UpdateWifiFisheye` / `UpdateBleFisheye` + 脉冲 | `attitude_display.cc` | 灰/金/白状态 + 300ms opacity 脉冲 |
+| 6 | 编译 & 烧录 & 真机验证 | `build_and_flash.ps1` | 鱼眼随太极旋转；状态切换无脱离；截图可辨 |
 
 **关键设计约束**：
-- 鱼眼图标创建在 **screen 上而非 attitude_container_ 内**，避免 attitude_container_ 内部遮挡
-- 位置永久固定，不随太极图旋转（伪旋转方案）→ 符号永远正立可读
-- 鱼眼状态枚举与后续阶段的真实 WiFi/BLE 驱动解耦，便于先视觉开发后驱动集成
-- 使用 `lv_obj_move_foreground()` 保证鱼眼在最上层，不被结果卡或罗盘层遮挡
+- 鱼眼 **必须** 为 `taiji_container_` 子对象（**非** screen 层）
+- 旋转施加于 **容器**，禁止仅旋转 canvas 而鱼眼留在外部
+- 鱼眼状态枚举与迭代 3 真实 WiFi/BLE 驱动解耦（本阶段仍支持 MCP 手动切换）
 
 **资源影响**：
-- PSRAM 增量：约 15KB（2 个 36×36 对象 + 2 个 18px 符号 label）
-- CPU 增量：+0.5%（仅状态变化时更新颜色，不每 50ms 更新位置）
+- PSRAM：太极 canvas 216²×4 ≈ **186KB**（原 88²≈31KB）；鱼眼控件约 +15KB
+- CPU：+0.5%（状态变化时更新颜色；旋转仍 50ms 一步容器 transform）
 
 ---
 
@@ -757,7 +764,7 @@ Windows 下可先加载 IDF 环境：`.\scripts\idf_env.ps1`
 
 **★ Target2 设计原则**：
 - 所有高亮仅修改颜色/透明度，不修改尺寸和位置
-- 鱼眼位置永久固定（伪旋转），符号正立可读
+- 鱼眼随太极 **一体旋转**（与阶段二一致）
 - **Animating 态**：太极保持 30s/圈（不加速）；**不**恢复八卦环旋转
 - `HighlightDirection(dir)` → 脉冲 r=72 上对应 **N/E/S/W 6×6 圆点**（`dir_*_label_`）
 - `HighlightGua(idx)` → 脉冲 **结果卡内** 卦名 label 与 72×48 卦象 canvas（非环上八卦）
@@ -806,7 +813,7 @@ Idle → Animating(3s, 亮度/边框/鱼眼/进度环脉冲) → Result(30s, 结
 | 4 | RTC / IMU 基础读取（可选） | 板级 PCF85363 / QMI8658 驱动 | **前置**：迭代 5C/5E；日志可读时间/IMU，供后续「举起罗盘」等（§7.6） |
 | 5 | 编译 & 烧录 & 真机验证 | `build_and_flash.sh` | 真实环境测试：断开 WiFi → 鱼眼变灰；连接 WiFi → 脉冲→金色；BLE 广播 → 下方鱼眼脉冲；各种状态切换无异常/无遮挡 |
 
-**注意**：ESP-IDF v5.x 自带 NimBLE，需配置 `CONFIG_BT_NIMBLE_ENABLED=y` + `CONFIG_BT_ENABLED=y`；WiFi 事件回调在 `esp_event_handler_instance_register()` 中注入鱼眼状态更新；**鱼眼图标位置永久固定不旋转**（伪旋转方案）。
+**注意**：ESP-IDF v5.x 自带 NimBLE，需配置 `CONFIG_BT_NIMBLE_ENABLED=y` + `CONFIG_BT_ENABLED=y`；WiFi 事件回调在 `esp_event_handler_instance_register()` 中注入鱼眼状态更新；鱼眼随 **taiji_container_** 与太极一体旋转。
 
 ---
 
@@ -854,9 +861,9 @@ Idle → Animating(3s, 亮度/边框/鱼眼/进度环脉冲) → Result(30s, 结
 | 阶段 | 内容 | 预估时间 | 交付物 |
 |-----|-----|---------|-------|
 | 一 | 基础罗盘 Target2（太极+4层环+方位圆点） | ✅ 已完成 | 正常显示罗盘 + 太极 30s/圈旋转 |
-| 二 | 鱼眼状态图标（伪旋转，WiFi/BLE 状态） | **~1 周** | 2 个鱼眼可见 + 位置固定 + 手动状态切换正常 |
+| 二 | 鱼眼状态图标（太极一体旋转，WiFi/BLE） | **~1 周** | 36px 鱼眼 + R=108 太极共旋转 + 手动状态 |
 | 三 | AI 运势引擎三态状态机 + 200×240 结果卡 | **~2 周** | 手动触发 ShowFortune() 可完整演示三态 + 7行内容结果卡 |
-| 四 | 真实 WiFi/BLE 状态驱动鱼眼 | **~1.5 周** | 鱼眼状态随真实网络状态变化 + 伪旋转正常 |
+| 四 | 真实 WiFi/BLE 状态驱动鱼眼 | **~1.5 周** | 鱼眼状态随真实网络变化 + 与太极共旋转 |
 | 五 | AI 服务端工具对接 + 联调 | **~1 周** | 语音指令 → 全流程可用（动画+结果卡+播报） |
 | 六 | 增强与优化 | **~2-3 周**（可选） | 节气提醒 / 历史记录 / IMU 等 |
 
@@ -869,7 +876,8 @@ Idle → Animating(3s, 亮度/边框/鱼眼/进度环脉冲) → Result(30s, 结
 - ❌ 环上八卦名/卦象与尺寸放大高亮：Target2 已移除，高亮改为 **圆点 + 结果卡内** 纯颜色脉冲
 - ❌ 太极 Animating 加速：改为全程保持 30s/圈
 - ❌ Animating 八卦环加速：Target2 无八卦环，**不再实施**
-- ❌ 鱼眼随太极旋转：改为伪旋转（位置固定）
+- ❌ 伪旋转（screen 固定鱼眼）：v1.7 废弃，改 **太极一体旋转**
+- ❌ 太极 R=44 与 36px 鱼眼不匹配：迭代 1 改为 **R=108**
 
 ---
 
@@ -882,7 +890,7 @@ Idle → Animating(3s, 亮度/边框/鱼眼/进度环脉冲) → Result(30s, 结
 | 阶段 | 内容 | 状态 | 证据 |
 |------|------|------|------|
 | 阶段一 基础罗盘 (Target2) | 4 层同心圆 + 太极图 + 4 方位点 | ✅ **已完成** | `attitude_display.cc` (~335 行) + 设备日志 2026-06-14 验证 |
-| 阶段二 鱼眼状态图标 | WiFi/BLE 36×36 圆形 + 伪旋转 | ❌ **未实现** | 无 `CreateWifiFisheye()` / `CreateBleFisheye()` |
+| 阶段二 鱼眼状态图标 | WiFi/BLE 36×36 + 太极 R=108 一体旋转 | 🟡 **进行中** | `taiji_container_` 共旋转；待烧录验收 |
 | 阶段三 AI 运势引擎 | 三态状态机 + 200×240 结果卡 | ❌ **未实现** | 无 `FortuneState` / `ShowFortune()` |
 | 阶段四 真实 WiFi/BLE 驱动 | esp_event → 鱼眼状态 | ❌ **未开始** | 依赖阶段二 |
 | 阶段五 AI 服务端对接 | MCP Fortune 工具 | ❌ **未开始** | 依赖阶段三 |
@@ -939,7 +947,7 @@ Idle → Animating(3s, 亮度/边框/鱼眼/进度环脉冲) → Result(30s, 结
 | Flash (固件) | ~2-3MB | 16MB | **~15-19%** | 主程序+字体+图像资产 |
 | Flash (OTA/数据分区) | ~1MB | 6MB+ | **~17%** | 图像/字体/提示音 NVS/OTA 数据 |
 | RAM (内部 SRAM) | ~200-250KB | 512KB | **~40-49%** | 运行时对象栈 + heap |
-| RAM (PSRAM) | ~500KB-1MB | 8MB | **~6-13%** | LVGL 缓冲 + 太极 canvas ~31KB (88×88 ARGB8888) |
+| RAM (PSRAM) | ~650KB-1.2MB | 8MB | **~8-15%** | LVGL 缓冲 + 太极 canvas ~186KB (216×216 ARGB8888) |
 | CPU 占用 | ~15-30% | 240MHz 双核 | **低** | LVGL 刷新(30fps) + 旋转任务(20Hz) + 音频处理 |
 
 **非常充裕的资源，足以支持全部功能（运势引擎+BLE+OTA）**
@@ -1047,7 +1055,7 @@ AI 罗盘基于 Xiaozhi 开源项目，针对 **Waveshare ESP32-S3-Touch-LCD-1.8
 ### 已完成（阶段一）
 
 - 360×360 QSPI 圆屏 + LVGL + `AttitudeDisplay` 四层同心圆
-- 太极图 88×88 canvas，30s/圈自动旋转
+- 太极图 **216×216** canvas（R=108），30s/圈容器旋转 + WiFi/BLE 鱼眼一体旋转
 - 4 方位 6×6 圆点 + 状态进度环 + 鎏金外环
 - 语音交互 / OTA / 多语言 / MCP 基础工具（含 `self.attitude.taiji_*`）
 
@@ -1055,7 +1063,7 @@ AI 罗盘基于 Xiaozhi 开源项目，针对 **Waveshare ESP32-S3-Touch-LCD-1.8
 
 | 优先级 | 内容 | 参考 |
 |--------|------|------|
-| P1 | 鱼眼 WiFi/BLE 状态图标 | §7.2 |
+| P1 | 鱼眼 WiFi/BLE + 太极一体旋转 | §7.2（🟡 v1.7 规格已更新，待烧录验收） |
 | P2 | AI 运势三态 + 结果卡（Target2） | §7.3、§4.1 |
 | P3 | 真实网络驱动鱼眼 | §7.4 |
 | P4 | 服务端 Fortune MCP + 语音联调 | §7.5 |
@@ -1067,7 +1075,7 @@ AI 罗盘基于 Xiaozhi 开源项目，针对 **Waveshare ESP32-S3-Touch-LCD-1.8
 ### 建议下一步
 
 1. **维持基线**：每次迭代后 `.\build_and_flash.ps1` 编译烧录，截图回归（`snapshot_recv.py --reset`）
-2. **阶段二**：鱼眼 UI（伪旋转）
+2. **阶段二**：鱼眼 UI（太极一体旋转，R=108）
 3. **外设驱动**（可并行）：验收文档迭代 5A~5E
 4. **阶段三**：手动 `ShowFortune()` 三态演示；语音联调留待阶段五
 
@@ -1084,7 +1092,7 @@ AI 罗盘基于 Xiaozhi 开源项目，针对 **Waveshare ESP32-S3-Touch-LCD-1.8
 - **8 八卦名大字** (r=86, 48×48 label，45s/圈旋转)
 - **8 卦象符号** (r=122, 36×24 canvas)
 - **4 方位大字** (r=150, 48×48，固定) — 现改为 6×6 圆点 (r=72)
-- **鱼眼图标** ×2：WiFi (162,126) / BLE (162,198)，36×36，伪旋转（位置固定）
+- **鱼眼图标** ×2：WiFi / BLE，36×36，**taiji_container_ 子对象，与太极一体旋转**
 - **运势结果卡**：200×240 胶囊形，7 行内容，Result 态显示
 
 ### A.2 Target1 状态机（运势）
@@ -1098,11 +1106,12 @@ Idle → Animating(3s) → Result(30s, 可触摸关闭) → Idle
 - ❌ 8 个常驻功能图标：密度过高，改为结果卡内文字标识
 - ❌ 尺寸放大高亮：与旋转位置同步冲突，改为纯颜色脉冲
 - ❌ 太极 Animating 加速：改为太极保持 30s/圈
-- ❌ 鱼眼随太极旋转：改为伪旋转（位置固定）
+- ❌ 伪旋转（screen 固定鱼眼）：v1.7 废弃，改 **太极一体旋转**
+- ❌ 太极 R=44 与 36px 鱼眼不匹配：迭代 1 改为 **R=108**
 
 ---
 
-*文档版本: v1.6*
+*文档版本: v1.7*
 *更新日期: 2026-06-15*
-*修订说明: v1.6 对齐 Target2 运势规格、修正外设/音频表述、阶段↔迭代对照、链至验收清单*
+*修订说明: v1.7 鱼眼改为太极一体旋转；TAIJI_RADIUS=108 对齐 36px 鱼眼；废弃伪旋转方案*
 *适用硬件: Waveshare ESP32-S3-Touch-LCD-1.85B (ESP32-S3R8, 8MB PSRAM, 16MB Flash, 360×360 QSPI LCD)*

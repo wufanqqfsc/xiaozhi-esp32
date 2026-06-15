@@ -24,9 +24,36 @@
 #define COLOR_STATE_DANGER    lv_color_hex(0xB82601)
 
 #define LAYER1_CORE_RADIUS    54
-#define LAYER2_INDIC_RADIUS   90
 #define LAYER3_PROGRESS_RADIUS 144
 #define LAYER4_BOUNDARY_RADIUS 178
+
+// 迭代 1: 鱼眼状态图标 — 作为太极阴阳鱼眼，与太极一体旋转
+#define FISHEYE_ICON_SIZE     36
+#define FISHEYE_PULSE_MS      300
+// 太极外径：鱼眼直径 = ICON_SIZE，按经典太极比例 eye_r = R/6 → R = ICON_SIZE/2 * 6 = 108
+#define TAIJI_RADIUS          ((FISHEYE_ICON_SIZE / 2) * 6)
+#define TAIJI_CANVAS_SIZE     (TAIJI_RADIUS * 2)
+// Layer2 鎏金细环：太极外缘与外圈边框之间的中线 (108+178)/2=143
+#define LAYER2_ARC_RADIUS     ((TAIJI_RADIUS + LAYER4_BOUNDARY_RADIUS) / 2)
+#define LAYER2_INDIC_RADIUS   LAYER2_ARC_RADIUS
+#define GOLD_RING_ARC_WIDTH   2   // 鎏金 arc 线宽（LVGL 抗锯齿 + 圆角端点）
+// 鱼眼在 taiji_container_ 内的局部坐标（上眼=阴中阳/WiFi，下眼=阳中阴/BLE）
+#define FISHEYE_WIFI_LOCAL_X  (TAIJI_RADIUS - (FISHEYE_ICON_SIZE / 2))
+#define FISHEYE_WIFI_LOCAL_Y  (TAIJI_RADIUS / 2 - (FISHEYE_ICON_SIZE / 2))
+#define FISHEYE_BLE_LOCAL_X   FISHEYE_WIFI_LOCAL_X
+#define FISHEYE_BLE_LOCAL_Y   (TAIJI_RADIUS + TAIJI_RADIUS / 2 - (FISHEYE_ICON_SIZE / 2))
+
+enum class WifiStatus {
+    DISCONNECTED = 0,
+    CONNECTING = 1,
+    CONNECTED = 2,
+};
+
+enum class BleStatus {
+    DISABLED = 0,
+    ADVERTISING = 1,
+    CONNECTED = 2,
+};
 
 class AttitudeDisplay : public SpiLcdDisplay {
 public:
@@ -54,6 +81,11 @@ public:
     void StartTaijiAutoRotation(int period_ms = 60000);
     void StopTaijiAutoRotation();
     bool IsTaijiAutoRotating();
+
+    void UpdateWifiFisheye(WifiStatus status);
+    void UpdateBleFisheye(BleStatus status);
+    WifiStatus GetWifiFisheyeStatus() const { return wifi_status_; }
+    BleStatus GetBleFisheyeStatus() const { return ble_status_; }
 
 private:
     lv_obj_t* attitude_container_ = nullptr;
@@ -83,6 +115,20 @@ private:
     float current_roll_ = 0.0f;
     float current_yaw_ = 0.0f;
     int current_state_level_ = 0;
+
+    lv_obj_t* wifi_fisheye_ = nullptr;
+    lv_obj_t* wifi_fisheye_icon_ = nullptr;
+    lv_obj_t* ble_fisheye_ = nullptr;
+    lv_obj_t* ble_fisheye_icon_ = nullptr;
+    WifiStatus wifi_status_ = WifiStatus::DISCONNECTED;
+    BleStatus ble_status_ = BleStatus::DISABLED;
+
+    void CreateWifiFisheye();
+    void CreateBleFisheye();
+    void StartFisheyePulse(lv_obj_t* obj);
+    void StopFisheyePulse(lv_obj_t* obj);
+    void ApplyWifiFisheyeStyle(WifiStatus status);
+    void ApplyBleFisheyeStyle(BleStatus status);
 
     void CreateBackground();
     void CreateLayer0Taiji();

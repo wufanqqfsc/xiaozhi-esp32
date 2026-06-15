@@ -148,6 +148,35 @@ void McpServer::AddCommonTools() {
                 attitude_display->ResetTaijiRotation();
                 return true;
             });
+
+        // 迭代 1: 鱼眼状态手动切换（验收测试用，迭代 3 接入真实 WiFi/BLE 驱动）
+        AddTool("self.attitude.set_wifi_fisheye",
+            "Set WiFi fisheye status: 0=DISCONNECTED, 1=CONNECTING, 2=CONNECTED.",
+            PropertyList({
+                Property("status", kPropertyTypeInteger, 0, 2)
+            }),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                int status = properties["status"].value<int>();
+                if (status < 0 || status > 2) {
+                    return false;
+                }
+                attitude_display->UpdateWifiFisheye(static_cast<WifiStatus>(status));
+                return true;
+            });
+
+        AddTool("self.attitude.set_ble_fisheye",
+            "Set BLE fisheye status: 0=DISABLED, 1=ADVERTISING, 2=CONNECTED.",
+            PropertyList({
+                Property("status", kPropertyTypeInteger, 0, 2)
+            }),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                int status = properties["status"].value<int>();
+                if (status < 0 || status > 2) {
+                    return false;
+                }
+                attitude_display->UpdateBleFisheye(static_cast<BleStatus>(status));
+                return true;
+            });
     }
 
     auto camera = board.GetCamera();
