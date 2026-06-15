@@ -533,7 +533,7 @@ flowchart LR
 3. **本迭代清单**: 对应章节验收项 **100% 勾选**（或明确标注延期项与原因）  
 4. **截图存档**: `screenshots/screenshot.jpg` + 日期命名历史图  
 5. **文档**: 同步更新 [`ai_compass_product_and_tech_spec.md`](ai_compass_product_and_tech_spec.md) §当前进度报告  
-6. **人工确认**: 按 `.trae/rules/ai.md`，功能迭代后待人工确认再进入下一迭代  
+6. **人工确认**: 按 `.trae/rules/rule_xiaozhi.md`，功能迭代后待人工确认再进入下一迭代  
 
 ---
 
