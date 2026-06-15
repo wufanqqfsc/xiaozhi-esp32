@@ -2,7 +2,6 @@
 #define COMPASS_TAIJI_H
 
 #include <lvgl.h>
-#include "attitude_theme.h"
 
 // ====================== 太极图绘制模块 ======================
 // 迭代 13: Target 中心太极图（阴阳鱼）
@@ -18,11 +17,6 @@ public:
      * @param radius 太极图半径（外圆半径）
      */
     static void Create(lv_obj_t* parent, int cx, int cy, int radius);
-
-    /**
-     * 更新主题色（用于主题切换时）
-     */
-    static void UpdateTheme();
 
     /**
      * 顺时针旋转太极图（按键触发）
@@ -50,9 +44,9 @@ public:
     /**
      * 启动自动旋转
      * @param period_ms 旋转周期 (毫秒) - 转 360° 所需时间
-     *                  默认 60000ms = 1分钟转一圈
+     *                  默认 30000ms = 30秒转一圈
      */
-    static void StartAutoRotation(int period_ms = 60000);
+    static void StartAutoRotation(int period_ms = 30000);
 
     /**
      * 停止自动旋转

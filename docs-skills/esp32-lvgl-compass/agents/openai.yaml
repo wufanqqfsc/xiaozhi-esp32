@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Compass (ESP32 + LVGL)"
+  short_description: "AI 罗盘固件: LVGL 圆屏 / 罗盘 / 鱼眼 / 运势三态机"
+  default_prompt: "迭代 1.85B 上的 AI 罗盘: 罗盘 UI / 鱼眼状态 / AI 运势三态 / 截图"

@@ -46,7 +46,7 @@ print_error() {
 # 配置 - ESP32-S3-Touch-LCD-1.85B 版本（不带TCA9554 IO扩展器）
 BOARD_TYPE="waveshare/esp32-s3-touch-lcd-1.85b"
 BOARD_NAME="Waveshare ESP32-S3-Touch-LCD-1.85B"
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"; while [ ! -f "$PROJECT_DIR/CMakeLists.txt" ] && [ "$PROJECT_DIR" != "/" ]; do PROJECT_DIR="$(dirname "$PROJECT_DIR")"; done
 
 # ESP-IDF路径配置（已安装的版本）
 IDF_PATHS=(

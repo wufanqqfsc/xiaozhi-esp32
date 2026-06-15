@@ -3,8 +3,6 @@
 #include "application.h"
 #include "board.h"
 #include "compass_taiji.h"
-#include "compass_dizhi.h"
-#include "compass_tiangan.h"
 #include <esp_log.h>
 #include <cstdio>
 #include <inttypes.h>
@@ -17,7 +15,6 @@
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 
-// 构造函数：调用 SpiLcdDisplay 基类构造，它会自动初始化 LVGL
 AttitudeDisplay::AttitudeDisplay(esp_lcd_panel_io_handle_t panel_io,
                                  esp_lcd_panel_handle_t panel,
                                  int width, int height,
@@ -30,279 +27,118 @@ AttitudeDisplay::AttitudeDisplay(esp_lcd_panel_io_handle_t panel_io,
 
 void AttitudeDisplay::SetupUI()
 {
-    // 1. 防止重复调用
     if (IsSetupUICalled()) {
         ESP_LOGW(TAG, "SetupUI() already called, skipping");
         return;
     }
 
-    // 2. 调用基类标记 SetupUI 被调用
     Display::SetupUI();
-
-    // 3. 获取 LVGL 锁（线程安全）
     DisplayLockGuard lock(this);
 
-    // 4. 获取主题
     auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
     if (lvgl_theme == nullptr) {
         ESP_LOGE(TAG, "Theme is null!");
         return;
     }
 
-    // 5. 获取当前主题色值
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
 
-    // 6. 设置屏幕基础样式
     auto screen = lv_screen_active();
     lv_obj_set_style_text_font(screen, lvgl_theme->text_font()->font(), 0);
-    lv_obj_set_style_text_color(screen, theme_colors.text_main, 0);
-    lv_obj_set_style_bg_color(screen, theme_colors.bg_outer, 0);
+    lv_obj_set_style_text_color(screen, c.text_main, 0);
+    lv_obj_set_style_bg_color(screen, c.bg_outer, 0);
 
-    // 7. 创建圆形屏幕遮罩（360×360圆形屏幕适配）
-    // 原理：绘制一个背景色大圆覆盖整个屏幕，遮住四角，让整个显示呈现圆形
     lv_obj_t* round_mask = lv_obj_create(screen);
     lv_obj_set_size(round_mask, 360, 360);
     lv_obj_set_pos(round_mask, 0, 0);
     lv_obj_set_style_radius(round_mask, 180, 0);
-    lv_obj_set_style_bg_color(round_mask, theme_colors.bg_outer, 0);
+    lv_obj_set_style_bg_color(round_mask, c.bg_outer, 0);
     lv_obj_set_style_border_width(round_mask, 0, 0);
     lv_obj_set_style_clip_corner(round_mask, true, 0);
     lv_obj_move_background(round_mask);
 
-    // 8. 创建主容器（360×360，覆盖整个屏幕）
     attitude_container_ = lv_obj_create(screen);
     lv_obj_set_size(attitude_container_, LV_HOR_RES, LV_VER_RES);
     lv_obj_set_style_radius(attitude_container_, 0, 0);
     lv_obj_set_style_border_width(attitude_container_, 0, 0);
     lv_obj_set_style_pad_all(attitude_container_, 0, 0);
-    lv_obj_set_style_bg_color(attitude_container_, theme_colors.bg_outer, 0);
+    lv_obj_set_style_bg_color(attitude_container_, c.bg_outer, 0);
     lv_obj_set_style_clip_corner(attitude_container_, false, 0);
 
-    // ============ 4层同心圆布局 ============
-    // 按设计文档规范，从内向外、从小到大创建
-
-    // 阶段0: 玄黑径向渐变背景（底层，不属于4层）
     CreateBackground();
-
-    // ========== 由内到外按密度梯度创建图层 (迭代18 密度梯度重构, 迭代19 移除 64 卦) ==========
-    // 密度梯度: 1 → 4 → 10 → 12, 由内到外密度递增
-    // r=44 太极图(1) → r=72 4方位(4) → r=100 天干(10) → r=128 地支(12)
-
-    // 层级0: 中心太极图 (1个, 极低密度)
     CreateLayer0Taiji();
+    CompassTaiji::StartAutoRotation(30000);
+    ESP_LOGI(TAG, "Taiji auto rotation started (period=30s)");
 
-    // 默认启动太极图自动旋转 (1分钟转一圈)
-    CompassTaiji::StartAutoRotation(60000);
-    ESP_LOGI(TAG, "Taiji auto rotation started (period=60s)");
-
-    // 层级1: 4 方位点 (4个, 低密度) - r=72
-    // (CreateCompassPoints() 在 line 124 由 SetupUI 末尾调用)
-
-    // 层级2: 10 天干 (10个, 中密度) - r=100
-    CreateLayer3Tiangan();
-
-    // 层级3: 12 地支 (12个, 中高密度) - r=128
-    CreateLayer2Dizhi();
-
-    // 迭代19: 移除 64 卦符号层 (r=160)
-    // ~~CreateLayer1Bagua();~~
-
-    // 层级一: 核心信息区 (0~54px 半径范围)
     CreateLayer1CoreInfo();
-
-    // 层级二: 动态指示区 (54~90px 半径范围)
     CreateLayer2DynamicIndicator();
-
-    // 层级三: 状态进度区 (90~144px 半径范围)
     CreateLayer3StatusProgress();
-
-    // 层级四: 边界留白区 (144~178px 半径范围)
     CreateLayer4Boundary();
-
-    // 方位圆点（设计文档第5节：4个绝对方位的实心圆点，迭代18: r=170→72 紧邻太极图）
     CreateCompassPoints();
 
-    ESP_LOGI(TAG, "SetupUI completed with theme: %s (4-layer concentric layout)",
-             AttitudeTheme::GetInstance().GetThemeName());
+    ESP_LOGI(TAG, "SetupUI completed (4-layer concentric layout)");
 }
 
-// 层级0: 中心太极图（迭代13/18，target.png 核心视觉）
-// 迭代18密度梯度重构: 半径 80→48→44 (最小圆心, 1个元素, 极低密度)
 void AttitudeDisplay::CreateLayer0Taiji()
 {
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
-    const int TAIJI_RADIUS = 44;  // 太极图半径 (迭代18密度梯度: 48→44, 极低密度中心)
+    const int TAIJI_RADIUS = 44;
 
     ESP_LOGI(TAG, "Creating Layer0 Taiji diagram (radius=%d)", TAIJI_RADIUS);
-
     CompassTaiji::Create(attitude_container_, CENTER_X, CENTER_Y, TAIJI_RADIUS);
 }
 
-// ========== Layer 2: 12 地支层 (迭代16/18) ==========
-// 迭代18 密度梯度重构: 12 地支 r=110→128 (中高密度)
-void AttitudeDisplay::CreateLayer2Dizhi()
-{
-    const int CENTER_X = 180;
-    const int CENTER_Y = 180;
-    const int DIZHI_RADIUS = 128;  // 12 地支所在的圆周半径 (迭代18密度梯度: 110→128)
-
-    ESP_LOGI(TAG, "Creating Layer2 12 dizhi (radius=%d)", DIZHI_RADIUS);
-
-    CompassDizhi::Create(attitude_container_, CENTER_X, CENTER_Y, DIZHI_RADIUS);
-}
-
-// ========== Layer 3: 10 天干层 (迭代17/18) ==========
-// 迭代18 密度梯度重构: 天干 r=140→100 (中密度)
-void AttitudeDisplay::CreateLayer3Tiangan()
-{
-    const int CENTER_X = 180;
-    const int CENTER_Y = 180;
-    const int TIANGAN_RADIUS = 100;  // 10 天干所在的圆周半径 (迭代18密度梯度: 140→100)
-
-    ESP_LOGI(TAG, "Creating Layer3 10 tiangan (radius=%d)", TIANGAN_RADIUS);
-
-    CompassTiangan::Create(attitude_container_, CENTER_X, CENTER_Y, TIANGAN_RADIUS);
-}
-
-// 浅灰渐变背景（主题色值驱动）
 void AttitudeDisplay::CreateBackground()
 {
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
 
-    // 创建背景容器（全屏）
     background_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(background_, LV_HOR_RES, LV_VER_RES);
     lv_obj_set_style_radius(background_, 0, 0);
     lv_obj_set_style_border_width(background_, 0, 0);
     lv_obj_set_style_pad_all(background_, 0, 0);
-    lv_obj_set_style_bg_color(background_, theme_colors.bg_outer, 0);
+    lv_obj_set_style_bg_color(background_, c.bg_outer, 0);
     lv_obj_set_style_bg_opa(background_, LV_OPA_100, 0);
 
-    // 创建中心微亮层（模拟径向渐变）
     bg_layer_center_ = lv_obj_create(background_);
-    lv_obj_set_size(bg_layer_center_, 300, 300);  // 直径 300
-    lv_obj_set_style_radius(bg_layer_center_, 150, 0);  // 圆形
+    lv_obj_set_size(bg_layer_center_, 300, 300);
+    lv_obj_set_style_radius(bg_layer_center_, 150, 0);
     lv_obj_set_style_border_width(bg_layer_center_, 0, 0);
-    lv_obj_set_style_bg_color(bg_layer_center_, theme_colors.bg_inner, 0);
+    lv_obj_set_style_bg_color(bg_layer_center_, c.bg_inner, 0);
     lv_obj_set_style_bg_opa(bg_layer_center_, LV_OPA_100, 0);
     lv_obj_center(bg_layer_center_);
 
     bg_inner_glow_ = nullptr;
-
-    // 将背景层移到最底层
     lv_obj_move_background(background_);
 
-    ESP_LOGI(TAG, "Background created with theme colors");
+    ESP_LOGI(TAG, "Background created with fixed colors");
 }
 
-// 重写 UpdateStatusBar (已废弃: 4层布局无顶部信息栏)
-// 保留空实现以保持 ABI 兼容
 void AttitudeDisplay::UpdateStatusBar(bool update_all)
 {
-    // 4层同心圆布局不再有顶部信息栏，时间/网络/电量等状态通过其他渠道展示
-    // 后续可在层级三的 progress_arc_ 旁边添加状态指示
-}
-
-// 设置姿态数据 (后续迭代会在这里更新 UI)
-void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
-{
-    current_pitch_ = pitch;
-    current_roll_ = roll;
-    current_yaw_ = yaw;
-    // 后续迭代会在层级二（动态指示区）实现姿态指示
-}
-
-// 设置解读文字 (已废弃: 迭代14清理)
-// 保留空实现以保持 API 兼容
-void AttitudeDisplay::SetInterpretation(const std::string& text)
-{
-    // 迭代14清理: layer3_state_label_ 已被移除
-    // 4层布局不再有解读区域
-    // 该 API 保留以保持向后兼容, 但不再生效
-    (void)text;  // 防止未使用警告
+    (void)update_all;
 }
 
 void AttitudeDisplay::SetTheme(Theme* theme)
 {
     Display::SetTheme(theme);
-    ApplyThemeToAttitudeUI();
 }
 
-void AttitudeDisplay::ApplyThemeToAttitudeUI()
+void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
 {
-    ApplyCurrentTheme();
+    current_pitch_ = pitch;
+    current_roll_ = roll;
+    current_yaw_ = yaw;
 }
 
-// 主题切换接口（公开API）
-void AttitudeDisplay::SwitchTheme(AttitudeThemeType theme)
+void AttitudeDisplay::SetInterpretation(const std::string& text)
 {
-    AttitudeTheme::GetInstance().SetTheme(theme);
-    ApplyCurrentTheme();
+    (void)text;
 }
 
-// 应用当前主题到4层同心圆布局的所有元素
-void AttitudeDisplay::ApplyCurrentTheme()
-{
-    DisplayLockGuard lock(this);
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
-
-    // 1. 背景层
-    if (background_ != nullptr) {
-        lv_obj_set_style_bg_color(background_, theme_colors.bg_outer, 0);
-    }
-    if (bg_layer_center_ != nullptr) {
-        lv_obj_set_style_bg_color(bg_layer_center_, theme_colors.bg_inner, 0);
-    }
-
-    // 2. 层级一: 核心信息区 (迭代14清理, 文本已移除, 容器仍存在)
-
-    // 3. 层级二: 动态指示区
-    if (layer2_inner_ring_ != nullptr) {
-        lv_obj_set_style_arc_color(layer2_inner_ring_, theme_colors.border_line, 0);
-    }
-    // layer2_indicator_line_ 已废弃（迭代14清理）
-
-    // 4. 层级三: 状态进度区
-    if (layer3_bg_arc_ != nullptr) {
-        lv_obj_set_style_arc_color(layer3_bg_arc_, theme_colors.card_bg, 0);
-    }
-    if (layer3_progress_arc_ != nullptr) {
-        lv_color_t state_color = AttitudeTheme::GetInstance().GetStateColor(current_state_level_);
-        lv_obj_set_style_arc_color(layer3_progress_arc_, state_color, LV_PART_INDICATOR);
-    }
-    // layer3_state_label_ 已废弃（迭代14清理）
-
-    // 5. 层级四: 边界留白区
-    if (layer4_outer_ring_ != nullptr) {
-        lv_obj_set_style_border_color(layer4_outer_ring_, theme_colors.border_line, 0);
-    }
-
-    // 6. 方位圆点
-    auto apply_point_color = [&](lv_obj_t* obj) {
-        if (obj != nullptr) {
-            lv_obj_set_style_bg_color(obj, theme_colors.point_default, 0);
-        }
-    };
-    apply_point_color(dir_n_label_);
-    apply_point_color(dir_e_label_);
-    apply_point_color(dir_s_label_);
-    apply_point_color(dir_w_label_);
-
-    ESP_LOGI(TAG, "Theme applied to 4-layer layout: %s", AttitudeTheme::GetInstance().GetThemeName());
-}
-
-// ====================== 4层同心圆布局实现 ======================
-
-// 层级一: 核心信息区 (0~54px 半径范围)
 void AttitudeDisplay::CreateLayer1CoreInfo()
 {
-    // 迭代14清理: 移除所有核心信息区文本
-    // 原 "姿态平衡仪" / "Balance OK" / "0.0°" 文字已废弃
-    // 中心 0~54px 区域由太极图（迭代13）取代
-
-    // 保留 layer1_container_ 引用, 但不创建任何文本
-    // 容器可以保留用于后续添加 64 卦符号的占位
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
 
@@ -315,18 +151,15 @@ void AttitudeDisplay::CreateLayer1CoreInfo()
     lv_obj_set_style_pad_all(layer1_container_, 0, 0);
     lv_obj_clear_flag(layer1_container_, LV_OBJ_FLAG_CLICKABLE);
 
-
     ESP_LOGI(TAG, "Layer1 CoreInfo created (0~54px)");
 }
 
-// 层级二: 动态指示区 (54~90px 半径范围)
 void AttitudeDisplay::CreateLayer2DynamicIndicator()
 {
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
 
-    // 内圈装饰细线 (lv_arc 模拟圆环) - 直径 160, 半径 80px
     layer2_inner_ring_ = lv_arc_create(attitude_container_);
     lv_obj_set_size(layer2_inner_ring_, 160, 160);
     lv_obj_set_pos(layer2_inner_ring_, CENTER_X - 80, CENTER_Y - 80);
@@ -334,36 +167,23 @@ void AttitudeDisplay::CreateLayer2DynamicIndicator()
     lv_arc_set_value(layer2_inner_ring_, 360);
     lv_arc_set_bg_angles(layer2_inner_ring_, 0, 360);
     lv_arc_set_angles(layer2_inner_ring_, 0, 360);
-    // 关键修复: 同时设置 part 0 (背景) 和 INDICATOR 的颜色, 防止默认蓝色
     lv_obj_set_style_arc_width(layer2_inner_ring_, 1, 0);
-    lv_obj_set_style_arc_color(layer2_inner_ring_, theme_colors.border_line, 0);
+    lv_obj_set_style_arc_color(layer2_inner_ring_, c.border_line, 0);
     lv_obj_set_style_arc_width(layer2_inner_ring_, 1, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(layer2_inner_ring_, theme_colors.border_line, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(layer2_inner_ring_, c.border_line, LV_PART_INDICATOR);
     lv_obj_set_style_arc_opa(layer2_inner_ring_, LV_OPA_50, 0);
-    // 隐藏 knob 控件（不是用 remove_style）
     lv_obj_set_style_opa(layer2_inner_ring_, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_clear_flag(layer2_inner_ring_, LV_OBJ_FLAG_CLICKABLE);
 
-    // 迭代14清理: 移除中心角度指示线 (lv_line)
-    // 原参考线 (从圆心向上, 半径54~90px) 已废弃
-    // 该区域未来由 64 卦符号层填充
-
-    ESP_LOGI(TAG, "Layer2 DynamicIndicator created (54~90px, indicator line removed)");
+    ESP_LOGI(TAG, "Layer2 DynamicIndicator created (54~90px)");
 }
 
-// 层级三: 状态进度区 (90~144px 半径范围)
 void AttitudeDisplay::CreateLayer3StatusProgress()
 {
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
 
-    // 迭代14清理: 移除 "BALANCE" 状态文字
-    // 原 lv_label "BALANCE" 已废弃
-    // 该区域未来由 12 地支层填充
-
-    // 背景环 (lv_arc, 直径 260, 半径 130px, 颜色=card_bg)
-    // 使用 LVGL 主题模式可防止默认主题覆盖我们的样式
     layer3_bg_arc_ = lv_arc_create(attitude_container_);
     lv_obj_set_size(layer3_bg_arc_, 260, 260);
     lv_obj_set_pos(layer3_bg_arc_, CENTER_X - 130, CENTER_Y - 130);
@@ -371,102 +191,87 @@ void AttitudeDisplay::CreateLayer3StatusProgress()
     lv_arc_set_value(layer3_bg_arc_, 360);
     lv_arc_set_bg_angles(layer3_bg_arc_, 0, 360);
     lv_arc_set_angles(layer3_bg_arc_, 0, 360);
-    // 关键修复: arc 背景部分 + 指示器部分都要设置颜色
     lv_obj_set_style_arc_width(layer3_bg_arc_, 4, 0);
-    lv_obj_set_style_arc_color(layer3_bg_arc_, theme_colors.card_bg, 0);  // 背景
-    lv_obj_set_style_arc_color(layer3_bg_arc_, theme_colors.card_bg, LV_PART_INDICATOR);  // 指示器也用背景色（因为全填充）
+    lv_obj_set_style_arc_color(layer3_bg_arc_, c.card_bg, 0);
+    lv_obj_set_style_arc_color(layer3_bg_arc_, c.card_bg, LV_PART_INDICATOR);
     lv_obj_set_style_opa(layer3_bg_arc_, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_clear_flag(layer3_bg_arc_, LV_OBJ_FLAG_CLICKABLE);
 
-    // 进度环 (lv_arc, 直径 280, 半径 140px, 颜色=state_normal)
-    // 关键: lv_arc 默认 indicator 颜色是蓝色 #2392EB, 必须在创建后立即用样式覆盖!
     layer3_progress_arc_ = lv_arc_create(attitude_container_);
     lv_obj_set_size(layer3_progress_arc_, 280, 280);
     lv_obj_set_pos(layer3_progress_arc_, CENTER_X - 140, CENTER_Y - 140);
-    // 关键修复: 同时设置所有相关 part 的颜色, 防止默认蓝色污染
-    lv_obj_set_style_arc_color(layer3_progress_arc_, lv_color_hex(0x000000), 0);  // 背景(0) 透明
-    lv_obj_set_style_arc_color(layer3_progress_arc_, theme_colors.state_normal, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(layer3_progress_arc_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_arc_color(layer3_progress_arc_, c.state_normal, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(layer3_progress_arc_, 4, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(layer3_progress_arc_, true, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(layer3_progress_arc_, 0, 0);  // 背景部分透明
-    // 然后再设置范围/角度
+    lv_obj_set_style_arc_width(layer3_progress_arc_, 0, 0);
     lv_arc_set_range(layer3_progress_arc_, 0, 360);
-    lv_arc_set_value(layer3_progress_arc_, 0);  // 初始进度 0
+    lv_arc_set_value(layer3_progress_arc_, 0);
     lv_arc_set_bg_angles(layer3_progress_arc_, 0, 360);
-    lv_arc_set_angles(layer3_progress_arc_, 0, 0);  // 初始从 0° 开始
-    // 隐藏 knob
+    lv_arc_set_angles(layer3_progress_arc_, 0, 0);
     lv_obj_set_style_opa(layer3_progress_arc_, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_clear_flag(layer3_progress_arc_, LV_OBJ_FLAG_CLICKABLE);
 
     ESP_LOGI(TAG, "Layer3 StatusProgress created (90~144px)");
 }
 
-// 层级四: 边界留白区 (144~178px 半径范围)
 void AttitudeDisplay::CreateLayer4Boundary()
 {
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
 
-    // 1px 鎏金外圆环 (直径 356, 半径 178px)
     layer4_outer_ring_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(layer4_outer_ring_, 356, 356);
     lv_obj_set_pos(layer4_outer_ring_, CENTER_X - 178, CENTER_Y - 178);
     lv_obj_set_style_radius(layer4_outer_ring_, 178, 0);
     lv_obj_set_style_bg_opa(layer4_outer_ring_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(layer4_outer_ring_, 1, 0);
-    lv_obj_set_style_border_color(layer4_outer_ring_, theme_colors.border_line, 0);
+    lv_obj_set_style_border_color(layer4_outer_ring_, c.border_line, 0);
     lv_obj_set_style_border_opa(layer4_outer_ring_, LV_OPA_100, 0);
 
     ESP_LOGI(TAG, "Layer4 Boundary created (144~178px)");
 }
 
-// 4个方位实心圆点 (设计文档第5节)
 void AttitudeDisplay::CreateCompassPoints()
 {
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
     const int POINT_SIZE = 6;
-    const int POINTS_RADIUS = 72;  // 4 方位点 r=72 圆周 (迭代18密度梯度: 170→72, 低密度, 紧邻太极图)
-                                     // 密度梯度: 太极图(1) → 4 方位(4) → 天干(10) → 地支(12) → 64卦(64)
+    const int POINTS_RADIUS = 72;
 
-    // 北 (上)
     dir_n_label_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(dir_n_label_, POINT_SIZE, POINT_SIZE);
     lv_obj_set_pos(dir_n_label_, CENTER_X - POINT_SIZE/2, CENTER_Y - POINTS_RADIUS - POINT_SIZE/2);
     lv_obj_set_style_radius(dir_n_label_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(dir_n_label_, theme_colors.point_default, 0);
+    lv_obj_set_style_bg_color(dir_n_label_, c.point_default, 0);
     lv_obj_set_style_border_width(dir_n_label_, 0, 0);
 
-    // 南 (下)
     dir_s_label_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(dir_s_label_, POINT_SIZE, POINT_SIZE);
     lv_obj_set_pos(dir_s_label_, CENTER_X - POINT_SIZE/2, CENTER_Y + POINTS_RADIUS - POINT_SIZE/2);
     lv_obj_set_style_radius(dir_s_label_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(dir_s_label_, theme_colors.point_default, 0);
+    lv_obj_set_style_bg_color(dir_s_label_, c.point_default, 0);
     lv_obj_set_style_border_width(dir_s_label_, 0, 0);
 
-    // 西 (左)
     dir_w_label_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(dir_w_label_, POINT_SIZE, POINT_SIZE);
     lv_obj_set_pos(dir_w_label_, CENTER_X - POINTS_RADIUS - POINT_SIZE/2, CENTER_Y - POINT_SIZE/2);
     lv_obj_set_style_radius(dir_w_label_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(dir_w_label_, theme_colors.point_default, 0);
+    lv_obj_set_style_bg_color(dir_w_label_, c.point_default, 0);
     lv_obj_set_style_border_width(dir_w_label_, 0, 0);
 
-    // 东 (右)
     dir_e_label_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(dir_e_label_, POINT_SIZE, POINT_SIZE);
     lv_obj_set_pos(dir_e_label_, CENTER_X + POINTS_RADIUS - POINT_SIZE/2, CENTER_Y - POINT_SIZE/2);
     lv_obj_set_style_radius(dir_e_label_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(dir_e_label_, theme_colors.point_default, 0);
+    lv_obj_set_style_bg_color(dir_e_label_, c.point_default, 0);
     lv_obj_set_style_border_width(dir_e_label_, 0, 0);
 
     ESP_LOGI(TAG, "Compass points (N/E/S/W) created with 6x6 dots at r=%d", POINTS_RADIUS);
 }
 
-// 更新状态颜色 (公开API, 供外部调用改变状态等级)
 void AttitudeDisplay::UpdateStateColor(int level)
 {
     if (level < 0) level = 0;
@@ -475,66 +280,54 @@ void AttitudeDisplay::UpdateStateColor(int level)
 
     DisplayLockGuard lock(this);
 
-    // 更新进度环颜色
     if (layer3_progress_arc_ != nullptr) {
         lv_color_t state_color = AttitudeTheme::GetInstance().GetStateColor(level);
         lv_obj_set_style_arc_color(layer3_progress_arc_, state_color, LV_PART_INDICATOR);
     }
 }
 
-// ====================== 太极图旋转控制 (按键触发) ======================
-// 顺时针旋转 15°
-// LVGL 中 1° = 10 (0.1°单位), 所以 15° = 150
 void AttitudeDisplay::RotateTaiji()
 {
     DisplayLockGuard lock(this);
-    CompassTaiji::Rotate(150);  // 顺时针 15°
+    CompassTaiji::Rotate(150);
 }
 
-// 逆时针旋转 15°
 void AttitudeDisplay::RotateTaijiCCW()
 {
     DisplayLockGuard lock(this);
-    CompassTaiji::Rotate(-150);  // 逆时针 15°
+    CompassTaiji::Rotate(-150);
 }
 
-// 设置太极图旋转角度
 void AttitudeDisplay::SetTaijiRotation(int angle)
 {
     DisplayLockGuard lock(this);
-    // angle 是 0.1°单位, 例如 15° = 150
     CompassTaiji::SetRotation(angle);
 }
 
-// 获取太极图当前角度
 int AttitudeDisplay::GetTaijiRotation()
 {
     DisplayLockGuard lock(this);
     return CompassTaiji::GetRotation();
 }
 
-// 重置太极图
 void AttitudeDisplay::ResetTaijiRotation()
 {
     DisplayLockGuard lock(this);
     CompassTaiji::ResetRotation();
 }
 
-// 启动太极图自动旋转
 void AttitudeDisplay::StartTaijiAutoRotation(int period_ms)
 {
     DisplayLockGuard lock(this);
     CompassTaiji::StartAutoRotation(period_ms);
 }
 
-// 停止太极图自动旋转
 void AttitudeDisplay::StopTaijiAutoRotation()
 {
     DisplayLockGuard lock(this);
     CompassTaiji::StopAutoRotation();
 }
 
-// 是否在自动旋转中
 bool AttitudeDisplay::IsTaijiAutoRotating()
 {
     DisplayLockGuard lock(this);

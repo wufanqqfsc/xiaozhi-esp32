@@ -23,7 +23,7 @@ int CompassTaiji::current_rotation_ = 0;
 // 自动旋转控制
 void* CompassTaiji::auto_rotation_task_handle_ = nullptr;
 bool CompassTaiji::auto_rotation_running_ = false;
-int CompassTaiji::auto_rotation_period_ms_ = 60000;
+int CompassTaiji::auto_rotation_period_ms_ = 30000;
 int CompassTaiji::auto_rotation_step_ = 0;
 int CompassTaiji::auto_rotation_interval_ms_ = 50;
 
@@ -192,17 +192,6 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     ESP_LOGI(TAG, "Taiji diagram created successfully (%dx%d canvas)", canvas_size, canvas_size);
 }
 
-void CompassTaiji::UpdateTheme() {
-    const auto& theme_colors = AttitudeTheme::GetInstance().GetColors();
-
-    if (outer_ring_ != nullptr) {
-        lv_obj_set_style_border_color(outer_ring_, theme_colors.border_line, 0);
-    }
-    if (outer_glow_ != nullptr) {
-        lv_obj_set_style_border_color(outer_glow_, theme_colors.border_line, 0);
-    }
-}
-
 // ====================== 旋转控制 ======================
 // 按键触发太极图顺时针旋转
 
@@ -251,12 +240,12 @@ void CompassTaiji::ResetRotation() {
 }
 
 // ====================== 自动旋转控制 ======================
-// 1 分钟 (60秒) 转 360°
+// 30 秒 (30000ms) 转 360°
 
 /**
  * 自动旋转 FreeRTOS 任务 (CompassTaiji 静态成员, 可访问 private 成员)
- * 每 50ms 旋转 0.3° (3 个 0.1°单位)
- * 1 分钟 = 60000ms / 50ms = 1200 步 × 3 单位 = 3600 单位 = 360°
+ * 每 50ms 旋转 0.6° (6 个 0.1°单位)
+ * 30 秒 = 30000ms / 50ms = 600 步 × 6 单位 = 3600 单位 = 360°
  *
  * 注意: 必须在 LVGL 锁内调用 lv_image_set_rotation
  */
@@ -289,7 +278,7 @@ void CompassTaiji::AutoRotationTaskEntry(void* arg) {
 /**
  * 启动自动旋转
  * @param period_ms 旋转周期 (毫秒) - 转 360° 所需时间
- *                  默认 60000ms = 1分钟转一圈
+ *                  默认 30000ms = 30秒转一圈
  */
 void CompassTaiji::StartAutoRotation(int period_ms) {
     if (auto_rotation_running_) {

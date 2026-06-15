@@ -31,8 +31,6 @@ set(SOURCES "audio/audio_codec.cc"
             "display/snapshot/snapshot_protocol.cc"
             "display/snapshot/snapshot_service.cc"
             "display/compass_taiji.cc"
-            "display/compass_dizhi.cc"
-            "display/compass_tiangan.cc"
             "protocols/protocol.cc"
             "protocols/mqtt_protocol.cc"
             "protocols/websocket_protocol.cc"
@@ -952,8 +950,6 @@ elseif(CONFIG_LANGUAGE_SL_SI)
     set(LANG_DIR "sl-SI")
 elseif(CONFIG_LANGUAGE_SV_SE)
     set(LANG_DIR "sv-SE")
-elseif(CONFIG_LANGUAGE_SR_RS)
-    set(LANG_DIR "sr-RS")
 endif()
 
 # Define generation path
