@@ -626,7 +626,7 @@ void AttitudeDisplay::CreateStudyArea()
     lv_obj_set_style_transform_scale(study_drum_label_, STUDY_ICON_SCALE, 0);
     lv_obj_set_style_transform_pivot_x(study_drum_label_, LV_PCT(50), 0);
     lv_obj_set_style_transform_pivot_y(study_drum_label_, LV_PCT(50), 0);
-    lv_label_set_text(study_drum_label_, FONT_AWESOME_MUSIC);
+    lv_label_set_text(study_drum_label_, FONT_AWESOME_DRUM);
     lv_obj_align(study_drum_label_, LV_ALIGN_CENTER, 0, STUDY_ICON_OFFSET_Y);
     lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(study_drum_label_, OnStudyMenuIconClicked, LV_EVENT_CLICKED, this);
