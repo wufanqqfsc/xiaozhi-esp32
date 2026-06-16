@@ -4,6 +4,7 @@
 #include "assets/lang_config.h"
 #include "board.h"
 #include "compass_taiji.h"
+#include "drum/drum_synth.h"
 #include <esp_log.h>
 #include <esp_heap_caps.h>
 #include <cstdio>
@@ -216,6 +217,9 @@ void AttitudeDisplay::SetupUI()
 
     // 防御：Setup 阶段确保调试卡为干净状态
     DestroyDebugInfoCard();
+
+    // 初始化架子鼓合成器
+    drum::DrumSynth::GetInstance().Init();
 
     auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
     if (lvgl_theme == nullptr) {
@@ -713,6 +717,8 @@ void AttitudeDisplay::OnStudyMenuIconClicked(lv_event_t* e)
         self->SelectStudyMenuItem(StudyMenuItem::Timer);
     } else if (target == self->study_drum_label_) {
         self->SelectStudyMenuItem(StudyMenuItem::Drum);
+        // 选中架子鼓后立即进入架子鼓模式（与 Timer 的 StartStudyFocusTimer 行为对齐）
+        self->EnterDrumPad();
     }
 }
 
@@ -2124,4 +2130,324 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
              fortune_menu_selected_index_);
     ShowFortuneFromMenu(static_cast<FortuneMenuType>(fortune_menu_selected_index_));
     return true;
+}
+
+// =================================================================
+// 架子鼓模式实现（8 扇区 + 中心 Kick）
+// =================================================================
+
+// 8 个扇区相对正上（0°）的起始角度（顺时针，单位：度）
+// 扇区 0 = 正上（Kick 备用），1 = 右上 45°，2 = 右，...
+// 但这里 0 改为正上 Snare，便于将 Kick 放中心
+static constexpr int DRUM_SECTOR_ANGLE_DEG[8] = {
+    -90,  // 0: 正上 (Snare)
+    -45,  // 1: 右上 (Hi-Hat Closed)
+       0, // 2: 右   (Tom Hi)
+      45,  // 3: 右下 (Tom Mid)
+      90,  // 4: 正下 (Kick 备用)
+     135,  // 5: 左下 (Hi-Hat Open)
+     180,  // 6: 左   (Crash)
+    -135,  // 7: 左上 (Ride)
+};
+
+// 8 个扇区的中文标签（按 ID 顺序，对应 drum::Piece 枚举）
+static constexpr const char* DRUM_SECTOR_LABELS[8] = {
+    "军鼓", "闭镲", "高桶", "中桶",
+    "底鼓", "开镲", "强音钹", "叮叮镲"
+};
+
+void AttitudeDisplay::EnterDrumPad()
+{
+    if (study_sub_state_ != StudySubState::Menu) {
+        ESP_LOGD(TAG, "EnterDrumPad ignored: state=%d", static_cast<int>(study_sub_state_));
+        return;
+    }
+    auto& app = Application::GetInstance();
+    if (app.GetDeviceState() != kDeviceStateIdle) {
+        ESP_LOGI(TAG, "EnterDrumPad blocked: device busy");
+        // 与 StartStudyFocusTimer 行为一致：忙碌时不进入
+        return;
+    }
+
+    // 隐藏菜单图标
+    if (study_clock_label_ != nullptr) {
+        lv_obj_add_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_drum_label_ != nullptr) {
+        lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_focus_arc_ != nullptr) {
+        lv_obj_add_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_time_label_ != nullptr) {
+        lv_obj_add_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    study_sub_state_ = StudySubState::DrumPad;
+    drum::DrumSynth::GetInstance().SetActive(true);
+    ShowDrumPadUI();
+    ESP_LOGI(TAG, "DrumPad entered");
+}
+
+void AttitudeDisplay::ExitDrumPad()
+{
+    if (study_sub_state_ != StudySubState::DrumPad) {
+        return;
+    }
+    drum::DrumSynth::GetInstance().SetActive(false);
+    HideDrumPadUI();
+
+    // 恢复菜单
+    study_sub_state_ = StudySubState::Menu;
+    if (study_clock_label_ != nullptr) {
+        lv_obj_remove_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_drum_label_ != nullptr) {
+        lv_obj_remove_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_focus_arc_ != nullptr) {
+        lv_obj_remove_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
+    }
+    UpdateStudyMenuSelection();
+    ESP_LOGI(TAG, "DrumPad exited");
+}
+
+void AttitudeDisplay::ShowDrumPadUI()
+{
+    if (drum_pad_ != nullptr) {
+        lv_obj_remove_flag(drum_pad_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_color_t accent = (lvgl_theme != nullptr) ? lvgl_theme->border_color()
+                                                      : lv_color_hex(0x00C8C8);
+    const lv_color_t dim = lv_color_hex(0x333333);
+
+    // 架子鼓触摸板：覆盖 study_panel_，占满整个圆形画布
+    drum_pad_ = lv_obj_create(study_panel_);
+    lv_obj_set_size(drum_pad_, lv_pct(100), lv_pct(100));
+    lv_obj_set_pos(drum_pad_, 0, 0);
+    lv_obj_set_style_bg_opa(drum_pad_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(drum_pad_, 0, 0);
+    lv_obj_set_style_pad_all(drum_pad_, 0, 0);
+    lv_obj_clear_flag(drum_pad_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(drum_pad_, LV_OBJ_FLAG_SCROLLABLE);
+
+    // 8 扇区：以中心为锚点
+    // 圆形屏直径 360px，扇区径向覆盖 [80, 170]，中间留出中心按钮
+    static constexpr int SECTOR_R_INNER = 80;
+    static constexpr int SECTOR_R_OUTER = 168;
+    static constexpr int SECTOR_ANGLE_WIDTH = 36;  // 每个扇区 36°，8 扇区覆盖 288°，留 72° 死区
+    static constexpr int SECTOR_OFFSET_DEG = 0;    // 旋转偏移：把"正上"对准第一个扇区中心
+
+    for (int i = 0; i < 8; i++) {
+        int center_angle = DRUM_SECTOR_ANGLE_DEG[i] + SECTOR_OFFSET_DEG;
+        // 扇区中心 = center_angle，扇区覆盖 [center_angle - 18, center_angle + 18]
+        int start_angle = (center_angle - SECTOR_ANGLE_WIDTH / 2 + 360) % 360;
+        int end_angle = (center_angle + SECTOR_ANGLE_WIDTH / 2 + 360) % 360;
+
+        // 使用 lv_arc 表示扇区
+        lv_obj_t* arc = lv_arc_create(drum_pad_);
+        lv_obj_set_size(arc, SECTOR_R_OUTER * 2, SECTOR_R_OUTER * 2);
+        lv_obj_align(arc, LV_ALIGN_CENTER, 0, 0);
+        // lv_arc 0° 在正下方（6 点钟），需要偏移 -90° 让 0° 在正上（12 点钟）
+        // 扇区角度转换：用户角度 0=正上 → lv_arc 角度 270
+        int lv_start = (start_angle + 90) % 360;
+        int lv_end = (end_angle + 90) % 360;
+        lv_arc_set_bg_angles(arc, lv_start, lv_end);
+        lv_arc_set_angles(arc, lv_start, lv_end);
+        lv_arc_set_range(arc, 0, 360);
+        lv_arc_set_value(arc, 0);
+        // 背景轨道不可见
+        lv_obj_set_style_arc_color(arc, dim, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(arc, SECTOR_R_OUTER - SECTOR_R_INNER, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(arc, LV_OPA_30, LV_PART_MAIN);
+        // 前景扇区
+        lv_obj_set_style_arc_color(arc, accent, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_width(arc, SECTOR_R_OUTER - SECTOR_R_INNER, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(arc, LV_OPA_20, LV_PART_INDICATOR);
+        // 点击扇区
+        lv_obj_add_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(arc, OnDrumPadTouchedStatic, LV_EVENT_CLICKED, this);
+        // 存储扇区索引到 user_data 不行（arc 自带），用数组下标
+        // 改用自定义机制：在 user_data 不行时，用 arc 对象的坐标存 piece idx
+        // 简化：把 arc 直接存到数组
+        drum_sectors_[i] = arc;
+        // 扇区标签
+        lv_obj_t* label = lv_label_create(drum_pad_);
+        lv_obj_set_style_text_font(label, &BUILTIN_TEXT_FONT, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(label, DRUM_SECTOR_LABELS[i]);
+        // 标签位置 = 扇区中心方向 × 半径 (SECTOR_R_INNER + SECTOR_R_OUTER) / 2
+        float mid_r = (SECTOR_R_INNER + SECTOR_R_OUTER) / 2.0f;
+        float rad = (center_angle) * 3.14159265f / 180.0f;
+        // 角度 -> 屏幕坐标（Y 轴向下，正上对应 -Y）
+        int lx = (int)(mid_r * sinf(rad));
+        int ly = -(int)(mid_r * cosf(rad));
+        lv_obj_align(label, LV_ALIGN_CENTER, lx, ly);
+        drum_sector_labels_[i] = label;
+    }
+
+    // 中心 Kick 按钮
+    drum_center_ = lv_obj_create(drum_pad_);
+    lv_obj_set_size(drum_center_, SECTOR_R_INNER * 2, SECTOR_R_INNER * 2);
+    lv_obj_align(drum_center_, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(drum_center_, SECTOR_R_INNER, 0);
+    lv_obj_set_style_bg_color(drum_center_, accent, 0);
+    lv_obj_set_style_bg_opa(drum_center_, LV_OPA_30, 0);
+    lv_obj_set_style_border_color(drum_center_, accent, 0);
+    lv_obj_set_style_border_width(drum_center_, 3, 0);
+    lv_obj_set_style_border_opa(drum_center_, LV_OPA_60, 0);
+    lv_obj_set_style_pad_all(drum_center_, 0, 0);
+    lv_obj_add_flag(drum_center_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(drum_center_, OnDrumPadTouchedStatic, LV_EVENT_CLICKED, this);
+
+    // 中心标签
+    lv_obj_t* center_label = lv_label_create(drum_center_);
+    lv_obj_set_style_text_font(center_label, &BUILTIN_TEXT_FONT, 0);
+    lv_obj_set_style_text_color(center_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_align(center_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(center_label, "底鼓");
+    lv_obj_align(center_label, LV_ALIGN_CENTER, 0, 0);
+
+    // 退出提示（顶部小字）+ 长按退出
+    lv_obj_t* hint = lv_label_create(drum_pad_);
+    lv_obj_set_style_text_font(hint, &BUILTIN_TEXT_FONT, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(hint, "架子鼓  长按顶边退出");
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 4);
+
+    // 顶部"退出区"：长按 2s 退出架子鼓模式
+    lv_obj_t* exit_zone = lv_obj_create(drum_pad_);
+    lv_obj_set_size(exit_zone, lv_pct(100), 24);
+    lv_obj_align(exit_zone, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(exit_zone, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(exit_zone, 0, 0);
+    lv_obj_set_style_pad_all(exit_zone, 0, 0);
+    lv_obj_add_flag(exit_zone, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(exit_zone, OnDrumPadTouchedStatic, LV_EVENT_LONG_PRESSED, this);
+
+    ESP_LOGI(TAG, "DrumPad UI created");
+}
+
+void AttitudeDisplay::HideDrumPadUI()
+{
+    if (drum_pad_ != nullptr) {
+        lv_obj_add_flag(drum_pad_, LV_OBJ_FLAG_HIDDEN);
+    }
+    // 释放闪烁定时器
+    if (drum_flash_timer_id_ >= 0) {
+        lv_timer_del(reinterpret_cast<lv_timer_t*>(static_cast<uintptr_t>(drum_flash_timer_id_)));
+        drum_flash_timer_id_ = -1;
+    }
+}
+
+void AttitudeDisplay::OnDrumPadTouchedStatic(lv_event_t* e)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
+    if (self != nullptr) {
+        self->OnDrumPadTouched(e);
+    }
+}
+
+void AttitudeDisplay::OnDrumPadTouched(lv_event_t* e)
+{
+    if (study_sub_state_ != StudySubState::DrumPad) {
+        return;
+    }
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+
+    // 长按顶部退出区 → 退出架子鼓模式
+    if (code == LV_EVENT_LONG_PRESSED) {
+        // 顶部 24px 高度的 exit_zone
+        lv_coord_t y = 0;
+        if (target != nullptr) {
+            y = lv_obj_get_y(target);
+        }
+        if (y == 0) {
+            ESP_LOGI(TAG, "DrumPad long press top -> exit");
+            ExitDrumPad();
+            return;
+        }
+    }
+
+    if (code != LV_EVENT_CLICKED) {
+        return;
+    }
+    int piece_idx = -1;
+
+    // 判断是哪个扇区/中心
+    if (target == drum_center_) {
+        piece_idx = static_cast<int>(drum::Piece::KICK);
+    } else {
+        for (int i = 0; i < 8; i++) {
+            if (drum_sectors_[i] == target) {
+                piece_idx = i;
+                break;
+            }
+        }
+    }
+    if (piece_idx < 0) {
+        return;
+    }
+
+    ESP_LOGD(TAG, "DrumPad touch piece=%d", piece_idx);
+    drum::DrumSynth::GetInstance().Trigger(
+        static_cast<drum::Piece>(piece_idx));
+    FlashDrumSector(piece_idx);
+}
+
+void AttitudeDisplay::FlashDrumSector(int piece_idx)
+{
+    // 简单的视觉反馈：被点击的扇区前景色不透明度 20% -> 80% -> 20%
+    // 200ms 淡入 + 200ms 淡出
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_color_t accent = (lvgl_theme != nullptr) ? lvgl_theme->border_color()
+                                                      : lv_color_hex(0x00C8C8);
+    (void)accent;  // 仅用于未来扩展
+
+    if (piece_idx == static_cast<int>(drum::Piece::KICK)) {
+        // 中心：背景不透明度跳到 80% 再回 30%
+        if (drum_center_ != nullptr) {
+            lv_obj_set_style_bg_opa(drum_center_, LV_OPA_80, 0);
+        }
+        // 200ms 后恢复
+        if (drum_flash_timer_id_ < 0) {
+            drum_flash_start_ms_ = lv_tick_get();
+            lv_timer_t* t = lv_timer_create([](lv_timer_t* timer) {
+                auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+                if (self != nullptr) {
+                    if (self->drum_center_ != nullptr) {
+                        lv_obj_set_style_bg_opa(self->drum_center_, LV_OPA_30, 0);
+                    }
+                    self->drum_flash_timer_id_ = -1;
+                }
+                lv_timer_del(timer);
+            }, 200, this);
+            drum_flash_timer_id_ = static_cast<int>(reinterpret_cast<uintptr_t>(t));
+        }
+        return;
+    }
+
+    // 扇区：前景不透明度短暂提升
+    if (piece_idx < 0 || piece_idx >= 8) {
+        return;
+    }
+    lv_obj_t* arc = drum_sectors_[piece_idx];
+    if (arc == nullptr) {
+        return;
+    }
+    lv_obj_set_style_arc_opa(arc, LV_OPA_80, LV_PART_INDICATOR);
+    // 200ms 后恢复
+    lv_timer_t* t = lv_timer_create([](lv_timer_t* timer) {
+        lv_obj_t* target_arc = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
+        if (target_arc != nullptr) {
+            lv_obj_set_style_arc_opa(target_arc, LV_OPA_20, LV_PART_INDICATOR);
+        }
+        lv_timer_del(timer);
+    }, 200, arc);
+    (void)t;  // 定时器自动释放
 }

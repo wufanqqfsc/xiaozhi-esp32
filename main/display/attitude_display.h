@@ -109,6 +109,7 @@ enum class StudySubState {
     Menu = 1,         // 时钟 + 架子鼓图标
     FocusRunning = 2, // 60s 专注计时环
     CompleteBgm = 3,  // 计时结束，播放约 5s 背景音乐
+    DrumPad = 4,      // 架子鼓模式（8 扇区触摸 + 中心 Kick）
 };
 
 #define STUDY_FOCUS_DURATION_MS   60000
@@ -266,6 +267,13 @@ private:
     void ShowStudyMenuPanel();
     void UpdateStudyMenuSelection();
     void SelectStudyMenuItem(StudyMenuItem item);
+    void EnterDrumPad();
+    void ExitDrumPad();
+    void ShowDrumPadUI();
+    void HideDrumPadUI();
+    void OnDrumPadTouched(lv_event_t* e);
+    static void OnDrumPadTouchedStatic(lv_event_t* e);
+    void FlashDrumSector(int piece_idx);
     void StartStudyFocusTimer();
     void StopStudyFocusTimer();
     void CancelStudyFocusToMenu();
@@ -324,6 +332,14 @@ private:
     lv_obj_t* study_clock_label_ = nullptr;
     lv_obj_t* study_drum_label_ = nullptr;
     lv_obj_t* study_focus_arc_ = nullptr;
+
+    // 架子鼓模式 UI（圆形屏 8 扇区 + 中心 Kick）
+    lv_obj_t* drum_pad_ = nullptr;            // 架子鼓触摸板（覆盖 study_panel_）
+    lv_obj_t* drum_center_ = nullptr;        // 中心 Kick 圆形按钮
+    lv_obj_t* drum_sectors_[8] = {nullptr};  // 8 个扇区按钮
+    lv_obj_t* drum_sector_labels_[8] = {nullptr};
+    int drum_flash_timer_id_ = -1;           // 闪烁动画标记 (-1 = 无)
+    uint32_t drum_flash_start_ms_ = 0;
     lv_obj_t* study_time_label_ = nullptr;
     lv_timer_t* study_focus_timer_ = nullptr;
     lv_timer_t* study_complete_bgm_timer_ = nullptr;
