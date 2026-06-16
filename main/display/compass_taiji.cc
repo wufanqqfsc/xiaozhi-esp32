@@ -1,4 +1,5 @@
 #include "compass_taiji.h"
+#include "attitude_display.h"
 #include <esp_log.h>
 #include <cstring>
 #include <cmath>
@@ -16,6 +17,12 @@ lv_obj_t* CompassTaiji::black_dot_ = nullptr;
 lv_obj_t* CompassTaiji::outer_ring_ = nullptr;
 lv_obj_t* CompassTaiji::outer_glow_ = nullptr;
 lv_obj_t* CompassTaiji::canvas_ = nullptr;
+uint32_t* CompassTaiji::canvas_buf_ = nullptr;
+uint32_t* CompassTaiji::taiji_canvas_snapshot_ = nullptr;
+uint32_t* CompassTaiji::study_ring_canvas_snapshot_ = nullptr;
+size_t CompassTaiji::canvas_buf_bytes_ = 0;
+bool CompassTaiji::canvas_snapshots_ready_ = false;
+bool CompassTaiji::study_ring_mode_active_ = false;
 int CompassTaiji::taiji_radius_ = 0;
 int CompassTaiji::current_rotation_ = 0;
 
@@ -30,25 +37,158 @@ int CompassTaiji::auto_rotation_step_ = 0;
 int CompassTaiji::auto_rotation_interval_ms_ = kAutoRotationIntervalMs;
 volatile bool CompassTaiji::auto_rotation_paused_ = false;
 
+/** 亚像素 AA 过渡带宽度（像素） */
+static constexpr float kAaBandPx = 1.25f;
+
+static inline float Clamp01(float v)
+{
+    return std::max(0.0f, std::min(1.0f, v));
+}
+
+/** 实心圆覆盖度：圆心 (cx,cy)，半径 r；边缘 ±kAaBandPx 平滑 */
+static float CircleCoverage(float x, float y, float cx, float cy, float r)
+{
+    const float dx = x - cx;
+    const float dy = y - cy;
+    const float dist = std::sqrt(dx * dx + dy * dy);
+    return Clamp01((r + kAaBandPx * 0.5f - dist) / kAaBandPx);
+}
+
+/** x>=0 半平面覆盖（S 曲线分界） */
+static float RightHalfCoverage(float x)
+{
+    return Clamp01((x + kAaBandPx * 0.5f) / kAaBandPx);
+}
+
+static void BlendPixel(lv_obj_t* canvas, int px, int py, lv_color_t color, float alpha)
+{
+    if (alpha <= 0.003f) {
+        return;
+    }
+    const lv_opa_t opa = static_cast<lv_opa_t>(std::min(alpha, 1.0f) * static_cast<float>(LV_OPA_COVER));
+    lv_canvas_set_px(canvas, px, py, color, opa);
+}
+
+static void DrawRingAA(lv_obj_t* canvas, int cx, int cy, float radius, float width,
+                       lv_color_t color, bool aa_inner_edge = true);
+
 /**
- * 填充圆 (中点圆算法 + 水平扫描线)
- * 在 (cx, cy) 为中心，半径 r 的圆内用 color 填充
+ * 亚像素抗锯齿太极图（阴阳鱼 + 鱼眼底色 + 鎏金外圈）
+ * 相对整数扫描线算法，圆弧与 S 形分界边缘更圆滑。
  */
-static inline void FillCircle(lv_obj_t* canvas, int cx, int cy, int r,
-                              lv_color_t color) {
-    int r_sq = r * r;
-    for (int y = -r; y <= r; y++) {
-        int dy_sq = y * y;
-        int x_max = (int)std::sqrt((float)(r_sq - dy_sq));
-        for (int x = -x_max; x <= x_max; x++) {
-            lv_canvas_set_px(canvas, cx + x, cy + y, color, LV_OPA_COVER);
+static void ClearCanvasTransparent(lv_obj_t* canvas, int size)
+{
+    for (int py = 0; py < size; ++py) {
+        for (int px = 0; px < size; ++px) {
+            lv_canvas_set_px(canvas, px, py, lv_color_black(), LV_OPA_TRANSP);
         }
     }
 }
 
+/** 学业功能区：深色圆盘 + 鎏金外圈，无阴阳鱼 */
+static void DrawGoldRingOnlyAA(lv_obj_t* canvas, int center_x, int center_y, int r)
+{
+    const float fr = static_cast<float>(r);
+    const float body_r = fr - static_cast<float>(TAIJI_GOLD_RING_WIDTH);
+    const lv_color_t fill = lv_color_black();
+    const lv_color_t gold = lv_color_hex(0xD4AF37);
+
+    ClearCanvasTransparent(canvas, r * 2);
+
+    const int bound = r + 6;
+    for (int py = center_y - bound; py <= center_y + bound; ++py) {
+        for (int px = center_x - bound; px <= center_x + bound; ++px) {
+            const float x = static_cast<float>(px) + 0.5f - static_cast<float>(center_x);
+            const float y = static_cast<float>(py) + 0.5f - static_cast<float>(center_y);
+            const float dist = std::sqrt(x * x + y * y);
+            if (dist <= body_r) {
+                BlendPixel(canvas, px, py, fill, 1.0f);
+            }
+        }
+    }
+
+    DrawRingAA(canvas, center_x, center_y, fr - static_cast<float>(TAIJI_GOLD_RING_WIDTH) * 0.5f,
+               static_cast<float>(TAIJI_GOLD_RING_WIDTH), gold, false);
+}
+
+static uint32_t* AllocCanvasSnapshotBuffer(size_t bytes)
+{
+    auto* buf = static_cast<uint32_t*>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM));
+    if (buf == nullptr) {
+        buf = static_cast<uint32_t*>(malloc(bytes));
+    }
+    return buf;
+}
+
+void CompassTaiji::BuildCanvasSnapshots(lv_obj_t* canvas, int r)
+{
+    if (canvas == nullptr || canvas_buf_ == nullptr || r <= 0) {
+        return;
+    }
+    canvas_buf_bytes_ = static_cast<size_t>(r) * 2U * static_cast<size_t>(r) * 2U * sizeof(uint32_t);
+
+    taiji_canvas_snapshot_ = AllocCanvasSnapshotBuffer(canvas_buf_bytes_);
+    study_ring_canvas_snapshot_ = AllocCanvasSnapshotBuffer(canvas_buf_bytes_);
+    if (taiji_canvas_snapshot_ == nullptr || study_ring_canvas_snapshot_ == nullptr) {
+        ESP_LOGW(TAG, "Canvas snapshot alloc failed, study toggle will redraw");
+        free(taiji_canvas_snapshot_);
+        free(study_ring_canvas_snapshot_);
+        taiji_canvas_snapshot_ = nullptr;
+        study_ring_canvas_snapshot_ = nullptr;
+        return;
+    }
+
+    memcpy(taiji_canvas_snapshot_, canvas_buf_, canvas_buf_bytes_);
+    DrawGoldRingOnlyAA(canvas, r, r, r);
+    memcpy(study_ring_canvas_snapshot_, canvas_buf_, canvas_buf_bytes_);
+    memcpy(canvas_buf_, taiji_canvas_snapshot_, canvas_buf_bytes_);
+    canvas_snapshots_ready_ = true;
+    study_ring_mode_active_ = false;
+    ESP_LOGI(TAG, "Canvas snapshots ready (%u bytes x2)", static_cast<unsigned>(canvas_buf_bytes_));
+}
+
+static void DrawTaijiDiagramAA(lv_obj_t* canvas, int center_x, int center_y, int r)
+{
+    const float fr = static_cast<float>(r);
+    const float body_r = fr - static_cast<float>(TAIJI_GOLD_RING_WIDTH);
+    const float half = fr * 0.5f;
+    const lv_color_t white = lv_color_white();
+    const lv_color_t black = lv_color_black();
+    const lv_color_t gold = lv_color_hex(0xD4AF37);
+
+    const int bound = r + 6;
+    for (int py = center_y - bound; py <= center_y + bound; ++py) {
+        for (int px = center_x - bound; px <= center_x + bound; ++px) {
+            const float x = static_cast<float>(px) + 0.5f - static_cast<float>(center_x);
+            const float y = static_cast<float>(py) + 0.5f - static_cast<float>(center_y);
+            const float dist = std::sqrt(x * x + y * y);
+
+            // 鱼体止于金圈内缘，外圈带专由鎏金环绘制，避免白鱼半透明羽化露出白毛刺
+            if (dist > body_r) {
+                continue;
+            }
+            const float fill_alpha = 1.0f;
+
+            // 鱼眼位由 WiFi/BLE 子组件覆盖，不在 canvas 上绘制反色鱼眼点
+            const float c_right = RightHalfCoverage(x);
+            const float c_top_white = CircleCoverage(x, y, 0.0f, -half, half);
+            const float c_bot_black = CircleCoverage(x, y, 0.0f, half, half);
+            const float black_cov =
+                1.0f - (1.0f - c_right * (1.0f - c_top_white)) * (1.0f - c_bot_black);
+
+            const lv_opa_t mix = static_cast<lv_opa_t>(black_cov * static_cast<float>(LV_OPA_COVER));
+            const lv_color_t body = lv_color_mix(black, white, mix);
+            BlendPixel(canvas, px, py, body, fill_alpha);
+        }
+    }
+
+    DrawRingAA(canvas, center_x, center_y, fr - static_cast<float>(TAIJI_GOLD_RING_WIDTH) * 0.5f,
+               static_cast<float>(TAIJI_GOLD_RING_WIDTH), gold, false);
+}
+
 /** 抗锯齿圆环描边（用于鎏金外圈，边缘更圆滑） */
 static void DrawRingAA(lv_obj_t* canvas, int cx, int cy, float radius, float width,
-                       lv_color_t color) {
+                       lv_color_t color, bool aa_inner_edge) {
     const float half = width * 0.5f;
     const float inner = radius - half;
     const float outer = radius + half;
@@ -63,12 +203,12 @@ static void DrawRingAA(lv_obj_t* canvas, int cx, int cy, float radius, float wid
 
             float alpha = 1.0f;
             const float inner_edge = dist - inner;
-            if (inner_edge < 1.0f) {
-                alpha = std::fmin(alpha, std::fmax(0.0f, inner_edge));
+            if (aa_inner_edge && inner_edge < kAaBandPx) {
+                alpha = std::fmin(alpha, Clamp01(inner_edge / kAaBandPx));
             }
             const float outer_edge = outer - dist;
-            if (outer_edge < 1.0f) {
-                alpha = std::fmin(alpha, std::fmax(0.0f, outer_edge));
+            if (outer_edge < kAaBandPx) {
+                alpha = std::fmin(alpha, Clamp01(outer_edge / kAaBandPx));
             }
             if (alpha <= 0.0f) {
                 continue;
@@ -76,6 +216,43 @@ static void DrawRingAA(lv_obj_t* canvas, int cx, int cy, float radius, float wid
 
             const lv_opa_t opa = static_cast<lv_opa_t>(alpha * static_cast<float>(LV_OPA_COVER));
             lv_canvas_set_px(canvas, cx + x, cy + y, color, opa);
+        }
+    }
+}
+
+/** 鱼眼描边外缘 AA 宽度（像素）；向 bg 不透明混合，消除圈外黑白杂点 */
+static constexpr float kFisheyeRingAaPx = 1.5f;
+
+void CompassTaiji::PaintFisheyeDisc(lv_obj_t* canvas, int size, lv_color_t fill,
+                                    lv_color_t ring, lv_color_t bg, int ring_width)
+{
+    if (canvas == nullptr || size <= 0 || ring_width <= 0) {
+        return;
+    }
+
+    const int cx = size / 2;
+    const int cy = size / 2;
+    const float outer_r = static_cast<float>(size) * 0.5f;
+    const float inner_r = outer_r - static_cast<float>(ring_width);
+
+    for (int py = 0; py < size; ++py) {
+        for (int px = 0; px < size; ++px) {
+            const float x = static_cast<float>(px) + 0.5f - static_cast<float>(cx);
+            const float y = static_cast<float>(py) + 0.5f - static_cast<float>(cy);
+            const float dist = std::hypot(x, y);
+
+            lv_color_t out = bg;
+            if (dist <= inner_r) {
+                out = fill;
+            } else if (dist <= outer_r - kFisheyeRingAaPx) {
+                out = ring;
+            } else if (dist <= outer_r + kFisheyeRingAaPx * 0.5f) {
+                const float ring_cov =
+                    Clamp01((outer_r + kFisheyeRingAaPx * 0.5f - dist) / kFisheyeRingAaPx);
+                out = lv_color_mix(ring, bg, static_cast<uint8_t>(ring_cov * 255.0f));
+            }
+
+            lv_canvas_set_px(canvas, px, py, out, LV_OPA_COVER);
         }
     }
 }
@@ -136,82 +313,17 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
     lv_obj_set_style_shadow_width(canvas, 0, 0);
     // 关键: 关闭 image recolor (防止默认色调覆盖透明像素)
     lv_obj_set_style_image_recolor_opa(canvas, LV_OPA_TRANSP, 0);
-    // 旋转时关闭抗锯齿，降低 ARGB canvas 每帧绘制开销
-    lv_image_set_antialias(canvas, false);
+    // 旋转时启用图像抗锯齿，减轻 transform 缩放锯齿（静态 canvas，无每帧重绘开销）
+    lv_image_set_antialias(canvas, true);
     lv_obj_clear_flag(canvas, LV_OBJ_FLAG_CLICKABLE);
     canvas_ = canvas;
+    canvas_buf_ = canvas_buf;
 
-    // ========== 4. 绘制太极图 ==========
-    lv_color_t white = lv_color_white();
-    lv_color_t black = lv_color_black();
+  // ========== 4. 绘制太极图（亚像素抗锯齿）==========
+    DrawTaijiDiagramAA(canvas, radius, radius, radius);
+    BuildCanvasSnapshots(canvas, radius);
 
-    int r = radius;
-    int center_x = r;  // 画布中心
-    int center_y = r;
-
-    int half_r = r / 2;
-    int dot_r = r / 6;       // 与 FISHEYE_ICON_SIZE/2 一致（radius=108 时 dot_r=18）
-
-    // 步骤 1~4: 阴阳鱼本体（鱼眼圆点由 WiFi/BLE 图标控件替代，不在 canvas 上绘制）
-
-    // 步骤 1: 填充白色大圆 (阳鱼)
-    FillCircle(canvas, center_x, center_y, r, white);
-
-    // 步骤 2: 填充黑色右半圆 (阴鱼) - x > center_x 部分
-    for (int y = -r; y <= r; y++) {
-        int dy_sq = y * y;
-        int x_max = (int)std::sqrt((float)(r * r - dy_sq));
-        for (int x = 0; x <= x_max; x++) {  // x >= 0
-            lv_canvas_set_px(canvas, center_x + x, center_y + y, black, LV_OPA_COVER);
-        }
-    }
-
-    // 步骤 3: 填充上半小圆(白色) - 阴中有阳点
-    // 在阴鱼（黑色右半）的上半添加白色小圆
-    for (int y = -half_r; y <= half_r; y++) {
-        int dy_sq = y * y;
-        int x_max = (int)std::sqrt((float)(half_r * half_r - dy_sq));
-        for (int x = -x_max; x <= x_max; x++) {
-            int px = center_x + x;
-            int py = center_y - half_r + y;
-            // 需要在大圆内
-            int big_dx = x;
-            int big_dy = y - half_r;
-            if (big_dx * big_dx + big_dy * big_dy <= r * r) {
-                lv_canvas_set_px(canvas, px, py, white, LV_OPA_COVER);
-            }
-        }
-    }
-
-    // 步骤 4: 填充下半小圆(黑色) - 阳中有阴点
-    // 在阳鱼（白色左半）的下半添加黑色小圆
-    for (int y = -half_r; y <= half_r; y++) {
-        int dy_sq = y * y;
-        int x_max = (int)std::sqrt((float)(half_r * half_r - dy_sq));
-        for (int x = -x_max; x <= x_max; x++) {
-            int px = center_x + x;
-            int py = center_y + half_r + y;
-            // 需要在大圆内
-            int big_dx = x;
-            int big_dy = y + half_r;
-            if (big_dx * big_dx + big_dy * big_dy <= r * r) {
-                lv_canvas_set_px(canvas, px, py, black, LV_OPA_COVER);
-            }
-        }
-    }
-
-    // 步骤 5~6: 鱼眼底色 baked 进 canvas（与太极一体旋转，避免独立白底控件触发分块白闪）
-    const int top_eye_y = center_y - half_r;
-    const int bot_eye_y = center_y + half_r;
-    FillCircle(canvas, center_x, top_eye_y, dot_r, lv_color_hex(0x505050));
-    FillCircle(canvas, center_x, bot_eye_y, dot_r, white);
-
-    // 步骤 7: 鎏金外圈（4px 抗锯齿）
-    constexpr float kTaijiGoldRingWidth = 4.0f;
-    lv_color_t gold = lv_color_hex(0xD4AF37);
-    DrawRingAA(canvas, center_x, center_y, (float)r - 1.0f, kTaijiGoldRingWidth, gold);
-
-    ESP_LOGI(TAG, "Taiji diagram created successfully (%dx%d canvas)", canvas_size, canvas_size);
+    ESP_LOGI(TAG, "Taiji diagram created (AA %dx%d canvas)", canvas_size, canvas_size);
 }
 
 // ====================== 旋转控制 ======================
@@ -369,6 +481,40 @@ lv_obj_t* CompassTaiji::GetContainer() {
     return taiji_container_;
 }
 
+lv_obj_t* CompassTaiji::GetCanvas() {
+    return canvas_;
+}
+
 int CompassTaiji::GetRadius() {
     return taiji_radius_;
+}
+
+void CompassTaiji::SetStudyRingMode(bool ring_only)
+{
+    if (canvas_ == nullptr || taiji_radius_ <= 0 || canvas_buf_ == nullptr) {
+        return;
+    }
+    if (ring_only == study_ring_mode_active_) {
+        return;
+    }
+
+    if (canvas_snapshots_ready_) {
+        uint32_t* src = ring_only ? study_ring_canvas_snapshot_ : taiji_canvas_snapshot_;
+        if (src != nullptr) {
+            memcpy(canvas_buf_, src, canvas_buf_bytes_);
+            study_ring_mode_active_ = ring_only;
+            lv_obj_invalidate(canvas_);
+            return;
+        }
+    }
+
+    const int r = taiji_radius_;
+    if (ring_only) {
+        DrawGoldRingOnlyAA(canvas_, r, r, r);
+    } else {
+        ClearCanvasTransparent(canvas_, r * 2);
+        DrawTaijiDiagramAA(canvas_, r, r, r);
+    }
+    study_ring_mode_active_ = ring_only;
+    lv_obj_invalidate(canvas_);
 }

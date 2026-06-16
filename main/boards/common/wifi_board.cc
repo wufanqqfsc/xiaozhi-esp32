@@ -114,9 +114,10 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
 #ifdef CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
             // make sure blufi resources has been released
             Blufi::GetInstance().deinit();
-#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
-            BleServer::GetInstance().Start();
 #endif
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+            // 热点配网期间会 Stop()；连上 WiFi 后恢复 BLE 鱼眼
+            BleServer::GetInstance().Start();
 #endif
             in_config_mode_ = false;
             ESP_LOGI(TAG, "Connected to WiFi: %s", data.c_str());
@@ -167,6 +168,10 @@ void WifiBoard::StartWifiConfigMode() {
     // Transition to wifi configuring state
     Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    // BLE 与 SoftAP 共存会导致 beacon 分配失败并崩溃，配网前须释放 BT 控制器
+    BleServer::GetInstance().Stop();
+#endif
     auto& wifi_manager = WifiManager::GetInstance();
 
     wifi_manager.StartConfigAp();

@@ -76,8 +76,23 @@ public:
     /** 太极容器句柄（鱼眼须创建为其子对象以共旋转） */
     static lv_obj_t* GetContainer();
 
+    /** 阴阳鱼 canvas */
+    static lv_obj_t* GetCanvas();
+
+    /**
+     * 学业态：仅保留鎏金外圈 + 圈内深色底，不绘阴阳鱼；false 时恢复完整太极图
+     */
+    static void SetStudyRingMode(bool ring_only);
+
     /** 当前太极外径（像素） */
     static int GetRadius();
+
+    /**
+     * 鱼眼小圆盘：实心填色 + 抗锯齿描边（外缘向 bg 混合，避免透明叠底产生杂色）
+     * @param bg 与所在鱼体底色一致（白鱼眼位=白 / 黑鱼眼位=黑），方形 canvas 外缘与 AA 向此色混合
+     */
+    static void PaintFisheyeDisc(lv_obj_t* canvas, int size, lv_color_t fill,
+                                 lv_color_t ring, lv_color_t bg, int ring_width);
 
     // 内部访问 (供 auto_rotation_task 调用) - public 让全局函数可访问
     static int GetStepInternal() { return auto_rotation_step_; }
@@ -97,6 +112,12 @@ private:
     static lv_obj_t* outer_ring_;         // 外圈鎏金高亮环
     static lv_obj_t* outer_glow_;         // 外圈发光
     static lv_obj_t* canvas_;             // 太极图画布
+    static uint32_t* canvas_buf_;         // canvas 像素缓冲（与 lv_canvas 共享）
+    static uint32_t* taiji_canvas_snapshot_;
+    static uint32_t* study_ring_canvas_snapshot_;
+    static size_t canvas_buf_bytes_;
+    static bool canvas_snapshots_ready_;
+    static bool study_ring_mode_active_;
     static int taiji_radius_;             // 外圆半径（与鱼眼尺寸联动）
     static int current_rotation_;         // 当前旋转角度 (0.1°单位)
 
@@ -113,6 +134,9 @@ private:
      */
     static lv_obj_t* CreateCircle(lv_obj_t* parent, int x, int y, int r,
                                    lv_color_t color, lv_opa_t opa = LV_OPA_COVER);
+
+    /** 启动时预渲染太极/学业环两套 canvas 快照，菜单切换时 memcpy 切换 */
+    static void BuildCanvasSnapshots(lv_obj_t* canvas, int r);
 };
 
 #endif // COMPASS_TAIJI_H

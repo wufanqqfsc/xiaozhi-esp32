@@ -218,9 +218,8 @@ void Application::Initialize() {
             ApplyBleFisheyeStatus(status);
         });
     });
-    if (BleServer::GetInstance().Start() != ESP_OK) {
-        ESP_LOGW(TAG, "BLE fisheye server failed to start");
-    }
+    // BLE 在 WiFi 连上后由 WifiBoard::OnNetworkEvent(Connected) 启动；
+    // 开机即启会与热点配网 SoftAP 争用内存导致 AP 起不来。
 #endif
 
     // Start network asynchronously
@@ -745,6 +744,13 @@ bool Application::HandleFortuneBootKey() {
 bool Application::HandleFortuneBootLongPress() {
     if (auto* attitude = GetAttitudeDisplay()) {
         return attitude->HandleFortuneBootLongPress();
+    }
+    return false;
+}
+
+bool Application::HandleStudyPowerKey() {
+    if (auto* attitude = GetAttitudeDisplay()) {
+        return attitude->HandleStudyPowerKey();
     }
     return false;
 }

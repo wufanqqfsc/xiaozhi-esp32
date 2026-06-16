@@ -15,8 +15,8 @@
 
 #define TAG "AttitudeDisplay"
 
-#define FORTUNE_CARD_W            200
-#define FORTUNE_CARD_H            240
+#define FORTUNE_CARD_W            FORTUNE_CARD_SIZE
+#define FORTUNE_CARD_H            FORTUNE_CARD_SIZE
 #define TAIJI_ROTATION_PERIOD_NORMAL_MS  60000   // 常态 60s/圈（减慢旋转 + 降低刷屏）
 #define FORTUNE_TAIJI_PHASE_MS           4000   // 每 4s 一档
 #define FORTUNE_TAIJI_PHASE_COUNT        5
@@ -29,8 +29,8 @@
 #define FORTUNE_PROGRESS_STEP_MS  2000   // 20s 进度环分 10 步
 #define BG_LAYER_CENTER_SIZE      270
 #define COMPASS_DOT_SIZE          6
-#define FORTUNE_GUA_CANVAS_W      72
-#define FORTUNE_GUA_CANVAS_H      48
+#define FORTUNE_GUA_CANVAS_W      56
+#define FORTUNE_GUA_CANVAS_H      36
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
@@ -38,8 +38,7 @@ LV_FONT_DECLARE(font_awesome_30_4);
 
 namespace {
 
-static const lv_color_t kFisheyeGrayBg = lv_color_hex(0x505050);       // WiFi 断开：叠在白鱼区域
-static const lv_color_t kFisheyeGrayBorder = lv_color_hex(0x606060);
+// WiFi 鱼眼位 canvas 已铺纯黑，与阴鱼底色一致
 static const lv_color_t kFisheyeGrayIcon = lv_color_hex(0x909090);
 static const lv_color_t kFisheyeBleBlue = lv_color_hex(0x2196F3);    // BLE 已连接：蓝边
 static const uint32_t kBleBorderGray = 0x909090;
@@ -48,6 +47,42 @@ static const uint32_t kBleBorderBlue = 0x2196F3;
 static const lv_color_t kFisheyeGold = lv_color_hex(0xD4AF37);
 static const lv_color_t kFisheyeWhite = lv_color_hex(0xFFFFFF);
 static const lv_color_t kFisheyeDark = lv_color_hex(0x0A0A0A);
+// 鱼眼描边固定色：WiFi 白边 / BLE 黑边（状态由图标色区分）
+static const lv_color_t kFisheyeWifiRingBorder = kFisheyeWhite;
+static const lv_color_t kFisheyeBleRingBorder = lv_color_black();
+
+static uint32_t* AllocFisheyeCanvasBuffer(int size)
+{
+    const uint32_t buf_size = static_cast<uint32_t>(size) * static_cast<uint32_t>(size) *
+                              sizeof(uint32_t);
+    auto* buf = static_cast<uint32_t*>(heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM));
+    if (buf == nullptr) {
+        buf = static_cast<uint32_t*>(malloc(buf_size));
+    }
+    if (buf != nullptr) {
+        memset(buf, 0, buf_size);
+    }
+    return buf;
+}
+
+static lv_obj_t* CreateFisheyeCanvas(lv_obj_t* parent, uint32_t*& out_buf)
+{
+    out_buf = AllocFisheyeCanvasBuffer(FISHEYE_ICON_SIZE);
+    if (out_buf == nullptr) {
+        ESP_LOGE(TAG, "Fisheye canvas alloc failed (%d px)", FISHEYE_ICON_SIZE);
+        return nullptr;
+    }
+
+    lv_obj_t* canvas = lv_canvas_create(parent);
+    lv_canvas_set_buffer(canvas, out_buf, FISHEYE_ICON_SIZE, FISHEYE_ICON_SIZE,
+                         LV_COLOR_FORMAT_ARGB8888);
+    lv_obj_set_pos(canvas, 0, 0);
+    lv_obj_set_style_bg_opa(canvas, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(canvas, 0, 0);
+    lv_image_set_antialias(canvas, false);
+    lv_obj_clear_flag(canvas, LV_OBJ_FLAG_CLICKABLE);
+    return canvas;
+}
 
 static void FisheyeOpaAnimCb(void* obj, int32_t value)
 {
@@ -56,8 +91,8 @@ static void FisheyeOpaAnimCb(void* obj, int32_t value)
 
 static void FisheyeBorderColorAnimCb(void* obj, int32_t value)
 {
-    lv_obj_set_style_border_color(static_cast<lv_obj_t*>(obj),
-                                  lv_color_hex(static_cast<uint32_t>(value)), 0);
+    (void)obj;
+    (void)value;
 }
 
 static void ContainerOpaAnimCb(void* obj, int32_t value)
@@ -207,6 +242,7 @@ void AttitudeDisplay::SetupUI()
     CreateLayer0Taiji();
     CreateWifiFisheye();
     CreateBleFisheye();
+    CreateStudyArea();
     UpdateWifiFisheye(WifiStatus::DISCONNECTED);
     UpdateBleFisheye(BleStatus::DISABLED);
     CompassTaiji::StartAutoRotation(TAIJI_ROTATION_PERIOD_NORMAL_MS);
@@ -442,47 +478,63 @@ void AttitudeDisplay::SelectFortuneMenuItem(int index)
     if (index < 0 || index >= FORTUNE_MENU_COUNT) {
         return;
     }
+    const int prev = fortune_menu_selected_index_;
+    const bool was_active = fortune_menu_selection_active_;
     fortune_menu_selection_active_ = true;
     fortune_menu_selected_index_ = index;
-    UpdateFortuneMenuSelection();
+    if (index == static_cast<int>(FortuneMenuType::Study)) {
+        study_area_suppressed_ = false;
+    }
+    if (was_active && prev != index) {
+        UpdateFortuneMenuItemVisual(prev, false);
+    }
+    UpdateFortuneMenuItemVisual(index, true);
+    SyncStudyAreaWithMenu();
     ESP_LOGI(TAG, "Fortune menu select -> %d (%s)", index,
              kFortuneMenuDefs[index].func_label);
 }
 
+void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
+{
+    if (index < 0 || index >= FORTUNE_MENU_COUNT || fortune_menu_labels_[index] == nullptr) {
+        return;
+    }
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const int scale = (selected && fortune_menu_selection_active_)
+        ? FORTUNE_MENU_ICON_SCALE_SELECTED
+        : FORTUNE_MENU_ICON_SCALE;
+    const int cx = fortune_menu_center_x_[index];
+    const int cy = fortune_menu_center_y_[index];
+
+    if (fortune_menu_applied_scale_[index] != scale) {
+        lv_obj_set_style_transform_scale(fortune_menu_labels_[index], scale, 0);
+        fortune_menu_applied_scale_[index] = scale;
+        lv_obj_update_layout(fortune_menu_labels_[index]);
+    }
+    lv_obj_set_style_text_color(fortune_menu_labels_[index],
+        selected ? c.text_high : c.text_main, 0);
+    const int w = lv_obj_get_width(fortune_menu_labels_[index]);
+    const int h = lv_obj_get_height(fortune_menu_labels_[index]);
+    lv_obj_set_pos(fortune_menu_labels_[index], cx - w / 2, cy - h / 2);
+}
+
 void AttitudeDisplay::UpdateFortuneMenuSelection()
 {
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
-    const bool show_selected_size = fortune_menu_selection_active_;
-
     for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
-        if (fortune_menu_labels_[i] == nullptr) {
-            continue;
-        }
-
-        const bool selected = (i == fortune_menu_selected_index_);
-        const int scale = (selected && show_selected_size)
-            ? FORTUNE_MENU_ICON_SCALE_SELECTED
-            : FORTUNE_MENU_ICON_SCALE;
-        const int cx = fortune_menu_center_x_[i];
-        const int cy = fortune_menu_center_y_[i];
-
-        if (fortune_menu_applied_scale_[i] != scale) {
-            lv_obj_set_style_transform_scale(fortune_menu_labels_[i], scale, 0);
-            fortune_menu_applied_scale_[i] = scale;
-        }
-        lv_obj_set_style_text_color(fortune_menu_labels_[i],
-            selected ? c.text_high : c.text_main, 0);
-        lv_obj_update_layout(fortune_menu_labels_[i]);
-        const int w = lv_obj_get_width(fortune_menu_labels_[i]);
-        const int h = lv_obj_get_height(fortune_menu_labels_[i]);
-        lv_obj_set_pos(fortune_menu_labels_[i], cx - w / 2, cy - h / 2);
+        UpdateFortuneMenuItemVisual(i, i == fortune_menu_selected_index_);
     }
 }
 
 void AttitudeDisplay::CycleFortuneMenuSelection()
 {
-    fortune_menu_selected_index_ = (fortune_menu_selected_index_ + 1) % FORTUNE_MENU_COUNT;
-    UpdateFortuneMenuSelection();
+    const int prev = fortune_menu_selected_index_;
+    fortune_menu_selected_index_ = (prev + 1) % FORTUNE_MENU_COUNT;
+    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)) {
+        study_area_suppressed_ = false;
+    }
+    UpdateFortuneMenuItemVisual(prev, false);
+    UpdateFortuneMenuItemVisual(fortune_menu_selected_index_, true);
+    SyncStudyAreaWithMenu();
     PlayFortuneMenuSelectSound();
     ESP_LOGI(TAG, "Fortune menu selected -> %d (%s)",
              fortune_menu_selected_index_,
@@ -531,6 +583,399 @@ void AttitudeDisplay::OnFortuneMenuRingTouched(lv_event_t* e)
 
     self->SelectFortuneMenuItem(idx);
     self->PlayFortuneMenuSelectSound();
+}
+
+void AttitudeDisplay::CreateStudyArea()
+{
+    lv_obj_t* container = CompassTaiji::GetContainer();
+    if (container == nullptr) {
+        ESP_LOGE(TAG, "CreateStudyArea: taiji container missing");
+        return;
+    }
+
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const lv_font_t* icon_font = GetFortuneMenuIconFont();
+    auto* text_theme = static_cast<LvglTheme*>(LvglThemeManager::GetInstance().GetTheme("dark"));
+    const lv_font_t* text_font = text_theme != nullptr && text_theme->text_font() != nullptr
+        ? text_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
+
+    study_panel_ = lv_obj_create(container);
+    lv_obj_set_size(study_panel_, TAIJI_CANVAS_SIZE, TAIJI_CANVAS_SIZE);
+    lv_obj_set_pos(study_panel_, 0, 0);
+    lv_obj_set_style_radius(study_panel_, TAIJI_RADIUS, 0);
+    lv_obj_set_style_bg_opa(study_panel_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(study_panel_, 0, 0);
+    lv_obj_set_style_pad_all(study_panel_, 0, 0);
+    lv_obj_clear_flag(study_panel_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(study_panel_, LV_OBJ_FLAG_HIDDEN);
+
+    study_clock_label_ = lv_label_create(study_panel_);
+    lv_obj_set_style_text_font(study_clock_label_, icon_font, 0);
+    lv_obj_set_style_text_color(study_clock_label_, c.text_main, 0);
+    lv_obj_set_style_transform_scale(study_clock_label_, STUDY_ICON_SCALE, 0);
+    lv_obj_set_style_transform_pivot_x(study_clock_label_, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(study_clock_label_, LV_PCT(50), 0);
+    lv_label_set_text(study_clock_label_, FONT_AWESOME_CLOCK);
+    lv_obj_align(study_clock_label_, LV_ALIGN_CENTER, 0, -STUDY_ICON_OFFSET_Y);
+    lv_obj_add_flag(study_clock_label_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(study_clock_label_, OnStudyMenuIconClicked, LV_EVENT_CLICKED, this);
+
+    study_drum_label_ = lv_label_create(study_panel_);
+    lv_obj_set_style_text_font(study_drum_label_, icon_font, 0);
+    lv_obj_set_style_text_color(study_drum_label_, c.text_main, 0);
+    lv_obj_set_style_transform_scale(study_drum_label_, STUDY_ICON_SCALE, 0);
+    lv_obj_set_style_transform_pivot_x(study_drum_label_, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(study_drum_label_, LV_PCT(50), 0);
+    lv_label_set_text(study_drum_label_, FONT_AWESOME_MUSIC);
+    lv_obj_align(study_drum_label_, LV_ALIGN_CENTER, 0, STUDY_ICON_OFFSET_Y);
+    lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(study_drum_label_, OnStudyMenuIconClicked, LV_EVENT_CLICKED, this);
+
+    study_focus_arc_ = lv_arc_create(study_panel_);
+    lv_obj_set_size(study_focus_arc_, STUDY_FOCUS_ARC_SIZE, STUDY_FOCUS_ARC_SIZE);
+    lv_obj_align(study_focus_arc_, LV_ALIGN_CENTER, 0, 0);
+    lv_arc_set_range(study_focus_arc_, 0, 360);
+    lv_arc_set_bg_angles(study_focus_arc_, 0, 360);
+    lv_arc_set_value(study_focus_arc_, 360);
+    lv_obj_set_style_arc_width(study_focus_arc_, STUDY_FOCUS_ARC_TRACK_WIDTH, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(study_focus_arc_, lv_color_hex(0x3A3A3A), LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(study_focus_arc_, true, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(study_focus_arc_, STUDY_FOCUS_ARC_INDICATOR_WIDTH, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(study_focus_arc_, lv_color_hex(0x4FC3F7), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(study_focus_arc_, true, LV_PART_INDICATOR);
+    lv_obj_set_style_opa(study_focus_arc_, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_clear_flag(study_focus_arc_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
+
+    study_time_label_ = lv_label_create(study_panel_);
+    lv_obj_set_style_text_font(study_time_label_, text_font, 0);
+    lv_obj_set_style_text_color(study_time_label_, c.text_high, 0);
+    lv_label_set_text(study_time_label_, "01:00");
+    lv_obj_align(study_time_label_, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
+
+    ESP_LOGI(TAG, "Study area created (icons %dpx, focus arc r=%d track=%d ind=%d, gap=%d)",
+             STUDY_ICON_GLYPH_PX, STUDY_FOCUS_ARC_RADIUS,
+             STUDY_FOCUS_ARC_TRACK_WIDTH, STUDY_FOCUS_ARC_INDICATOR_WIDTH,
+             STUDY_FOCUS_ARC_RING_GAP);
+}
+
+void AttitudeDisplay::UpdateStudyMenuSelection()
+{
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const bool timer_sel = study_menu_selected_ == StudyMenuItem::Timer;
+
+    if (study_clock_label_ != nullptr) {
+        lv_obj_set_style_transform_scale(study_clock_label_,
+            timer_sel ? STUDY_ICON_SCALE_SELECTED : STUDY_ICON_SCALE, 0);
+        lv_obj_set_style_text_color(study_clock_label_,
+            timer_sel ? c.text_high : c.text_main, 0);
+    }
+    if (study_drum_label_ != nullptr) {
+        lv_obj_set_style_transform_scale(study_drum_label_,
+            timer_sel ? STUDY_ICON_SCALE : STUDY_ICON_SCALE_SELECTED, 0);
+        lv_obj_set_style_text_color(study_drum_label_,
+            timer_sel ? c.text_main : c.text_high, 0);
+    }
+}
+
+void AttitudeDisplay::SelectStudyMenuItem(StudyMenuItem item)
+{
+    if (study_menu_selected_ == item) {
+        return;
+    }
+    study_menu_selected_ = item;
+    UpdateStudyMenuSelection();
+    PlayFortuneMenuSelectSound();
+    ESP_LOGI(TAG, "Study menu item -> %d", static_cast<int>(item));
+}
+
+void AttitudeDisplay::OnStudyMenuIconClicked(lv_event_t* e)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
+    if (self == nullptr || self->study_sub_state_ != StudySubState::Menu) {
+        return;
+    }
+    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+    if (target == self->study_clock_label_) {
+        self->SelectStudyMenuItem(StudyMenuItem::Timer);
+    } else if (target == self->study_drum_label_) {
+        self->SelectStudyMenuItem(StudyMenuItem::Drum);
+    }
+}
+
+void AttitudeDisplay::ApplyStudyAreaOrientation(bool study_active)
+{
+    if (study_active == study_orientation_applied_) {
+        return;
+    }
+    if (study_active) {
+        study_saved_taiji_rotation_ = CompassTaiji::GetRotation();
+        const int rotated = (study_saved_taiji_rotation_ + STUDY_AREA_ROTATION_OFFSET_TENTH_DEG) % 3600;
+        CompassTaiji::SetRotation(rotated);
+        ESP_LOGI(TAG, "Study area rotated +90° CW (%d -> %d)", study_saved_taiji_rotation_, rotated);
+    } else {
+        CompassTaiji::SetRotation(study_saved_taiji_rotation_);
+        ESP_LOGI(TAG, "Study area rotation restored (%d)", study_saved_taiji_rotation_);
+    }
+    study_orientation_applied_ = study_active;
+}
+
+void AttitudeDisplay::SetTaijiCoreVisible(bool visible)
+{
+    if (visible) {
+        CompassTaiji::SetStudyRingMode(false);
+        ApplyStudyAreaOrientation(false);
+    } else {
+        CompassTaiji::SetStudyRingMode(true);
+        ApplyStudyAreaOrientation(true);
+    }
+    if (auto* canvas = CompassTaiji::GetCanvas()) {
+        lv_obj_remove_flag(canvas, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (wifi_fisheye_ != nullptr) {
+        if (visible) {
+            lv_obj_remove_flag(wifi_fisheye_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(wifi_fisheye_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (ble_fisheye_ != nullptr) {
+        if (visible) {
+            lv_obj_remove_flag(ble_fisheye_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(ble_fisheye_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+void AttitudeDisplay::EnterStudyMenu()
+{
+    if (study_panel_ == nullptr || study_sub_state_ == StudySubState::FocusRunning) {
+        return;
+    }
+    if (study_sub_state_ == StudySubState::Menu
+        || study_sub_state_ == StudySubState::CompleteBgm) {
+        return;
+    }
+
+    study_had_auto_rotation_ = CompassTaiji::IsAutoRotating();
+    if (study_had_auto_rotation_) {
+        study_saved_rotation_period_ms_ = CompassTaiji::GetAutoRotationPeriod();
+        CompassTaiji::StopAutoRotation();
+    }
+
+    SetTaijiCoreVisible(false);
+    study_menu_selected_ = StudyMenuItem::Timer;
+    study_sub_state_ = StudySubState::Menu;
+    ShowStudyMenuPanel();
+    ESP_LOGI(TAG, "Study menu entered (default: timer)");
+}
+
+void AttitudeDisplay::ExitStudyArea()
+{
+    StopStudyFocusTimer();
+    StopStudyCompleteBgm();
+
+    if (study_panel_ != nullptr) {
+        lv_obj_add_flag(study_panel_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (study_sub_state_ != StudySubState::Hidden) {
+        SetTaijiCoreVisible(true);
+        if (study_had_auto_rotation_ && fortune_state_ == FortuneState::Idle) {
+            CompassTaiji::StartAutoRotation(study_saved_rotation_period_ms_);
+        }
+        study_sub_state_ = StudySubState::Hidden;
+        ESP_LOGI(TAG, "Study area exited");
+    }
+}
+
+void AttitudeDisplay::ShowStudyMenuPanel()
+{
+    if (study_panel_ == nullptr) {
+        return;
+    }
+    lv_obj_remove_flag(study_panel_, LV_OBJ_FLAG_HIDDEN);
+    if (study_clock_label_ != nullptr) {
+        lv_obj_remove_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_drum_label_ != nullptr) {
+        lv_obj_remove_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_focus_arc_ != nullptr) {
+        lv_obj_add_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_time_label_ != nullptr) {
+        lv_obj_add_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    study_sub_state_ = StudySubState::Menu;
+    UpdateStudyMenuSelection();
+}
+
+void AttitudeDisplay::SyncStudyAreaWithMenu()
+{
+    if (fortune_state_ != FortuneState::Idle) {
+        ExitStudyArea();
+        return;
+    }
+    if (!fortune_menu_selection_active_) {
+        ExitStudyArea();
+        return;
+    }
+    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)) {
+        if (study_sub_state_ == StudySubState::Hidden && !study_area_suppressed_) {
+            EnterStudyMenu();
+        }
+    } else {
+        study_area_suppressed_ = false;
+        ExitStudyArea();
+    }
+}
+
+void AttitudeDisplay::UpdateStudyFocusDisplay(int remaining_ms)
+{
+    if (remaining_ms < 0) {
+        remaining_ms = 0;
+    }
+    const int total_sec = (remaining_ms + 999) / 1000;
+    const int min = total_sec / 60;
+    const int sec = total_sec % 60;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02d:%02d", min, sec);
+    if (study_time_label_ != nullptr) {
+        lv_label_set_text(study_time_label_, buf);
+    }
+    if (study_focus_arc_ != nullptr) {
+        const int arc_val = (remaining_ms * 360) / STUDY_FOCUS_DURATION_MS;
+        lv_arc_set_value(study_focus_arc_, arc_val);
+    }
+}
+
+void AttitudeDisplay::StopStudyFocusTimer()
+{
+    if (study_focus_timer_ != nullptr) {
+        lv_timer_delete(study_focus_timer_);
+        study_focus_timer_ = nullptr;
+    }
+}
+
+void AttitudeDisplay::StopStudyCompleteBgm()
+{
+    if (study_complete_bgm_timer_ != nullptr) {
+        lv_timer_delete(study_complete_bgm_timer_);
+        study_complete_bgm_timer_ = nullptr;
+    }
+    if (study_sub_state_ == StudySubState::CompleteBgm) {
+        study_sub_state_ = StudySubState::Menu;
+    }
+}
+
+void AttitudeDisplay::PlayStudyFocusCompleteBgm()
+{
+    StopStudyCompleteBgm();
+    study_sub_state_ = StudySubState::CompleteBgm;
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_STUDY_FOCUS_BGM);
+    study_complete_bgm_timer_ = lv_timer_create(OnStudyCompleteBgmTimer,
+                                                STUDY_FOCUS_BGM_DURATION_MS, this);
+    lv_timer_set_repeat_count(study_complete_bgm_timer_, 1);
+}
+
+void AttitudeDisplay::OnStudyCompleteBgmTimer(lv_timer_t* timer)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+    if (self == nullptr) {
+        return;
+    }
+    self->study_complete_bgm_timer_ = nullptr;
+    self->ShowStudyMenuPanel();
+    ESP_LOGI(TAG, "Study focus BGM finished -> menu");
+}
+
+void AttitudeDisplay::CancelStudyFocusToMenu()
+{
+    StopStudyFocusTimer();
+    if (study_focus_arc_ != nullptr) {
+        lv_arc_set_value(study_focus_arc_, 360);
+    }
+    ShowStudyMenuPanel();
+}
+
+void AttitudeDisplay::OnStudyFocusComplete()
+{
+    StopStudyFocusTimer();
+    UpdateStudyFocusDisplay(0);
+    if (study_focus_arc_ != nullptr) {
+        lv_obj_remove_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_time_label_ != nullptr) {
+        lv_obj_remove_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    PlayFortuneMenuSelectSound();
+    PlayStudyFocusCompleteBgm();
+    ESP_LOGI(TAG, "Study focus timer complete -> popup + BGM");
+}
+
+void AttitudeDisplay::OnStudyFocusTimer(lv_timer_t* timer)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+    if (self == nullptr || self->study_sub_state_ != StudySubState::FocusRunning) {
+        return;
+    }
+
+    const uint32_t elapsed = lv_tick_elaps(self->study_focus_start_tick_);
+    const int remaining = static_cast<int>(STUDY_FOCUS_DURATION_MS) - static_cast<int>(elapsed);
+    if (remaining <= 0) {
+        self->OnStudyFocusComplete();
+        return;
+    }
+    self->UpdateStudyFocusDisplay(remaining);
+}
+
+void AttitudeDisplay::StartStudyFocusTimer()
+{
+    if (study_panel_ == nullptr || study_sub_state_ != StudySubState::Menu) {
+        return;
+    }
+    if (study_menu_selected_ != StudyMenuItem::Timer) {
+        ESP_LOGI(TAG, "Study focus: timer not selected, ignored");
+        return;
+    }
+
+    StopStudyFocusTimer();
+    study_sub_state_ = StudySubState::FocusRunning;
+
+    if (study_clock_label_ != nullptr) {
+        lv_obj_add_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_drum_label_ != nullptr) {
+        lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_focus_arc_ != nullptr) {
+        lv_obj_remove_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
+        lv_arc_set_value(study_focus_arc_, 360);
+    }
+    if (study_time_label_ != nullptr) {
+        lv_obj_remove_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    study_focus_start_tick_ = lv_tick_get();
+    UpdateStudyFocusDisplay(STUDY_FOCUS_DURATION_MS);
+    study_focus_timer_ = lv_timer_create(OnStudyFocusTimer, STUDY_FOCUS_TICK_MS, this);
+    ESP_LOGI(TAG, "Study focus timer started (%ds)", STUDY_FOCUS_DURATION_MS / 1000);
+}
+
+bool AttitudeDisplay::HandleStudyPowerKey()
+{
+    DisplayLockGuard lock(this);
+    if (study_sub_state_ == StudySubState::Hidden) {
+        return false;
+    }
+
+    ExitStudyArea();
+    study_area_suppressed_ = true;
+    ESP_LOGI(TAG, "PWR: study area exited -> full taiji (re-select Study to re-enter)");
+    return true;
 }
 
 void AttitudeDisplay::ShowFortuneFromMenu(FortuneMenuType type)
@@ -662,6 +1107,26 @@ void AttitudeDisplay::StopFisheyePulse(lv_obj_t* obj)
     lv_obj_set_style_opa(obj, LV_OPA_COVER, 0);
 }
 
+void AttitudeDisplay::RedrawWifiFisheyeCanvas()
+{
+    if (wifi_fisheye_canvas_ == nullptr) {
+        return;
+    }
+    CompassTaiji::PaintFisheyeDisc(wifi_fisheye_canvas_, FISHEYE_ICON_SIZE,
+                                   lv_color_black(), kFisheyeWifiRingBorder,
+                                   lv_color_white(), FISHEYE_BORDER_WIDTH);
+}
+
+void AttitudeDisplay::RedrawBleFisheyeCanvas()
+{
+    if (ble_fisheye_canvas_ == nullptr) {
+        return;
+    }
+    CompassTaiji::PaintFisheyeDisc(ble_fisheye_canvas_, FISHEYE_ICON_SIZE,
+                                   lv_color_white(), kFisheyeBleRingBorder,
+                                   lv_color_black(), FISHEYE_BORDER_WIDTH);
+}
+
 void AttitudeDisplay::CreateWifiFisheye()
 {
     lv_obj_t* parent = CompassTaiji::GetContainer();
@@ -673,16 +1138,23 @@ void AttitudeDisplay::CreateWifiFisheye()
     wifi_fisheye_ = lv_obj_create(parent);
     lv_obj_set_size(wifi_fisheye_, FISHEYE_ICON_SIZE, FISHEYE_ICON_SIZE);
     lv_obj_set_pos(wifi_fisheye_, FISHEYE_WIFI_LOCAL_X, FISHEYE_WIFI_LOCAL_Y);
-    lv_obj_set_style_radius(wifi_fisheye_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(wifi_fisheye_, 2, 0);
+    lv_obj_set_style_radius(wifi_fisheye_, FISHEYE_ICON_SIZE / 2, 0);
+    lv_obj_set_style_clip_corner(wifi_fisheye_, true, 0);
     lv_obj_set_style_bg_opa(wifi_fisheye_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(wifi_fisheye_, 0, 0);
     lv_obj_set_style_pad_all(wifi_fisheye_, 0, 0);
     lv_obj_clear_flag(wifi_fisheye_, LV_OBJ_FLAG_CLICKABLE);
+
+    uint32_t* canvas_buf = nullptr;
+    wifi_fisheye_canvas_ = CreateFisheyeCanvas(wifi_fisheye_, canvas_buf);
+    (void)canvas_buf;
+    RedrawWifiFisheyeCanvas();
 
     wifi_fisheye_icon_ = lv_label_create(wifi_fisheye_);
     lv_obj_set_style_text_font(wifi_fisheye_icon_, GetIconFont(this), 0);
     lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI);
     lv_obj_center(wifi_fisheye_icon_);
+    lv_obj_move_foreground(wifi_fisheye_icon_);
 
     ESP_LOGI(TAG, "WiFi fisheye on taiji at local (%d,%d)",
              FISHEYE_WIFI_LOCAL_X, FISHEYE_WIFI_LOCAL_Y);
@@ -699,16 +1171,23 @@ void AttitudeDisplay::CreateBleFisheye()
     ble_fisheye_ = lv_obj_create(parent);
     lv_obj_set_size(ble_fisheye_, FISHEYE_ICON_SIZE, FISHEYE_ICON_SIZE);
     lv_obj_set_pos(ble_fisheye_, FISHEYE_BLE_LOCAL_X, FISHEYE_BLE_LOCAL_Y);
-    lv_obj_set_style_radius(ble_fisheye_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(ble_fisheye_, 2, 0);
+    lv_obj_set_style_radius(ble_fisheye_, FISHEYE_ICON_SIZE / 2, 0);
+    lv_obj_set_style_clip_corner(ble_fisheye_, true, 0);
     lv_obj_set_style_bg_opa(ble_fisheye_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(ble_fisheye_, 0, 0);
     lv_obj_set_style_pad_all(ble_fisheye_, 0, 0);
     lv_obj_clear_flag(ble_fisheye_, LV_OBJ_FLAG_CLICKABLE);
+
+    uint32_t* canvas_buf = nullptr;
+    ble_fisheye_canvas_ = CreateFisheyeCanvas(ble_fisheye_, canvas_buf);
+    (void)canvas_buf;
+    RedrawBleFisheyeCanvas();
 
     ble_fisheye_icon_ = lv_label_create(ble_fisheye_);
     lv_obj_set_style_text_font(ble_fisheye_icon_, GetIconFont(this), 0);
     lv_label_set_text(ble_fisheye_icon_, FONT_AWESOME_BLUETOOTH);
     lv_obj_center(ble_fisheye_icon_);
+    lv_obj_move_foreground(ble_fisheye_icon_);
 
     ESP_LOGI(TAG, "BLE fisheye on taiji at local (%d,%d)",
              FISHEYE_BLE_LOCAL_X, FISHEYE_BLE_LOCAL_Y);
@@ -721,24 +1200,20 @@ void AttitudeDisplay::ApplyWifiFisheyeStyle(WifiStatus status)
     }
 
     StopFisheyePulse(wifi_fisheye_);
-
-    lv_obj_set_style_bg_opa(wifi_fisheye_, LV_OPA_TRANSP, 0);
+    RedrawWifiFisheyeCanvas();
 
     switch (status) {
     case WifiStatus::DISCONNECTED:
-        lv_obj_set_style_border_color(wifi_fisheye_, kFisheyeGrayBorder, 0);
         lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeGrayIcon, 0);
         lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI_SLASH);
         break;
     case WifiStatus::CONNECTING:
-        lv_obj_set_style_border_color(wifi_fisheye_, kFisheyeGold, 0);
         lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeGold, 0);
         lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI);
         StartFisheyePulse(wifi_fisheye_);
         break;
     case WifiStatus::CONNECTED:
-        lv_obj_set_style_border_color(wifi_fisheye_, kFisheyeGold, 0);
-        lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeDark, 0);
+        lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeGold, 0);
         lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI);
         break;
     default:
@@ -753,24 +1228,18 @@ void AttitudeDisplay::ApplyBleFisheyeStyle(BleStatus status)
     }
 
     StopFisheyePulse(ble_fisheye_);
-
-    // 白底由 canvas 鱼眼位绘制；此处仅边框 + 图标，减轻旋转时独立色块刷屏
-    lv_obj_set_style_bg_opa(ble_fisheye_, LV_OPA_TRANSP, 0);
+    RedrawBleFisheyeCanvas();
 
     switch (status) {
     case BleStatus::DISABLED:
-        lv_obj_set_style_border_color(ble_fisheye_, kFisheyeGrayIcon, 0);
         lv_obj_set_style_text_color(ble_fisheye_icon_, kFisheyeGrayIcon, 0);
         lv_label_set_text(ble_fisheye_icon_, FONT_AWESOME_BLUETOOTH);
         break;
     case BleStatus::ADVERTISING:
-        lv_obj_set_style_border_color(ble_fisheye_, kFisheyeWhite, 0);
         lv_obj_set_style_text_color(ble_fisheye_icon_, kFisheyeGrayIcon, 0);
         lv_label_set_text(ble_fisheye_icon_, FONT_AWESOME_BLUETOOTH);
-        StartFisheyeBorderPulse(ble_fisheye_, kBleBorderGray, kBleBorderWhite);
         break;
     case BleStatus::CONNECTED:
-        lv_obj_set_style_border_color(ble_fisheye_, kFisheyeBleBlue, 0);
         lv_obj_set_style_text_color(ble_fisheye_icon_, kFisheyeBleBlue, 0);
         lv_label_set_text(ble_fisheye_icon_, FONT_AWESOME_BLUETOOTH);
         break;
@@ -868,11 +1337,11 @@ static lv_obj_t* CreateHexagramWidget(lv_obj_t* parent, int gua_index)
     lv_obj_set_style_pad_all(box, 0, 0);
     lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
 
-    const int line_w = 52;
-    const int line_h = 3;
-    const int gap_y = 5;
-    const int yin_gap = 8;
-    int y = 4;
+    const int line_w = 40;
+    const int line_h = 2;
+    const int gap_y = 3;
+    const int yin_gap = 6;
+    int y = 2;
     for (int i = 5; i >= 0; --i) {
         const bool yang = (bits >> i) & 0x01;
         const int x0 = (FORTUNE_GUA_CANVAS_W - line_w) / 2;
@@ -1134,29 +1603,37 @@ void AttitudeDisplay::OnFortuneResultTimer(lv_timer_t* timer)
 void AttitudeDisplay::OnFortuneFisheyePulseTimer(lv_timer_t* timer)
 {
     auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
-    if (self == nullptr || self->fortune_state_ != FortuneState::Animating) {
+    if (self == nullptr) {
+        return;
+    }
+    if (self->fortune_state_ != FortuneState::Animating) {
+        self->fortune_fisheye_pulse_timer_ = nullptr;
+        lv_timer_delete(timer);
+        self->ApplyWifiFisheyeStyle(self->wifi_status_);
+        self->ApplyBleFisheyeStyle(self->ble_status_);
         return;
     }
 
     self->fortune_fisheye_pulse_gold_ = !self->fortune_fisheye_pulse_gold_;
-    const lv_color_t border = self->fortune_fisheye_pulse_gold_ ? kFisheyeGold : kFisheyeGrayBorder;
-    const lv_color_t icon = self->fortune_fisheye_pulse_gold_ ? kFisheyeDark : kFisheyeGrayIcon;
+    const lv_color_t icon = self->fortune_fisheye_pulse_gold_ ? kFisheyeGold : kFisheyeGrayIcon;
 
-    if (self->wifi_fisheye_ != nullptr) {
-        lv_obj_set_style_border_color(self->wifi_fisheye_, border, 0);
+    if (self->wifi_fisheye_canvas_ != nullptr) {
+        self->RedrawWifiFisheyeCanvas();
         lv_obj_set_style_text_color(self->wifi_fisheye_icon_, icon, 0);
     }
-    if (self->ble_fisheye_ != nullptr) {
-        const lv_color_t ble_border = self->fortune_fisheye_pulse_gold_
-            ? kFisheyeWhite : kFisheyeGrayIcon;
-        lv_obj_set_style_border_color(self->ble_fisheye_, ble_border, 0);
-        lv_obj_set_style_text_color(self->ble_fisheye_icon_, kFisheyeGrayIcon, 0);
+    if (self->ble_fisheye_canvas_ != nullptr) {
+        self->RedrawBleFisheyeCanvas();
+        const lv_color_t ble_icon = self->fortune_fisheye_pulse_gold_
+            ? kFisheyeBleBlue : kFisheyeGrayIcon;
+        lv_obj_set_style_text_color(self->ble_fisheye_icon_, ble_icon, 0);
     }
 
     self->fortune_fisheye_pulse_count_++;
     if (self->fortune_fisheye_pulse_count_ >= 5) {
         lv_timer_delete(timer);
         self->fortune_fisheye_pulse_timer_ = nullptr;
+        self->ApplyWifiFisheyeStyle(self->wifi_status_);
+        self->ApplyBleFisheyeStyle(self->ble_status_);
     }
 }
 
@@ -1185,6 +1662,7 @@ void AttitudeDisplay::ShowFortune(const std::string& func_label, const std::stri
 
 void AttitudeDisplay::EnterAnimatingState()
 {
+    ExitStudyArea();
     fortune_state_ = FortuneState::Animating;
     SetFortuneMenuVisible(false);
     StopFortuneAnimatingEffects();
@@ -1260,14 +1738,15 @@ void AttitudeDisplay::CreateFortuneCard()
     fortune_card_ = lv_obj_create(attitude_container_);
     lv_obj_add_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(fortune_card_, FORTUNE_CARD_W, FORTUNE_CARD_H);
-    lv_obj_set_pos(fortune_card_, 80, 60);
-    lv_obj_set_style_radius(fortune_card_, 100, 0);
+    lv_obj_set_pos(fortune_card_, FORTUNE_CARD_X, FORTUNE_CARD_Y);
+    lv_obj_set_style_radius(fortune_card_, TAIJI_RADIUS, 0);
+    lv_obj_set_style_clip_corner(fortune_card_, true, 0);
     lv_obj_set_style_bg_color(fortune_card_, c.card_bg, 0);
     lv_obj_set_style_bg_opa(fortune_card_, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(fortune_card_, c.border_line, 0);
     lv_obj_set_style_border_width(fortune_card_, 2, 0);
-    lv_obj_set_style_pad_all(fortune_card_, 8, 0);
-    lv_obj_set_style_pad_row(fortune_card_, 4, 0);
+    lv_obj_set_style_pad_all(fortune_card_, 4, 0);
+    lv_obj_set_style_pad_row(fortune_card_, 2, 0);
     lv_obj_set_style_opa(fortune_card_, LV_OPA_COVER, 0);
     lv_obj_set_flex_flow(fortune_card_, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(fortune_card_, LV_FLEX_ALIGN_CENTER,
@@ -1317,7 +1796,12 @@ void AttitudeDisplay::CreateFortuneCard()
 
     lv_obj_move_foreground(fortune_card_);
     lv_obj_remove_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
-    ESP_LOGI(TAG, "Fortune card shown 200x240 at (80,60)");
+
+    if (lv_obj_t* taiji = CompassTaiji::GetContainer()) {
+        lv_obj_add_flag(taiji, LV_OBJ_FLAG_HIDDEN);
+    }
+    ESP_LOGI(TAG, "Fortune card shown %dx%d at (%d,%d) (taiji bounds)",
+             FORTUNE_CARD_W, FORTUNE_CARD_H, FORTUNE_CARD_X, FORTUNE_CARD_Y);
 }
 
 void AttitudeDisplay::DestroyFortuneCard()
@@ -1330,6 +1814,10 @@ void AttitudeDisplay::DestroyFortuneCard()
         lv_obj_add_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_delete(fortune_card_);
         fortune_card_ = nullptr;
+    }
+
+    if (lv_obj_t* taiji = CompassTaiji::GetContainer()) {
+        lv_obj_remove_flag(taiji, LV_OBJ_FLAG_HIDDEN);
     }
 
     fortune_func_label_ = nullptr;
@@ -1393,6 +1881,11 @@ void AttitudeDisplay::EnterIdleState()
     StopFortuneAnimatingEffects();
     DestroyFortuneCard();
     HideDirectionDots();
+    ExitStudyArea();
+
+    // 运势脉冲可能改写鱼眼边框/图标色，回到 Idle 时按缓存连接态恢复（勿用 Update*，避免 ShowFortune 持锁重入死锁）
+    ApplyWifiFisheyeStyle(wifi_status_);
+    ApplyBleFisheyeStyle(ble_status_);
 
     fortune_state_ = FortuneState::Idle;
     fortune_menu_selected_index_ = 0;
@@ -1447,11 +1940,21 @@ bool AttitudeDisplay::HandleBootKey()
     if (fortune_state_ == FortuneState::Animating) {
         return true;
     }
+    if (study_sub_state_ == StudySubState::FocusRunning
+        || study_sub_state_ == StudySubState::CompleteBgm) {
+        return true;
+    }
 
     if (!fortune_menu_selection_active_) {
         SelectFortuneMenuItem(0);
         PlayFortuneMenuSelectSound();
         ESP_LOGI(TAG, "Boot: selection on, default today (index 0)");
+        return true;
+    }
+
+    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)
+        && study_sub_state_ == StudySubState::Menu) {
+        StartStudyFocusTimer();
         return true;
     }
 
@@ -1468,6 +1971,11 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
     }
     if (!fortune_menu_selection_active_) {
         return false;
+    }
+    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)
+        && study_sub_state_ != StudySubState::Hidden) {
+        ESP_LOGI(TAG, "Boot long press ignored in study area");
+        return true;
     }
 
     ESP_LOGI(TAG, "Boot long press: trigger fortune menu %d",

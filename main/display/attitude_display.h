@@ -31,20 +31,27 @@
 #define LAYER4_BOUNDARY_RADIUS (SCREEN_W / 2 - GOLD_RING_ARC_WIDTH / 2)  // 贴屏幕圆边
 #define LAYER4_OUTER_SIZE      (LAYER4_BOUNDARY_RADIUS * 2)
 
-// 迭代 1: 鱼眼 + 太极（R=86，相对原 96 再缩 90%）
-#define TAIJI_RADIUS          86
+// 太极 + 鱼眼（外径 R=100，直径 200px）
+#define TAIJI_RADIUS          100
 #define TAIJI_CANVAS_SIZE     (TAIJI_RADIUS * 2)
 #define FISHEYE_ICON_SIZE     (TAIJI_RADIUS / 3)   // eye_r = R/6
 #define FISHEYE_PULSE_MS      300
-#define TAIJI_GOLD_RING_WIDTH 4
+#define TAIJI_GOLD_RING_WIDTH 3
+#define FISHEYE_BORDER_WIDTH  2
 
-// 运势功能环：35px 视觉（30_4 字模 + 轻微缩放至 35px）
+// 结果卡与太极 canvas 同尺寸、同中心
+#define FORTUNE_CARD_SIZE       TAIJI_CANVAS_SIZE
+#define FORTUNE_CARD_X          (ATTITUDE_CENTER_X - FORTUNE_CARD_SIZE / 2)
+#define FORTUNE_CARD_Y          (ATTITUDE_CENTER_Y - FORTUNE_CARD_SIZE / 2)
+
+// 运势功能环：35px 视觉；环心相对中点外偏 3px
 #define FORTUNE_MENU_COUNT           12
 #define FORTUNE_MENU_ICON_GLYPH_PX   35
 #define FORTUNE_MENU_ICON_BASE_PX     30
 #define FORTUNE_MENU_ICON_SCALE      ((FORTUNE_MENU_ICON_GLYPH_PX * 256 + FORTUNE_MENU_ICON_BASE_PX / 2) / FORTUNE_MENU_ICON_BASE_PX)
 #define FORTUNE_MENU_ICON_SCALE_SELECTED ((FORTUNE_MENU_ICON_GLYPH_PX * 11 * 256 / 10 + FORTUNE_MENU_ICON_BASE_PX / 2) / FORTUNE_MENU_ICON_BASE_PX)
-#define FORTUNE_MENU_RING_RADIUS     ((TAIJI_RADIUS + LAYER4_BOUNDARY_RADIUS) / 2 - GOLD_RING_ARC_WIDTH)
+#define FORTUNE_MENU_RING_OUTWARD_PX 3
+#define FORTUNE_MENU_RING_RADIUS     ((TAIJI_RADIUS + LAYER4_BOUNDARY_RADIUS) / 2 - GOLD_RING_ARC_WIDTH + FORTUNE_MENU_RING_OUTWARD_PX)
 #define FORTUNE_MENU_START_ANGLE_DEG (-90)  // 12 点钟起，顺时针
 // 太极外缘 ~ L4 内缘整环可点（略放宽便于触摸）
 #define FORTUNE_MENU_TOUCH_INNER_R   (TAIJI_RADIUS - 4)
@@ -89,6 +96,39 @@ enum class FortuneState {
     Animating = 1,
     Result = 2,
 };
+
+/** 学业运势（序号 9）L0 子功能 */
+enum class StudyMenuItem {
+    Timer = 0,  // 专注计时（默认选中）
+    Drum = 1,   // 架子鼓（占位）
+};
+
+/** 学业运势（序号 9）L0 子态 */
+enum class StudySubState {
+    Hidden = 0,       // 显示太极鱼
+    Menu = 1,         // 时钟 + 架子鼓图标
+    FocusRunning = 2, // 60s 专注计时环
+    CompleteBgm = 3,  // 计时结束，播放约 5s 背景音乐
+};
+
+#define STUDY_FOCUS_DURATION_MS   60000
+#define STUDY_FOCUS_BGM_DURATION_MS 5000
+#define STUDY_FOCUS_TICK_MS       200
+#define STUDY_FOCUS_ARC_RING_GAP  5   // 计时环外缘与太极鎏金环内缘的最小间距 (px)
+#define STUDY_FOCUS_ARC_OUTER_MAX_R (TAIJI_RADIUS - TAIJI_GOLD_RING_WIDTH - STUDY_FOCUS_ARC_RING_GAP)
+#define STUDY_FOCUS_ARC_TRACK_WIDTH    24   // 底轨 +50%（16→24）
+#define STUDY_FOCUS_ARC_INDICATOR_WIDTH 27  // 进度条 +50%（18→27）
+#define STUDY_FOCUS_ARC_RADIUS_TARGET  ((78 * 15 + 5) / 10)  // 原半径 78 加大 50% → 117
+#define STUDY_FOCUS_ARC_RADIUS  \
+    ((STUDY_FOCUS_ARC_RADIUS_TARGET <= STUDY_FOCUS_ARC_OUTER_MAX_R) \
+        ? STUDY_FOCUS_ARC_RADIUS_TARGET : STUDY_FOCUS_ARC_OUTER_MAX_R)
+#define STUDY_FOCUS_ARC_SIZE      (STUDY_FOCUS_ARC_RADIUS * 2)
+// 区内图标比外围运势环大 50%（35px → 53px 视觉）
+#define STUDY_ICON_GLYPH_PX       ((FORTUNE_MENU_ICON_GLYPH_PX * 15 + 5) / 10)
+#define STUDY_ICON_SCALE          ((STUDY_ICON_GLYPH_PX * 256 + FORTUNE_MENU_ICON_BASE_PX / 2) / FORTUNE_MENU_ICON_BASE_PX)
+#define STUDY_ICON_SCALE_SELECTED ((STUDY_ICON_GLYPH_PX * 11 * 256 / 10 + FORTUNE_MENU_ICON_BASE_PX / 2) / FORTUNE_MENU_ICON_BASE_PX)
+#define STUDY_ICON_OFFSET_Y       40  // 时钟/鼓图标相对中心的纵向间距
+#define STUDY_AREA_ROTATION_OFFSET_TENTH_DEG 900  // 学业功能区整体顺时针旋转 90°
 
 class AttitudeDisplay : public SpiLcdDisplay {
 public:
@@ -140,6 +180,8 @@ public:
     bool HandleBootKey();
     /** Boot 长按：Idle 触发当前选中运势 */
     bool HandleFortuneBootLongPress();
+    /** 电源键短按：学业区内任意子态退出并恢复完整太极圈 */
+    bool HandleStudyPowerKey();
 
 private:
     lv_obj_t* attitude_container_ = nullptr;
@@ -179,8 +221,10 @@ private:
     int current_state_level_ = 0;
 
     lv_obj_t* wifi_fisheye_ = nullptr;
+    lv_obj_t* wifi_fisheye_canvas_ = nullptr;
     lv_obj_t* wifi_fisheye_icon_ = nullptr;
     lv_obj_t* ble_fisheye_ = nullptr;
+    lv_obj_t* ble_fisheye_canvas_ = nullptr;
     lv_obj_t* ble_fisheye_icon_ = nullptr;
     WifiStatus wifi_status_ = WifiStatus::DISCONNECTED;
     BleStatus ble_status_ = BleStatus::DISABLED;
@@ -192,6 +236,8 @@ private:
     void StopFisheyePulse(lv_obj_t* obj);
     void ApplyWifiFisheyeStyle(WifiStatus status);
     void ApplyBleFisheyeStyle(BleStatus status);
+    void RedrawWifiFisheyeCanvas();
+    void RedrawBleFisheyeCanvas();
 
     void CreateBackground();
     void CreateLayer0Taiji();
@@ -205,8 +251,25 @@ private:
     void SetFortuneMenuVisible(bool visible);
     void SelectFortuneMenuItem(int index);
     void UpdateFortuneMenuSelection();
+    void UpdateFortuneMenuItemVisual(int index, bool selected);
     void CycleFortuneMenuSelection();
     void PlayFortuneMenuSelectSound();
+    void CreateStudyArea();
+    void SyncStudyAreaWithMenu();
+    void EnterStudyMenu();
+    void ExitStudyArea();
+    void ShowStudyMenuPanel();
+    void UpdateStudyMenuSelection();
+    void SelectStudyMenuItem(StudyMenuItem item);
+    void StartStudyFocusTimer();
+    void StopStudyFocusTimer();
+    void CancelStudyFocusToMenu();
+    void StopStudyCompleteBgm();
+    void SetTaijiCoreVisible(bool visible);
+    void ApplyStudyAreaOrientation(bool study_active);
+    void UpdateStudyFocusDisplay(int remaining_ms);
+    void OnStudyFocusComplete();
+    void PlayStudyFocusCompleteBgm();
     void CreateCompassPoints();
     void UpdateStateColor(int level);
 
@@ -239,6 +302,23 @@ private:
     lv_timer_t* fortune_result_delay_timer_ = nullptr;
     uint32_t fortune_taiji_ramp_start_tick_ = 0;
 
+    StudySubState study_sub_state_ = StudySubState::Hidden;
+    StudyMenuItem study_menu_selected_ = StudyMenuItem::Timer;
+    lv_obj_t* study_panel_ = nullptr;
+    lv_obj_t* study_clock_label_ = nullptr;
+    lv_obj_t* study_drum_label_ = nullptr;
+    lv_obj_t* study_focus_arc_ = nullptr;
+    lv_obj_t* study_time_label_ = nullptr;
+    lv_timer_t* study_focus_timer_ = nullptr;
+    lv_timer_t* study_complete_bgm_timer_ = nullptr;
+    uint32_t study_focus_start_tick_ = 0;
+    bool study_had_auto_rotation_ = false;
+    int study_saved_rotation_period_ms_ = 60000;
+    int study_saved_taiji_rotation_ = 0;
+    bool study_orientation_applied_ = false;
+    /** 电源键退出学业区后抑制自动重入，直至用户再次选中序号 9 */
+    bool study_area_suppressed_ = false;
+
     void DestroyFortuneCard();
     void StopFortuneAnimatingEffects(bool restore_taiji_rotation = true);
     void StartFortuneTaijiPhasedRotation();
@@ -252,6 +332,9 @@ private:
     static void OnFortuneProgressStepTimer(lv_timer_t* timer);
     static void OnFortuneTaijiRampTimer(lv_timer_t* timer);
     static void OnFortuneMenuRingTouched(lv_event_t* e);
+    static void OnStudyFocusTimer(lv_timer_t* timer);
+    static void OnStudyCompleteBgmTimer(lv_timer_t* timer);
+    static void OnStudyMenuIconClicked(lv_event_t* e);
 };
 
 #endif // ATTITUDE_DISPLAY_H

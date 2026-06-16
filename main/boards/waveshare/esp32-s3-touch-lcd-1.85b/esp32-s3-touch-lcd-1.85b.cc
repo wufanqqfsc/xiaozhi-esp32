@@ -461,6 +461,17 @@ private:
             return !gpio_get_level(PWR_BUTTON_GPIO);
         };
         ESP_ERROR_CHECK(iot_button_create(&pwr_btn_config, pwr_btn_driver_, &pwr_btn));
+        iot_button_register_cb(pwr_btn, BUTTON_SINGLE_CLICK, nullptr, [](void* button_handle, void* usr_data) {
+            (void)button_handle;
+            (void)usr_data;
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateStarting) {
+                return;
+            }
+            if (app.HandleStudyPowerKey()) {
+                return;
+            }
+        }, this);
         iot_button_register_cb(pwr_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
             if(self->GetBacklight()->brightness() > 0) {

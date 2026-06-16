@@ -98,6 +98,8 @@ public:
      */
     bool HandleFortuneBootKey();
     bool HandleFortuneBootLongPress();
+    /** 电源键短按：学业专注计时中退出 */
+    bool HandleStudyPowerKey();
 
     /**
      * Start listening (event-based, thread-safe)
