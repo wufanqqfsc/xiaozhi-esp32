@@ -97,6 +97,7 @@ public:
      * @return true 若运势流程已消费按键，否则应继续 ToggleChatState
      */
     bool HandleFortuneBootKey();
+    bool HandleFortuneBootLongPress();
 
     /**
      * Start listening (event-based, thread-safe)
@@ -119,6 +120,8 @@ public:
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
+    // UI 反馈音：投递到主循环播放（与激活成功音相同路径，避免 LVGL/定时器任务直接播音频）
+    void PlayUiSound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
     
     /**

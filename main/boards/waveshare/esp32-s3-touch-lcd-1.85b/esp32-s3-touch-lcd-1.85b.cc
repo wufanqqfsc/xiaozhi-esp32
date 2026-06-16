@@ -1,5 +1,5 @@
 #include "wifi_board.h"
-#include "codecs/no_audio_codec.h"
+#include "codecs/box_audio_codec.h"
 #include "display/attitude_display.h"
 #include "system_reset.h"
 #include "application.h"
@@ -14,7 +14,11 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_st77916.h>
 #include <esp_timer.h>
+#include <esp_lcd_touch_cst816s.h>
+#include <esp_lvgl_port.h>
+#include <lvgl.h>
 #include "esp_io_expander_tca9554.h"
+#include <vector>
 
 #define TAG "waveshare_lcd_1_85"
 
@@ -226,6 +230,9 @@ private:
             .sda_io_num = I2C_SDA_IO,
             .scl_io_num = I2C_SCL_IO,
             .clk_source = I2C_CLK_SRC_DEFAULT,
+            .flags = {
+                .enable_internal_pullup = 1,
+            },
         };
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
     }
@@ -323,12 +330,77 @@ private:
 
         esp_lcd_panel_reset(panel);
         esp_lcd_panel_init(panel);
-        esp_lcd_panel_disp_on_off(panel, true);
         esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
         esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
 
+        // panel_init 后、点亮背光前铺深色底，避免开机阶段整屏白闪（与 SpiLcdDisplay 0x0841 一致）
+        {
+            static constexpr uint16_t kBootFillRgb565 = 0x0841;
+            std::vector<uint16_t> boot_line(DISPLAY_WIDTH, kBootFillRgb565);
+            for (int y = 0; y < DISPLAY_HEIGHT; y++) {
+                ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel, 0, y, DISPLAY_WIDTH, y + 1, boot_line.data()));
+            }
+        }
+        ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
+
         display_ = new AttitudeDisplay(panel_io, panel,
                                     DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+    }
+
+    void InitializeTouch()
+    {
+        esp_lcd_panel_io_handle_t tp_io_handle = nullptr;
+        esp_lcd_panel_io_i2c_config_t tp_io_config = {
+            .dev_addr = ESP_LCD_TOUCH_IO_I2C_CST816S_ADDRESS,
+            .on_color_trans_done = 0,
+            .user_ctx = 0,
+            .control_phase_bytes = 1,
+            .dc_bit_offset = 0,
+            .lcd_cmd_bits = 8,
+            .lcd_param_bits = 0,
+            .flags = {
+                .dc_low_on_data = 0,
+                .disable_control_phase = 1,
+            },
+        };
+        tp_io_config.scl_speed_hz = 400 * 1000;
+        esp_err_t ret = esp_lcd_new_panel_io_i2c(i2c_bus_, &tp_io_config, &tp_io_handle);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Touch panel IO init failed: %s", esp_err_to_name(ret));
+            return;
+        }
+
+        esp_lcd_touch_handle_t tp = nullptr;
+        esp_lcd_touch_config_t tp_cfg = {
+            .x_max = DISPLAY_WIDTH - 1,
+            .y_max = DISPLAY_HEIGHT - 1,
+            .rst_gpio_num = TP_PIN_NUM_RST,
+            .int_gpio_num = TP_PIN_NUM_INT,
+            .levels = {
+                .reset = 0,
+                .interrupt = 0,
+            },
+            .flags = {
+                .swap_xy = 0,
+                .mirror_x = 0,
+                .mirror_y = 0,
+            },
+        };
+        ret = esp_lcd_touch_new_i2c_cst816s(tp_io_handle, &tp_cfg, &tp);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "CST816S init failed: %s", esp_err_to_name(ret));
+            return;
+        }
+
+        const lvgl_port_touch_cfg_t touch_cfg = {
+            .disp = lv_display_get_default(),
+            .handle = tp,
+        };
+        if (lvgl_port_add_touch(&touch_cfg) == nullptr) {
+            ESP_LOGE(TAG, "lvgl_port_add_touch failed");
+            return;
+        }
+        ESP_LOGI(TAG, "CST816S touch initialized (RST=%d INT=%d)", TP_PIN_NUM_RST, TP_PIN_NUM_INT);
     }
  
     void InitializeButtonsCustom() {
@@ -368,6 +440,15 @@ private:
             }
             app.ToggleChatState();
         }, this);
+        iot_button_register_cb(boot_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateStarting) {
+                return;
+            }
+            if (app.HandleFortuneBootLongPress()) {
+                return;
+            }
+        }, this);
 
         // Power Button
         button_config_t pwr_btn_config = {
@@ -399,14 +480,15 @@ public:
         InitializeTca9554();
         InitializeSpi();
         Initializest77916Display();
+        InitializeTouch();
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
     }
 
     virtual AudioCodec* GetAudioCodec() override {
-        static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
-            AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_BOTH, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN, I2S_STD_SLOT_RIGHT); // I2S_STD_SLOT_LEFT / I2S_STD_SLOT_RIGHT / I2S_STD_SLOT_BOTH
-
+        static BoxAudioCodec audio_codec(i2c_bus_, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
+            AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN,
+            AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR, AUDIO_CODEC_ES7210_ADDR, AUDIO_INPUT_REFERENCE);
         return &audio_codec;
     }
 

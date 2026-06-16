@@ -18,6 +18,9 @@
 
 #define TAG "LcdDisplay"
 
+// SPI 分块刷新间隙尽量用深色（接近 bg_outer）；若 LVGL 未起来至少不是刺眼白屏
+static constexpr uint16_t kPanelBootFillRgb565 = 0x0841;
+
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 LV_FONT_DECLARE(font_awesome_30_4);
@@ -93,8 +96,8 @@ SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
                            int width, int height, int offset_x, int offset_y, bool mirror_x, bool mirror_y, bool swap_xy)
     : LcdDisplay(panel_io, panel, width, height) {
 
-    // draw white
-    std::vector<uint16_t> buffer(width_, 0xFFFF);
+    // 开机先铺深色底，避免 LVGL 首帧分块刷新时整屏白闪
+    std::vector<uint16_t> buffer(width_, kPanelBootFillRgb565);
     for (int y = 0; y < height_; y++) {
         esp_lcd_panel_draw_bitmap(panel_, 0, y, width_, y + 1, buffer.data());
     }
@@ -183,8 +186,8 @@ RgbLcdDisplay::RgbLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
                            bool mirror_x, bool mirror_y, bool swap_xy)
     : LcdDisplay(panel_io, panel, width, height) {
 
-    // draw white
-    std::vector<uint16_t> buffer(width_, 0xFFFF);
+    // 开机先铺深色底，避免 LVGL 首帧分块刷新时整屏白闪
+    std::vector<uint16_t> buffer(width_, kPanelBootFillRgb565);
     for (int y = 0; y < height_; y++) {
         esp_lcd_panel_draw_bitmap(panel_, 0, y, width_, y + 1, buffer.data());
     }

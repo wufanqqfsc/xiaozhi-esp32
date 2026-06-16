@@ -1,6 +1,7 @@
 #include "attitude_display.h"
 #include "lvgl_theme.h"
 #include "application.h"
+#include "assets/lang_config.h"
 #include "board.h"
 #include "compass_taiji.h"
 #include <esp_log.h>
@@ -33,6 +34,7 @@
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
+LV_FONT_DECLARE(font_awesome_30_4);
 
 namespace {
 
@@ -89,6 +91,37 @@ static void LabelColorAnimCb(void* obj, int32_t value)
                                 lv_color_hex(static_cast<uint32_t>(value)), 0);
 }
 
+struct FortuneMenuItemDef {
+    const char* icon;
+    const char* func_label;
+    const char* gua_name;
+    const char* core_text;
+    const char* yi;
+    const char* ji;
+    int gua_index;
+    int dir_index;
+};
+
+static const FortuneMenuItemDef kFortuneMenuDefs[FORTUNE_MENU_COUNT] = {
+    {FONT_AWESOME_SUN, "今日运势", "乾为天", "今日宜进取，顺势而行。", "宜：签约、出行", "忌：熬夜、口舌", 63, 0},
+    {FONT_AWESOME_LOCATION_DOT, "财运方位", "坤为地", "财位东南，守成为上。", "宜：理财、储蓄", "忌：投机、借贷", 2, 1},
+    {FONT_AWESOME_GEAR, "事业运势", "震为雷", "事业有转机，宜主动。", "宜：述职、立项", "忌：冲动决策", 51, 2},
+    {FONT_AWESOME_HEART, "感情运势", "兑为泽", "情缘渐暖，多沟通。", "宜：表白、约会", "忌：猜疑、冷战", 58, 3},
+    {FONT_AWESOME_COMPASS, "心情卦", "水雷屯", "心绪繁杂，宜静思。", "宜：独处、冥想", "忌：争执、赶工", 3, 4},
+    {FONT_AWESOME_CALENDAR, "黄历宜忌", "离为火", "今日宜祭祀安床。", "宜：嫁娶、开市", "忌：破土、动土", 30, 5},
+    {FONT_AWESOME_ARROWS_ROTATE, "节气提示", "艮为山", "惊蛰将至，万物生发。", "宜：播种、养生", "忌：寒凉、懒动", 52, 6},
+    {FONT_AWESOME_PEN_TO_SQUARE, "自定义", "天地否", "所问之事，宜待时机。", "宜：蓄力、观望", "忌：强求、冒进", 12, 7},
+    {FONT_AWESOME_STAR, "健康运势", "风为木", "身心调和，宜养正气。", "宜：早睡、运动", "忌：过劳、贪凉", 57, 0},
+    {FONT_AWESOME_GLASSES, "学业运势", "水火既济", "学业渐进，宜温故知新。", "宜：复习、请教", "忌：浮躁、分心", 63, 1},
+    {FONT_AWESOME_LOCATION_ARROW, "出行吉日", "天风姤", "远行有利，宜择吉启程。", "宜：出行、访友", "忌：仓促、夜行", 44, 2},
+    {FONT_AWESOME_USER, "贵人运势", "地天泰", "贵人暗助，宜广结善缘。", "宜：拜访、合作", "忌：孤行、傲慢", 11, 3},
+};
+
+static const lv_font_t* GetFortuneMenuIconFont()
+{
+    return &font_awesome_30_4;
+}
+
 static const lv_font_t* GetIconFont(AttitudeDisplay* display)
 {
     auto lvgl_theme = static_cast<LvglTheme*>(display->GetTheme());
@@ -123,6 +156,7 @@ AttitudeDisplay::AttitudeDisplay(esp_lcd_panel_io_handle_t panel_io,
                                  bool mirror_x, bool mirror_y, bool swap_xy)
     : SpiLcdDisplay(panel_io, panel, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy)
 {
+    current_theme_ = LvglThemeManager::GetInstance().GetTheme("dark");
     ESP_LOGI(TAG, "AttitudeDisplay constructed, %dx%d", width, height);
 }
 
@@ -148,12 +182,14 @@ void AttitudeDisplay::SetupUI()
     lv_obj_set_style_text_font(screen, lvgl_theme->text_font()->font(), 0);
     lv_obj_set_style_text_color(screen, c.text_main, 0);
     lv_obj_set_style_bg_color(screen, c.bg_outer, 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
     lv_obj_t* round_mask = lv_obj_create(screen);
     lv_obj_set_size(round_mask, 360, 360);
     lv_obj_set_pos(round_mask, 0, 0);
     lv_obj_set_style_radius(round_mask, 180, 0);
     lv_obj_set_style_bg_color(round_mask, c.bg_outer, 0);
+    lv_obj_set_style_bg_opa(round_mask, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(round_mask, 0, 0);
     lv_obj_set_style_clip_corner(round_mask, true, 0);
     lv_obj_move_background(round_mask);
@@ -177,11 +213,19 @@ void AttitudeDisplay::SetupUI()
     ESP_LOGI(TAG, "Taiji auto rotation started (period=30s, fisheyes co-rotate)");
 
     CreateLayer1CoreInfo();
-    // L3 状态进度环暂时移除，对比视觉效果
+    CreateFortuneMenuRing();
+    // L3 状态进度环暂时移除，便于真机对比
     CreateLayer4Boundary();
+    CreateFortuneMenuRingTouch();
     // 方位圆点已移除（v1.2+ 视觉简化，运势高亮见迭代 2 再定）
 
-    ESP_LOGI(TAG, "SetupUI completed (taiji+fisheye 90%%, L4 outer ring only, L3 disabled)");
+    // 首帧全屏铺深色底，避免 SPI 分块刷新露出开机白底
+    lv_obj_invalidate(attitude_container_);
+    if (display_ != nullptr) {
+        lv_refr_now(display_);
+    }
+
+    ESP_LOGI(TAG, "SetupUI completed (taiji+fisheye 90%%, fortune menu ring, L4 outer ring only, L3 disabled)");
 }
 
 void AttitudeDisplay::CreateLayer0Taiji()
@@ -298,6 +342,206 @@ void AttitudeDisplay::CreateLayer4Boundary()
     StyleSmoothGoldArc(layer4_outer_ring_, c.border_line, GOLD_RING_ARC_WIDTH);
 
     ESP_LOGI(TAG, "Layer4 Boundary gold arc at r=%d (smooth, %dpx)", outer_r, GOLD_RING_ARC_WIDTH);
+}
+
+void AttitudeDisplay::CreateFortuneMenuRing()
+{
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const lv_font_t* icon_font = GetFortuneMenuIconFont();
+
+    const double start_rad = FORTUNE_MENU_START_ANGLE_DEG * M_PI / 180.0;
+    const double step_rad = 2.0 * M_PI / FORTUNE_MENU_COUNT;
+
+    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
+        const double angle = start_rad + step_rad * i;
+        const int cx = ATTITUDE_CENTER_X + static_cast<int>(std::lround(
+            FORTUNE_MENU_RING_RADIUS * std::cos(angle)));
+        const int cy = ATTITUDE_CENTER_Y + static_cast<int>(std::lround(
+            FORTUNE_MENU_RING_RADIUS * std::sin(angle)));
+        fortune_menu_center_x_[i] = cx;
+        fortune_menu_center_y_[i] = cy;
+
+        fortune_menu_labels_[i] = lv_label_create(attitude_container_);
+        lv_obj_set_style_text_font(fortune_menu_labels_[i], icon_font, 0);
+        lv_obj_set_style_text_color(fortune_menu_labels_[i], c.text_main, 0);
+        lv_obj_set_style_bg_opa(fortune_menu_labels_[i], LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(fortune_menu_labels_[i], 0, 0);
+        lv_obj_set_style_pad_all(fortune_menu_labels_[i], 0, 0);
+        lv_obj_set_style_transform_pivot_x(fortune_menu_labels_[i], LV_PCT(50), 0);
+        lv_obj_set_style_transform_pivot_y(fortune_menu_labels_[i], LV_PCT(50), 0);
+        lv_label_set_text(fortune_menu_labels_[i], kFortuneMenuDefs[i].icon);
+        lv_obj_clear_flag(fortune_menu_labels_[i], LV_OBJ_FLAG_CLICKABLE);
+    }
+
+    fortune_menu_selected_index_ = 0;
+    fortune_menu_selection_active_ = false;
+    UpdateFortuneMenuSelection();
+
+    ESP_LOGI(TAG, "Fortune menu ring: %d icons (~%dpx), r=%d, touch %d~%d",
+             FORTUNE_MENU_COUNT, FORTUNE_MENU_ICON_GLYPH_PX,
+             FORTUNE_MENU_RING_RADIUS, FORTUNE_MENU_TOUCH_INNER_R,
+             FORTUNE_MENU_TOUCH_OUTER_R);
+}
+
+void AttitudeDisplay::CreateFortuneMenuRingTouch()
+{
+    fortune_menu_ring_touch_ = lv_obj_create(attitude_container_);
+    lv_obj_set_size(fortune_menu_ring_touch_, LV_HOR_RES, LV_VER_RES);
+    lv_obj_set_pos(fortune_menu_ring_touch_, 0, 0);
+    lv_obj_set_style_bg_opa(fortune_menu_ring_touch_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(fortune_menu_ring_touch_, 0, 0);
+    lv_obj_set_style_pad_all(fortune_menu_ring_touch_, 0, 0);
+    lv_obj_add_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(fortune_menu_ring_touch_, OnFortuneMenuRingTouched,
+                        LV_EVENT_CLICKED, this);
+
+    // 触摸层置顶：整屏接收点击，再按环带坐标映射扇区（图标仅展示、不拦截）
+    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
+        if (fortune_menu_labels_[i] != nullptr) {
+            lv_obj_move_foreground(fortune_menu_labels_[i]);
+        }
+    }
+    lv_obj_move_foreground(fortune_menu_ring_touch_);
+
+    ESP_LOGI(TAG, "Fortune menu ring touch layer ready (annulus %d~%d)",
+             FORTUNE_MENU_TOUCH_INNER_R, FORTUNE_MENU_TOUCH_OUTER_R);
+}
+
+int AttitudeDisplay::FortuneMenuIndexFromPoint(int x, int y) const
+{
+    const int dx = x - ATTITUDE_CENTER_X;
+    const int dy = y - ATTITUDE_CENTER_Y;
+    const int dist_sq = dx * dx + dy * dy;
+    const int inner = FORTUNE_MENU_TOUCH_INNER_R;
+    const int outer = FORTUNE_MENU_TOUCH_OUTER_R;
+    if (dist_sq < inner * inner || dist_sq > outer * outer) {
+        return -1;
+    }
+
+    const double angle_deg = std::atan2(static_cast<double>(dy),
+                                        static_cast<double>(dx)) * 180.0 / M_PI;
+    const double step = 360.0 / FORTUNE_MENU_COUNT;
+    double delta = angle_deg - static_cast<double>(FORTUNE_MENU_START_ANGLE_DEG);
+    while (delta < 0.0) {
+        delta += 360.0;
+    }
+    while (delta >= 360.0) {
+        delta -= 360.0;
+    }
+    return static_cast<int>((delta + step * 0.5) / step) % FORTUNE_MENU_COUNT;
+}
+
+void AttitudeDisplay::PlayFortuneMenuSelectSound()
+{
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+}
+
+void AttitudeDisplay::SelectFortuneMenuItem(int index)
+{
+    if (index < 0 || index >= FORTUNE_MENU_COUNT) {
+        return;
+    }
+    fortune_menu_selection_active_ = true;
+    fortune_menu_selected_index_ = index;
+    UpdateFortuneMenuSelection();
+    ESP_LOGI(TAG, "Fortune menu select -> %d (%s)", index,
+             kFortuneMenuDefs[index].func_label);
+}
+
+void AttitudeDisplay::UpdateFortuneMenuSelection()
+{
+    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const bool show_selected_size = fortune_menu_selection_active_;
+
+    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
+        if (fortune_menu_labels_[i] == nullptr) {
+            continue;
+        }
+
+        const bool selected = (i == fortune_menu_selected_index_);
+        const int scale = (selected && show_selected_size)
+            ? FORTUNE_MENU_ICON_SCALE_SELECTED
+            : FORTUNE_MENU_ICON_SCALE;
+        const int cx = fortune_menu_center_x_[i];
+        const int cy = fortune_menu_center_y_[i];
+
+        if (fortune_menu_applied_scale_[i] != scale) {
+            lv_obj_set_style_transform_scale(fortune_menu_labels_[i], scale, 0);
+            fortune_menu_applied_scale_[i] = scale;
+        }
+        lv_obj_set_style_text_color(fortune_menu_labels_[i],
+            selected ? c.text_high : c.text_main, 0);
+        lv_obj_update_layout(fortune_menu_labels_[i]);
+        const int w = lv_obj_get_width(fortune_menu_labels_[i]);
+        const int h = lv_obj_get_height(fortune_menu_labels_[i]);
+        lv_obj_set_pos(fortune_menu_labels_[i], cx - w / 2, cy - h / 2);
+    }
+}
+
+void AttitudeDisplay::CycleFortuneMenuSelection()
+{
+    fortune_menu_selected_index_ = (fortune_menu_selected_index_ + 1) % FORTUNE_MENU_COUNT;
+    UpdateFortuneMenuSelection();
+    PlayFortuneMenuSelectSound();
+    ESP_LOGI(TAG, "Fortune menu selected -> %d (%s)",
+             fortune_menu_selected_index_,
+             kFortuneMenuDefs[fortune_menu_selected_index_].func_label);
+}
+
+void AttitudeDisplay::SetFortuneMenuVisible(bool visible)
+{
+    if (fortune_menu_ring_touch_ != nullptr) {
+        if (visible) {
+            lv_obj_remove_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
+        if (fortune_menu_labels_[i] == nullptr) {
+            continue;
+        }
+        if (visible) {
+            lv_obj_remove_flag(fortune_menu_labels_[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(fortune_menu_labels_[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+void AttitudeDisplay::OnFortuneMenuRingTouched(lv_event_t* e)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
+    if (self == nullptr || self->fortune_state_ != FortuneState::Idle) {
+        return;
+    }
+
+    lv_indev_t* indev = lv_indev_active();
+    if (indev == nullptr) {
+        return;
+    }
+    lv_point_t pt;
+    lv_indev_get_point(indev, &pt);
+
+    const int idx = self->FortuneMenuIndexFromPoint(pt.x, pt.y);
+    if (idx < 0 || idx >= FORTUNE_MENU_COUNT) {
+        return;
+    }
+
+    self->SelectFortuneMenuItem(idx);
+    self->PlayFortuneMenuSelectSound();
+}
+
+void AttitudeDisplay::ShowFortuneFromMenu(FortuneMenuType type)
+{
+    const int idx = static_cast<int>(type);
+    if (idx < 0 || idx >= FORTUNE_MENU_COUNT) {
+        return;
+    }
+
+    const auto& d = kFortuneMenuDefs[idx];
+    ShowFortune(d.func_label, d.gua_name, d.core_text, d.yi, d.ji, d.gua_index, d.dir_index);
 }
 
 void AttitudeDisplay::CreateCompassPoints()
@@ -431,6 +675,7 @@ void AttitudeDisplay::CreateWifiFisheye()
     lv_obj_set_pos(wifi_fisheye_, FISHEYE_WIFI_LOCAL_X, FISHEYE_WIFI_LOCAL_Y);
     lv_obj_set_style_radius(wifi_fisheye_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(wifi_fisheye_, 2, 0);
+    lv_obj_set_style_bg_opa(wifi_fisheye_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(wifi_fisheye_, 0, 0);
     lv_obj_clear_flag(wifi_fisheye_, LV_OBJ_FLAG_CLICKABLE);
 
@@ -456,8 +701,7 @@ void AttitudeDisplay::CreateBleFisheye()
     lv_obj_set_pos(ble_fisheye_, FISHEYE_BLE_LOCAL_X, FISHEYE_BLE_LOCAL_Y);
     lv_obj_set_style_radius(ble_fisheye_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(ble_fisheye_, 2, 0);
-    lv_obj_set_style_bg_color(ble_fisheye_, kFisheyeWhite, 0);
-    lv_obj_set_style_bg_opa(ble_fisheye_, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(ble_fisheye_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(ble_fisheye_, 0, 0);
     lv_obj_clear_flag(ble_fisheye_, LV_OBJ_FLAG_CLICKABLE);
 
@@ -478,22 +722,21 @@ void AttitudeDisplay::ApplyWifiFisheyeStyle(WifiStatus status)
 
     StopFisheyePulse(wifi_fisheye_);
 
+    lv_obj_set_style_bg_opa(wifi_fisheye_, LV_OPA_TRANSP, 0);
+
     switch (status) {
     case WifiStatus::DISCONNECTED:
-        lv_obj_set_style_bg_color(wifi_fisheye_, kFisheyeGrayBg, 0);
         lv_obj_set_style_border_color(wifi_fisheye_, kFisheyeGrayBorder, 0);
         lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeGrayIcon, 0);
         lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI_SLASH);
         break;
     case WifiStatus::CONNECTING:
-        lv_obj_set_style_bg_color(wifi_fisheye_, kFisheyeDark, 0);
         lv_obj_set_style_border_color(wifi_fisheye_, kFisheyeGold, 0);
         lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeGold, 0);
         lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI);
         StartFisheyePulse(wifi_fisheye_);
         break;
     case WifiStatus::CONNECTED:
-        lv_obj_set_style_bg_color(wifi_fisheye_, kFisheyeGold, 0);
         lv_obj_set_style_border_color(wifi_fisheye_, kFisheyeGold, 0);
         lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeDark, 0);
         lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI);
@@ -511,28 +754,22 @@ void AttitudeDisplay::ApplyBleFisheyeStyle(BleStatus status)
 
     StopFisheyePulse(ble_fisheye_);
 
+    // 白底由 canvas 鱼眼位绘制；此处仅边框 + 图标，减轻旋转时独立色块刷屏
+    lv_obj_set_style_bg_opa(ble_fisheye_, LV_OPA_TRANSP, 0);
+
     switch (status) {
     case BleStatus::DISABLED:
-        // 白底 + 灰边灰标：BLE 关闭
-        lv_obj_set_style_bg_color(ble_fisheye_, kFisheyeWhite, 0);
-        lv_obj_set_style_bg_opa(ble_fisheye_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_color(ble_fisheye_, kFisheyeGrayIcon, 0);
         lv_obj_set_style_text_color(ble_fisheye_icon_, kFisheyeGrayIcon, 0);
         lv_label_set_text(ble_fisheye_icon_, FONT_AWESOME_BLUETOOTH);
         break;
     case BleStatus::ADVERTISING:
-        // 白底 + 白/灰边框脉冲：广播中
-        lv_obj_set_style_bg_color(ble_fisheye_, kFisheyeWhite, 0);
-        lv_obj_set_style_bg_opa(ble_fisheye_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_color(ble_fisheye_, kFisheyeWhite, 0);
         lv_obj_set_style_text_color(ble_fisheye_icon_, kFisheyeGrayIcon, 0);
         lv_label_set_text(ble_fisheye_icon_, FONT_AWESOME_BLUETOOTH);
         StartFisheyeBorderPulse(ble_fisheye_, kBleBorderGray, kBleBorderWhite);
         break;
     case BleStatus::CONNECTED:
-        // 白底 + 蓝边蓝标：已连接
-        lv_obj_set_style_bg_color(ble_fisheye_, kFisheyeWhite, 0);
-        lv_obj_set_style_bg_opa(ble_fisheye_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_color(ble_fisheye_, kFisheyeBleBlue, 0);
         lv_obj_set_style_text_color(ble_fisheye_icon_, kFisheyeBleBlue, 0);
         lv_label_set_text(ble_fisheye_icon_, FONT_AWESOME_BLUETOOTH);
@@ -902,18 +1139,14 @@ void AttitudeDisplay::OnFortuneFisheyePulseTimer(lv_timer_t* timer)
     }
 
     self->fortune_fisheye_pulse_gold_ = !self->fortune_fisheye_pulse_gold_;
-    const lv_color_t bg = self->fortune_fisheye_pulse_gold_ ? kFisheyeGold : kFisheyeGrayBg;
     const lv_color_t border = self->fortune_fisheye_pulse_gold_ ? kFisheyeGold : kFisheyeGrayBorder;
     const lv_color_t icon = self->fortune_fisheye_pulse_gold_ ? kFisheyeDark : kFisheyeGrayIcon;
 
     if (self->wifi_fisheye_ != nullptr) {
-        lv_obj_set_style_bg_color(self->wifi_fisheye_, bg, 0);
         lv_obj_set_style_border_color(self->wifi_fisheye_, border, 0);
         lv_obj_set_style_text_color(self->wifi_fisheye_icon_, icon, 0);
     }
     if (self->ble_fisheye_ != nullptr) {
-        lv_obj_set_style_bg_color(self->ble_fisheye_, kFisheyeWhite, 0);
-        lv_obj_set_style_bg_opa(self->ble_fisheye_, LV_OPA_COVER, 0);
         const lv_color_t ble_border = self->fortune_fisheye_pulse_gold_
             ? kFisheyeWhite : kFisheyeGrayIcon;
         lv_obj_set_style_border_color(self->ble_fisheye_, ble_border, 0);
@@ -953,6 +1186,7 @@ void AttitudeDisplay::ShowFortune(const std::string& func_label, const std::stri
 void AttitudeDisplay::EnterAnimatingState()
 {
     fortune_state_ = FortuneState::Animating;
+    SetFortuneMenuVisible(false);
     StopFortuneAnimatingEffects();
 
     if (bg_layer_center_ != nullptr) {
@@ -1024,6 +1258,7 @@ void AttitudeDisplay::CreateFortuneCard()
         ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
 
     fortune_card_ = lv_obj_create(attitude_container_);
+    lv_obj_add_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(fortune_card_, FORTUNE_CARD_W, FORTUNE_CARD_H);
     lv_obj_set_pos(fortune_card_, 80, 60);
     lv_obj_set_style_radius(fortune_card_, 100, 0);
@@ -1081,6 +1316,7 @@ void AttitudeDisplay::CreateFortuneCard()
     lv_label_set_text(fortune_close_label_, "按 Boot 关闭");
 
     lv_obj_move_foreground(fortune_card_);
+    lv_obj_remove_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
     ESP_LOGI(TAG, "Fortune card shown 200x240 at (80,60)");
 }
 
@@ -1091,6 +1327,7 @@ void AttitudeDisplay::DestroyFortuneCard()
     }
 
     if (fortune_card_ != nullptr) {
+        lv_obj_add_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_delete(fortune_card_);
         fortune_card_ = nullptr;
     }
@@ -1158,6 +1395,10 @@ void AttitudeDisplay::EnterIdleState()
     HideDirectionDots();
 
     fortune_state_ = FortuneState::Idle;
+    fortune_menu_selected_index_ = 0;
+    fortune_menu_selection_active_ = false;
+    SetFortuneMenuVisible(true);
+    UpdateFortuneMenuSelection();
     ESP_LOGI(TAG, "Fortune -> Idle");
 }
 
@@ -1207,14 +1448,30 @@ bool AttitudeDisplay::HandleBootKey()
         return true;
     }
 
-    fortune_func_label_text_ = "今日运势 ☀";
-    fortune_gua_name_text_ = "乾为天";
-    fortune_core_text_ = "今日宜进取，顺势而行。";
-    fortune_yi_text_ = "宜：签约、出行";
-    fortune_ji_text_ = "忌：熬夜、口舌";
-    fortune_gua_index_ = 63;
-    fortune_highlight_dir_ = 0;
-    ESP_LOGI(TAG, "Boot key demo ShowFortune");
-    EnterAnimatingState();
+    if (!fortune_menu_selection_active_) {
+        SelectFortuneMenuItem(0);
+        PlayFortuneMenuSelectSound();
+        ESP_LOGI(TAG, "Boot: selection on, default today (index 0)");
+        return true;
+    }
+
+    CycleFortuneMenuSelection();
+    return true;
+}
+
+bool AttitudeDisplay::HandleFortuneBootLongPress()
+{
+    DisplayLockGuard lock(this);
+
+    if (fortune_state_ != FortuneState::Idle) {
+        return true;
+    }
+    if (!fortune_menu_selection_active_) {
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Boot long press: trigger fortune menu %d",
+             fortune_menu_selected_index_);
+    ShowFortuneFromMenu(static_cast<FortuneMenuType>(fortune_menu_selected_index_));
     return true;
 }

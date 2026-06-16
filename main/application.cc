@@ -388,8 +388,7 @@ void Application::HandleActivationDoneEvent() {
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
 
     Schedule([this]() {
-        // Play the success sound to indicate the device is ready
-        audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+        PlayUiSound(Lang::Sounds::OGG_SUCCESS);
     });
 }
 
@@ -739,6 +738,13 @@ void Application::ToggleChatState() {
 bool Application::HandleFortuneBootKey() {
     if (auto* attitude = GetAttitudeDisplay()) {
         return attitude->HandleBootKey();
+    }
+    return false;
+}
+
+bool Application::HandleFortuneBootLongPress() {
+    if (auto* attitude = GetAttitudeDisplay()) {
+        return attitude->HandleFortuneBootLongPress();
     }
     return false;
 }
@@ -1196,6 +1202,16 @@ void Application::SetAecMode(AecMode mode) {
 
 void Application::PlaySound(const std::string_view& sound) {
     audio_service_.PlaySound(sound);
+}
+
+void Application::PlayUiSound(const std::string_view& sound) {
+    if (sound.empty()) {
+        return;
+    }
+    Schedule([this, sound]() {
+        ESP_LOGI(TAG, "PlayUiSound (%zu bytes)", sound.size());
+        audio_service_.PlaySound(sound);
+    });
 }
 
 void Application::ResetProtocol() {

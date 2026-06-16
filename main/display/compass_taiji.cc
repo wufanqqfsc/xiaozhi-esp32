@@ -20,7 +20,7 @@ int CompassTaiji::taiji_radius_ = 0;
 int CompassTaiji::current_rotation_ = 0;
 
 // 自动旋转：LVGL 定时器步进（避免 FreeRTOS 任务抢锁导致额外刷新）
-static constexpr int kAutoRotationIntervalMs = 150;  // 步进间隔，减轻 transform 脏区刷屏
+static constexpr int kAutoRotationIntervalMs = 200;  // 步进间隔，减轻 transform 脏区刷屏
 
 // 自动旋转控制
 lv_timer_t* CompassTaiji::auto_rotation_timer_ = nullptr;
@@ -200,8 +200,11 @@ void CompassTaiji::Create(lv_obj_t* parent, int cx, int cy, int radius) {
         }
     }
 
-    // 步骤 5~6: 鱼眼由 AttitudeDisplay 在 taiji_container_ 上叠加 WiFi/BLE 图标，此处不绘制 canvas 圆点
-    (void)dot_r;
+    // 步骤 5~6: 鱼眼底色 baked 进 canvas（与太极一体旋转，避免独立白底控件触发分块白闪）
+    const int top_eye_y = center_y - half_r;
+    const int bot_eye_y = center_y + half_r;
+    FillCircle(canvas, center_x, top_eye_y, dot_r, lv_color_hex(0x505050));
+    FillCircle(canvas, center_x, bot_eye_y, dot_r, white);
 
     // 步骤 7: 鎏金外圈（4px 抗锯齿）
     constexpr float kTaijiGoldRingWidth = 4.0f;

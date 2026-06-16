@@ -9,7 +9,8 @@
 #define SCREEN_H              360
 #define ATTITUDE_CENTER_X     180
 #define ATTITUDE_CENTER_Y     180
-#define VALID_RADIUS          170
+#define GOLD_RING_ARC_WIDTH   3
+#define VALID_RADIUS          (SCREEN_W / 2 - GOLD_RING_ARC_WIDTH / 2)
 #define ANIM_DURATION         300
 
 #define COLOR_BG_OUTER        lv_color_hex(0x0A0A0A)
@@ -27,7 +28,7 @@
 #define LAYER3_PROGRESS_RADIUS 130
 #define LAYER3_BG_ARC_RADIUS   117
 #define LAYER3_PROGRESS_ARC_RADIUS 126
-#define LAYER4_BOUNDARY_RADIUS 170   // 外圈直径 340
+#define LAYER4_BOUNDARY_RADIUS (SCREEN_W / 2 - GOLD_RING_ARC_WIDTH / 2)  // 贴屏幕圆边
 #define LAYER4_OUTER_SIZE      (LAYER4_BOUNDARY_RADIUS * 2)
 
 // 迭代 1: 鱼眼 + 太极（R=86，相对原 96 再缩 90%）
@@ -36,7 +37,34 @@
 #define FISHEYE_ICON_SIZE     (TAIJI_RADIUS / 3)   // eye_r = R/6
 #define FISHEYE_PULSE_MS      300
 #define TAIJI_GOLD_RING_WIDTH 4
-#define GOLD_RING_ARC_WIDTH   3
+
+// 运势功能环：35px 视觉（30_4 字模 + 轻微缩放至 35px）
+#define FORTUNE_MENU_COUNT           12
+#define FORTUNE_MENU_ICON_GLYPH_PX   35
+#define FORTUNE_MENU_ICON_BASE_PX     30
+#define FORTUNE_MENU_ICON_SCALE      ((FORTUNE_MENU_ICON_GLYPH_PX * 256 + FORTUNE_MENU_ICON_BASE_PX / 2) / FORTUNE_MENU_ICON_BASE_PX)
+#define FORTUNE_MENU_ICON_SCALE_SELECTED ((FORTUNE_MENU_ICON_GLYPH_PX * 11 * 256 / 10 + FORTUNE_MENU_ICON_BASE_PX / 2) / FORTUNE_MENU_ICON_BASE_PX)
+#define FORTUNE_MENU_RING_RADIUS     ((TAIJI_RADIUS + LAYER4_BOUNDARY_RADIUS) / 2 - GOLD_RING_ARC_WIDTH)
+#define FORTUNE_MENU_START_ANGLE_DEG (-90)  // 12 点钟起，顺时针
+// 太极外缘 ~ L4 内缘整环可点（略放宽便于触摸）
+#define FORTUNE_MENU_TOUCH_INNER_R   (TAIJI_RADIUS - 4)
+#define FORTUNE_MENU_TOUCH_OUTER_R   LAYER4_BOUNDARY_RADIUS
+
+enum class FortuneMenuType : int {
+    Today = 0,      // fortune.today
+    Wealth = 1,     // fortune.wealth
+    Career = 2,     // fortune.career
+    Love = 3,       // fortune.love
+    MoodGua = 4,    // fortune.mood_gua
+    Huangli = 5,    // fortune.huangli
+    SolarTerm = 6,  // fortune.solar_term
+    Custom = 7,     // fortune.custom
+    Health = 8,     // fortune.health
+    Study = 9,      // fortune.study
+    Travel = 10,    // fortune.travel
+    Noble = 11,     // fortune.noble
+};
+
 // 鱼眼在 taiji_container_ 内的局部坐标（上眼=阴中阳/WiFi，下眼=阳中阴/BLE）
 #define FISHEYE_WIFI_LOCAL_X  (TAIJI_RADIUS - (FISHEYE_ICON_SIZE / 2))
 #define FISHEYE_WIFI_LOCAL_Y  (TAIJI_RADIUS / 2 - (FISHEYE_ICON_SIZE / 2))
@@ -98,6 +126,8 @@ public:
     void ShowFortune(const std::string& func_label, const std::string& gua_name,
                      const std::string& core_text, const std::string& yi, const std::string& ji,
                      int gua_index, int dir_index);
+    /** 按服务端 8 类运势入口触发（菜单环 / MCP） */
+    void ShowFortuneFromMenu(FortuneMenuType type);
     void EnterAnimatingState();
     void EnterResultState();
     void EnterIdleState();
@@ -106,8 +136,10 @@ public:
     void CreateFortuneCard();
     void DismissFortune();
     FortuneState GetFortuneState() const { return fortune_state_; }
-    /** Boot 键：Idle 触发演示运势，Result 关闭卡片；返回 true 表示已消费按键 */
+    /** Boot 短按：Idle 循环选中运势入口；Result 关闭卡片 */
     bool HandleBootKey();
+    /** Boot 长按：Idle 触发当前选中运势 */
+    bool HandleFortuneBootLongPress();
 
 private:
     lv_obj_t* attitude_container_ = nullptr;
@@ -132,6 +164,14 @@ private:
     lv_obj_t* layer3_progress_arc_ = nullptr;
     lv_obj_t* layer4_outer_ring_ = nullptr;
     lv_obj_t* taiji_gold_pulse_arc_ = nullptr;  // 运势 Animating 时太极金边脉冲（随 taiji_container_ 旋转）
+
+    lv_obj_t* fortune_menu_ring_touch_ = nullptr;
+    lv_obj_t* fortune_menu_labels_[FORTUNE_MENU_COUNT] = {};
+    int fortune_menu_center_x_[FORTUNE_MENU_COUNT] = {};
+    int fortune_menu_center_y_[FORTUNE_MENU_COUNT] = {};
+    int fortune_menu_selected_index_ = 0;
+    bool fortune_menu_selection_active_ = false;
+    int fortune_menu_applied_scale_[FORTUNE_MENU_COUNT] = {};
 
     float current_pitch_ = 0.0f;
     float current_roll_ = 0.0f;
@@ -159,6 +199,14 @@ private:
     void CreateLayer1CoreInfo();
     void CreateLayer3StatusProgress();
     void CreateLayer4Boundary();
+    void CreateFortuneMenuRing();
+    void CreateFortuneMenuRingTouch();
+    int FortuneMenuIndexFromPoint(int x, int y) const;
+    void SetFortuneMenuVisible(bool visible);
+    void SelectFortuneMenuItem(int index);
+    void UpdateFortuneMenuSelection();
+    void CycleFortuneMenuSelection();
+    void PlayFortuneMenuSelectSound();
     void CreateCompassPoints();
     void UpdateStateColor(int level);
 
@@ -203,6 +251,7 @@ private:
     static void OnFortuneFisheyePulseTimer(lv_timer_t* timer);
     static void OnFortuneProgressStepTimer(lv_timer_t* timer);
     static void OnFortuneTaijiRampTimer(lv_timer_t* timer);
+    static void OnFortuneMenuRingTouched(lv_event_t* e);
 };
 
 #endif // ATTITUDE_DISPLAY_H
