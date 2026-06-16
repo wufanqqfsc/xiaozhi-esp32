@@ -17,6 +17,15 @@
 
 #define FORTUNE_CARD_W            FORTUNE_CARD_SIZE
 #define FORTUNE_CARD_H            FORTUNE_CARD_SIZE
+
+// 调试信息卡（与后台交互事件）配置
+#define DEBUG_INFO_SHOW_MS        3000   // 单条事件默认显示时长
+#define DEBUG_INFO_HOLD_MAX_MS    10000  // 联动音频播放时的最大允许显示时长（兜底）
+#define DEBUG_INFO_DEDUP_MS       1500   // 同一标题的去重间隔
+// 调试卡配色：与运势卡（金）区分，使用青/品红强调，便于识别
+#define DEBUG_INFO_BORDER_COLOR   lv_color_hex(0x00C8C8)   // 青色描边
+#define DEBUG_INFO_TITLE_COLOR    lv_color_hex(0x00E5E5)
+#define DEBUG_INFO_DETAIL_COLOR   lv_color_hex(0xE0E0E0)
 #define TAIJI_ROTATION_PERIOD_NORMAL_MS  60000   // 常态 60s/圈（减慢旋转 + 降低刷屏）
 #define FORTUNE_TAIJI_PHASE_MS           4000   // 每 4s 一档
 #define FORTUNE_TAIJI_PHASE_COUNT        5
@@ -204,6 +213,9 @@ void AttitudeDisplay::SetupUI()
 
     Display::SetupUI();
     DisplayLockGuard lock(this);
+
+    // 防御：Setup 阶段确保调试卡为干净状态
+    DestroyDebugInfoCard();
 
     auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
     if (lvgl_theme == nullptr) {
@@ -1902,6 +1914,136 @@ void AttitudeDisplay::DismissFortune()
         return;
     }
     EnterIdleState();
+}
+
+void AttitudeDisplay::CreateDebugInfoCard()
+{
+    if (debug_info_card_ != nullptr) {
+        return;
+    }
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
+        ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
+
+    // 与 fortune_card 同位同尺寸，覆盖在太极圈内（与运势卡互斥使用，靠 ShowDebugInfo 防冲突）
+    debug_info_card_ = lv_obj_create(attitude_container_);
+    lv_obj_set_size(debug_info_card_, FORTUNE_CARD_W, FORTUNE_CARD_H);
+    lv_obj_set_pos(debug_info_card_, FORTUNE_CARD_X, FORTUNE_CARD_Y);
+    lv_obj_set_style_radius(debug_info_card_, TAIJI_RADIUS, 0);
+    lv_obj_set_style_clip_corner(debug_info_card_, true, 0);
+    // 半透明黑底 + 青色描边：与运势卡（金）视觉区分
+    lv_obj_set_style_bg_color(debug_info_card_, lv_color_hex(0x0A1414), 0);
+    lv_obj_set_style_bg_opa(debug_info_card_, LV_OPA_80, 0);
+    lv_obj_set_style_border_color(debug_info_card_, DEBUG_INFO_BORDER_COLOR, 0);
+    lv_obj_set_style_border_width(debug_info_card_, 2, 0);
+    lv_obj_set_style_pad_all(debug_info_card_, 10, 0);
+    lv_obj_set_style_pad_row(debug_info_card_, 6, 0);
+    lv_obj_set_flex_flow(debug_info_card_, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(debug_info_card_, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(debug_info_card_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
+
+    // 标题（小标签样式）
+    debug_info_title_ = lv_label_create(debug_info_card_);
+    lv_obj_set_style_text_font(debug_info_title_, text_font, 0);
+    lv_obj_set_style_text_color(debug_info_title_, DEBUG_INFO_TITLE_COLOR, 0);
+    lv_obj_set_style_text_align(debug_info_title_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(debug_info_title_, "");
+
+    // 详情（长文本自动换行）
+    debug_info_detail_ = lv_label_create(debug_info_card_);
+    lv_obj_set_style_text_font(debug_info_detail_, text_font, 0);
+    lv_obj_set_style_text_color(debug_info_detail_, DEBUG_INFO_DETAIL_COLOR, 0);
+    lv_obj_set_width(debug_info_detail_, FORTUNE_CARD_W - 32);
+    lv_label_set_long_mode(debug_info_detail_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(debug_info_detail_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(debug_info_detail_, "");
+
+    // 隐藏定时器：单次触发，到期后自动隐藏卡片
+    debug_info_hide_timer_ = lv_timer_create(OnDebugInfoHideTimer, DEBUG_INFO_SHOW_MS, this);
+    lv_timer_set_repeat_count(debug_info_hide_timer_, 1);
+
+    ESP_LOGD(TAG, "Debug info card created");
+}
+
+void AttitudeDisplay::DestroyDebugInfoCard()
+{
+    if (debug_info_hide_timer_ != nullptr) {
+        lv_timer_delete(debug_info_hide_timer_);
+        debug_info_hide_timer_ = nullptr;
+    }
+    if (debug_info_card_ != nullptr) {
+        lv_obj_del(debug_info_card_);
+        debug_info_card_ = nullptr;
+    }
+    debug_info_title_ = nullptr;
+    debug_info_detail_ = nullptr;
+}
+
+void AttitudeDisplay::OnDebugInfoHideTimer(lv_timer_t* timer)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+    if (self == nullptr) {
+        return;
+    }
+    self->HideDebugInfo();
+}
+
+void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms)
+{
+    DisplayLockGuard lock(this);
+
+    // 与运势卡互斥：运势正在显示时跳过，避免遮挡用户功能
+    if (fortune_state_ != FortuneState::Idle) {
+        ESP_LOGD(TAG, "ShowDebugInfo skipped (fortune busy): %s", title.c_str());
+        return;
+    }
+    // 与学业区互斥
+    if (study_sub_state_ != StudySubState::Hidden) {
+        ESP_LOGD(TAG, "ShowDebugInfo skipped (study busy): %s", title.c_str());
+        return;
+    }
+
+    const uint32_t now = lv_tick_get();
+    // 同标题去重，避免快速连续触发同一事件
+    if (!debug_info_last_title_.empty() && debug_info_last_title_ == title &&
+        (now - debug_info_last_show_ms_) < DEBUG_INFO_DEDUP_MS) {
+        ESP_LOGD(TAG, "ShowDebugInfo dedup: %s", title.c_str());
+        return;
+    }
+
+    CreateDebugInfoCard();
+    if (debug_info_card_ == nullptr || debug_info_title_ == nullptr || debug_info_detail_ == nullptr) {
+        return;
+    }
+
+    lv_label_set_text(debug_info_title_, title.c_str());
+    lv_label_set_text(debug_info_detail_, detail.c_str());
+    lv_obj_remove_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(debug_info_card_);
+
+    // 根据调用方传入的 hold_ms 重置隐藏定时器（上限 DEBUG_INFO_HOLD_MAX_MS 兜底）
+    const uint32_t actual_hold = (hold_ms == 0) ? DEBUG_INFO_SHOW_MS
+                                : (hold_ms > DEBUG_INFO_HOLD_MAX_MS) ? DEBUG_INFO_HOLD_MAX_MS
+                                : hold_ms;
+    if (debug_info_hide_timer_ != nullptr) {
+        lv_timer_set_period(debug_info_hide_timer_, actual_hold);
+        lv_timer_reset(debug_info_hide_timer_);
+    }
+
+    debug_info_last_title_ = title;
+    debug_info_last_show_ms_ = now;
+    ESP_LOGI(TAG, "DebugInfo: %s | %s (hold=%ums)", title.c_str(), detail.c_str(),
+             (unsigned)actual_hold);
+}
+
+void AttitudeDisplay::HideDebugInfo()
+{
+    DisplayLockGuard lock(this);
+    if (debug_info_card_ != nullptr) {
+        lv_obj_add_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void AttitudeDisplay::HighlightDirection(int dir)

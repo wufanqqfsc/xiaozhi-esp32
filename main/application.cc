@@ -176,6 +176,16 @@ void Application::Initialize() {
                 msg += data;
                 display->ShowNotification(msg.c_str(), 30000);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_CONNECTED);
+                // 调试卡 + 音频播报：WiFi 已连接
+                if (auto* attitude = GetAttitudeDisplay()) {
+                    std::string detail = data;
+                    if (detail.size() > 24) detail = detail.substr(0, 24) + "...";
+                    Schedule([this, attitude, detail]() {
+                        // 显示卡延长到 4s 覆盖播报
+                        attitude->ShowDebugInfo("WiFi 已连接", detail, 4000);
+                        audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+                    });
+                }
                 break;
             }
             case NetworkEvent::Disconnected:
@@ -578,6 +588,15 @@ void Application::InitializeProtocol() {
             ESP_LOGW(TAG, "Server sample rate %d does not match device output sample rate %d, resampling may cause distortion",
                 protocol_->server_sample_rate(), codec->output_sample_rate());
         }
+        // 调试卡 + 音频播报：WebSocket 握手成功，音频通道已建立
+        if (auto* attitude = GetAttitudeDisplay()) {
+            char detail[32];
+            snprintf(detail, sizeof(detail), "SR=%dHz", protocol_->server_sample_rate());
+            Schedule([this, attitude, detail]() {
+                attitude->ShowDebugInfo("握手成功", detail, 3500);
+                audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            });
+        }
     });
     
     protocol_->OnAudioChannelClosed([this, &board]() {
@@ -616,6 +635,15 @@ void Application::InitializeProtocol() {
                     Schedule([display, message = std::string(text->valuestring)]() {
                         display->SetChatMessage("assistant", message.c_str());
                     });
+                    // 调试卡：TTS 即将朗读的文本（已在 Speaking 状态，不播本地音避免与远端冲突）
+                    if (auto* attitude = GetAttitudeDisplay()) {
+                        std::string preview = text->valuestring;
+                        if (preview.size() > 28) preview = preview.substr(0, 28) + "...";
+                        Schedule([attitude, preview]() {
+                            // hold_ms 较长以覆盖 TTS 整段朗读
+                            attitude->ShowDebugInfo("TTS 朗读", preview, 6000);
+                        });
+                    }
                 }
             }
         } else if (strcmp(type->valuestring, "stt") == 0) {
@@ -625,6 +653,14 @@ void Application::InitializeProtocol() {
                 Schedule([display, message = std::string(text->valuestring)]() {
                     display->SetChatMessage("user", message.c_str());
                 });
+                // 调试卡：ASR 识别结果（已在 Listening 状态，不播本地音避免与远端冲突）
+                if (auto* attitude = GetAttitudeDisplay()) {
+                    std::string preview = text->valuestring;
+                    if (preview.size() > 28) preview = preview.substr(0, 28) + "...";
+                    Schedule([attitude, preview]() {
+                        attitude->ShowDebugInfo("识别结果", preview, 2500);
+                    });
+                }
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
@@ -637,6 +673,17 @@ void Application::InitializeProtocol() {
             auto payload = cJSON_GetObjectItem(root, "payload");
             if (cJSON_IsObject(payload)) {
                 McpServer::GetInstance().ParseMessage(payload);
+                // 调试卡：MCP 工具调用
+                if (auto* attitude = GetAttitudeDisplay()) {
+                    auto method = cJSON_GetObjectItem(payload, "method");
+                    if (cJSON_IsString(method)) {
+                        std::string method_str = method->valuestring;
+                        if (method_str.size() > 30) method_str = method_str.substr(0, 30) + "...";
+                        Schedule([attitude, method_str]() {
+                            attitude->ShowDebugInfo("工具调用", method_str, 2500);
+                        });
+                    }
+                }
             }
         } else if (strcmp(type->valuestring, "system") == 0) {
             auto command = cJSON_GetObjectItem(root, "command");
@@ -877,6 +924,16 @@ void Application::HandleWakeWordDetectedEvent() {
     auto state = GetDeviceState();
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
+
+    // 调试卡 + 音频播报：检测到唤醒词
+    if (auto* attitude = GetAttitudeDisplay()) {
+        std::string detail = wake_word.empty() ? std::string("(无)") : wake_word;
+        Schedule([this, attitude, detail]() {
+            // 注意：唤醒后的真实播报由服务端 TTS 处理；这里仅短促提示
+            attitude->ShowDebugInfo("唤醒成功", detail, 2500);
+            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+        });
+    }
 
     if (state == kDeviceStateIdle) {
         audio_service_.EncodeWakeWord();

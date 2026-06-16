@@ -176,6 +176,11 @@ public:
     void CreateFortuneCard();
     void DismissFortune();
     FortuneState GetFortuneState() const { return fortune_state_; }
+
+    // 调试信息卡：把与后台交互的关键事件短时显示在太极圈内
+    // hold_ms: 显示持续时间；调用方若同步播放音频，应传入音频可覆盖的时长
+    void ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms = 3000);
+    void HideDebugInfo();
     /** Boot 短按：Idle 循环选中运势入口；Result 关闭卡片 */
     bool HandleBootKey();
     /** Boot 长按：Idle 触发当前选中运势 */
@@ -301,6 +306,17 @@ private:
     lv_timer_t* fortune_taiji_ramp_timer_ = nullptr;
     lv_timer_t* fortune_result_delay_timer_ = nullptr;
     uint32_t fortune_taiji_ramp_start_tick_ = 0;
+
+    // 调试信息卡（与后台交互的关键事件）：短时显示在太极圈内
+    lv_obj_t* debug_info_card_ = nullptr;
+    lv_obj_t* debug_info_title_ = nullptr;
+    lv_obj_t* debug_info_detail_ = nullptr;
+    lv_timer_t* debug_info_hide_timer_ = nullptr;
+    uint32_t debug_info_last_show_ms_ = 0;
+    std::string debug_info_last_title_;
+    void CreateDebugInfoCard();
+    void DestroyDebugInfoCard();
+    static void OnDebugInfoHideTimer(lv_timer_t* timer);
 
     StudySubState study_sub_state_ = StudySubState::Hidden;
     StudyMenuItem study_menu_selected_ = StudyMenuItem::Timer;
