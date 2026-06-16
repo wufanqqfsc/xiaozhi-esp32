@@ -4,7 +4,9 @@
     "builds": [
         {
             "name": "esp32-s3-touch-lcd-1.85b",
-            "sdkconfig_append": []
+            "sdkconfig_append": [
+                "CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE=y"
+            ]
         }
     ]
 }

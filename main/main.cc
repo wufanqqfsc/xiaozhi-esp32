@@ -7,17 +7,25 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_timer.h>
-#include <snapshot_protocol.h>
 #include <cstring>
 #include <cstdio>
 
+// 暂时关闭启动时自动截图（lv_snapshot 会长时间占用 LVGL 锁，影响太极旋转与运势动画）
+#ifndef XIAOZHI_ENABLE_BOOT_SCREENSHOT
+#define XIAOZHI_ENABLE_BOOT_SCREENSHOT 0
+#endif
+
 #include "application.h"
+#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
+#include <snapshot_protocol.h>
 #include "snapshot_service.h"
+#endif
 #include "board.h"
 #include "attitude_display.h"
 
 #define TAG "main"
 
+#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
 // 定期截图任务
 static void screenshot_task(void* arg) {
     auto& svc = SnapshotService::GetInstance();
@@ -60,6 +68,7 @@ static void screenshot_task(void* arg) {
     ESP_LOGI(TAG, "[screenshot_task] All screenshots done, deleting task");
     vTaskDelete(NULL);
 }
+#endif
 
 extern "C" void app_main(void)
 {
@@ -72,7 +81,7 @@ extern "C" void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    // Initialize snapshot service (for screen capture)
+#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
     auto& snapshot_service = SnapshotService::GetInstance();
     ret = snapshot_service.Initialize();
     if (ret == ESP_OK) {
@@ -81,18 +90,20 @@ extern "C" void app_main(void)
     } else {
         ESP_LOGE(TAG, "Snapshot service initialization failed: %d", ret);
     }
-    
+#endif
+
     // Initialize and run the application
     auto& app = Application::GetInstance();
     app.Initialize();
     
-    // 创建定期截图任务（在应用启动后执行）
+#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
     BaseType_t task_ret = xTaskCreate(&screenshot_task, "screenshot_task", 8192, NULL, 3, NULL);
     if (task_ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create screenshot task");
     } else {
         ESP_LOGI(TAG, "Screenshot task created successfully");
     }
-    
+#endif
+
     app.Run();  // This function runs the main event loop and never returns
 }

@@ -1,8 +1,8 @@
 # AI 罗盘 — 需求迭代拆分与验收清单
 
-> **来源文档**: [`ai_compass_product_and_tech_spec.md`](ai_compass_product_and_tech_spec.md) v1.7  
+> **来源文档**: [`ai_compass_product_and_tech_spec.md`](ai_compass_product_and_tech_spec.md) v1.11  
 > **目标硬件**: Waveshare ESP32-S3-Touch-LCD-1.85B  
-> **文档版本**: v1.2  
+> **文档版本**: v1.7  
 > **更新日期**: 2026-06-15  
 > **用途**: 将产品技术方案中的需求拆解为可交付迭代，并为每轮迭代提供可勾选的验收清单。
 
@@ -58,8 +58,8 @@
 
 ```mermaid
 flowchart LR
-    I0[迭代0 基线 ✅] --> I1[迭代1 鱼眼 🟡]
-    I1 --> I2[迭代2 运势UI]
+    I0[迭代0 基线 ✅] --> I1[迭代1 鱼眼 ✅]
+    I1 --> I2[迭代2 运势UI 🟡]
     I1 --> I3[迭代3 网络驱动]
     I2 --> I4[迭代4 AI联调]
     I0 --> I5[迭代5 外设 可并行]
@@ -70,9 +70,9 @@ flowchart LR
 | 迭代 | 名称 | 状态 | 预估工期 | 前置依赖 | 交付物 |
 |------|------|------|---------|---------|--------|
 | **0** | 基础罗盘与平台基线 | ✅ 已完成 | — | — | Target2 罗盘 UI + Xiaozhi 基础能力 |
-| **1** | 鱼眼状态图标（太极一体旋转） | 🟡 进行中 | ~1 周 | 迭代 0 | WiFi/BLE 双鱼眼 UI + 与太极共旋转 |
-| **2** | AI 运势三态 + 结果卡 | ⬜ 未开始 | ~2 周 | 迭代 1 | Idle/Animating/Result 状态机 + 200×240 卡片 |
-| **3** | 真实 WiFi/BLE 驱动鱼眼 | ⬜ 未开始 | ~1.5 周 | 迭代 1 | esp_event / NimBLE → 鱼眼状态联动 |
+| **1** | 鱼眼状态图标（太极一体旋转） | ✅ 已完成 | ~1 周 | 迭代 0 | WiFi/BLE 双鱼眼 UI + 与太极共旋转 |
+| **2** | AI 运势三态 + 结果卡 | 🟡 进行中 | ~2 周 | 迭代 1 | Idle/Animating/Result 状态机 + 200×240 卡片 |
+| **3** | 真实 WiFi/BLE 驱动鱼眼 | 🟡 代码已交付 | ~1.5 周 | 迭代 1 | esp_event / NimBLE → 鱼眼状态联动 |
 | **4** | AI 服务端运势 MCP 联调 | ⬜ 未开始 | ~1 周 | 迭代 2 | 语音指令端到端触发运势流程 |
 | **5** | 板载外设驱动补齐 | ⬜ 未开始 | ~2~3 周 | 迭代 0 | 触控/编解码/IMU/电量/RTC 接入 |
 | **6** | 增强与优化（可选） | 🟡 部分 | ~2~3 周 | 迭代 2~5 | 节气/历史/IMU 姿态/手势等 |
@@ -111,10 +111,9 @@ flowchart LR
 | ID | 需求描述 | 源文档 | 实现状态 |
 |----|---------|--------|---------|
 | R-DISP-001 | 360×360 QSPI 圆屏正常点亮，ST77916 驱动 | §1.1 / §5.1 | ✅ |
-| R-DISP-002 | 4 层同心圆布局 L0~L4 | §2.2.2 / §5.2 | ✅ |
-| R-DISP-003 | 太极图 88×88 canvas，30s/圈逆时针旋转 | §2.2.2 / §5.4 | ✅ |
-| R-DISP-004 | 4 方位 6×6 鎏金圆点，r=72 固定 | §2.2.2 | ✅ |
-| R-DISP-005 | 状态进度环 r=130/140，5 档状态色 | §2.2.2 / §5.5 | ✅ |
+| R-DISP-002 | 罗盘布局 L0 太极 + L4 外圈（L2 已移除） | §2.2.2 / §5.2 | ✅ |
+| R-DISP-003 | 太极图 **172×172** canvas，**60s/圈**旋转（LVGL timer 150ms） | §2.2.2 / §5.4 | ✅ |
+| R-DISP-004 | ~~4 方位圆点~~ | §2.2.2 | ❌ 已移除 |
 | R-DISP-006 | 玄黑+鎏金固定主题 | §5.5 | ✅ |
 | R-DISP-007 | 底部单行滚动消息（圆屏模式） | §2.2.3 | ✅ |
 | R-VOICE-001 | 语音唤醒 → 录音 → WebSocket → TTS 播放 | §2.2.1 | 🟡 继承基线 |
@@ -143,11 +142,10 @@ flowchart LR
 #### 4.3.1 显示与 UI（本板已验证）
 
 - [x] 上电后 LCD 非黑屏，圆屏遮罩完整
-- [x] 太极图位于屏幕中心，肉眼可见缓慢旋转（约 30s 一圈）
-- [x] 4 层同心圆 + 外圈 1px 鎏金边框 r=178 完整无缺口
-- [x] N/E/S/W 四个 6×6 圆点位于 r=72 圆周，不随太极旋转
-- [x] 状态进度环默认可见（背景弧 + 进度弧；进度弧默认 0° 可为空弧）
-- [x] 串口日志每 ~50ms 出现 `CompassTaiji: Taiji rotation set to XXX.X°`（或等价日志）
+- [x] 太极图位于屏幕中心，肉眼可见缓慢旋转（约 **60s** 一圈）
+- [x] L4 外圈 **3px** 鎏金边框 **r=170**（直径 340）完整无缺口
+- [x] Layer2 次外细环 **不可见**（已移除）
+- [x] 太极旋转步进约 **150ms**（LVGL 定时器，非 50ms FreeRTOS 任务）
 
 #### 4.3.2 语音与协议（继承基线，待复测）
 
@@ -182,85 +180,88 @@ flowchart LR
 
 ## 5. 迭代 1 — 鱼眼状态图标（太极一体旋转）
 
-**状态**: 🟡 进行中（v1.2 设计变更：鱼眼与太极共旋转；太极外径按 36px 鱼眼重算为 R=108）  
+**状态**: ✅ 已完成（2026-06-15 人工验收）  
 **前置**: 迭代 0  
-**预估**: ~1 周  
+**完成日期**: 2026-06-15  
 **源文档**: §7.2、附录 A.1
 
-### 5.0 设计要点（v1.2）
+### 5.0 设计要点（v1.9 · 90% 缩放）
 
-1. **一体旋转**：WiFi / BLE 圆形图标作为太极阴阳鱼的**鱼眼**，创建在 `taiji_container_` 内，与太极 canvas **整体** 30s/圈旋转（`lv_obj_set_style_transform_rotation` 作用于容器）。
-2. **鱼眼尺寸固定**：`FISHEYE_ICON_SIZE = 36×36`（不变）。
-3. **太极尺寸联动**：按经典太极比例 `eye_r = R/6`，令 `eye_r = ICON_SIZE/2 = 18` → **`TAIJI_RADIUS = 108`**，canvas **216×216**；canvas 上不再绘制阴阳鱼眼圆点，由 WiFi/BLE 图标替代。
-4. **鱼眼局部坐标**（相对 `taiji_container_`）：上眼 WiFi `(90, 36)`，下眼 BLE `(90, 144)`。
-5. **Layer2 鎏金细环联动**：`LAYER2_ARC_RADIUS = (TAIJI_RADIUS + LAYER4_BOUNDARY_RADIUS) / 2 = 143`，置于太极外缘（R=108）与外圈边框（R=178）之间；arc **286×286**，1px 鎏金。
+1. **一体旋转**：鱼眼在 `taiji_container_` 内，与太极 **整体 60s/圈** 旋转；LVGL 定时器 **150ms** 步进。
+2. **鱼眼尺寸**：`FISHEYE_ICON_SIZE = **28×28**`（整体 90% 缩放）。
+3. **太极尺寸**：`TAIJI_RADIUS = 86`，canvas **172×172**。
+4. **鱼眼局部坐标**：上眼 WiFi `(72, 29)`，下眼 BLE `(72, 115)`。
+5. **Layer2**：**已移除**（原 r=143 次外鎏金细环）。
+6. **BLE 鱼眼样式**：**白底** + **边框**区分状态——DISABLED 灰边；ADVERTISING 灰↔白边框脉冲；CONNECTED 蓝边 `#2196F3` + 蓝图标。WiFi 仍为金/灰 + opacity 脉冲。
 
 ### 5.1 需求清单
 
-| ID | 需求描述 | 优先级 |
-|----|---------|--------|
-| R-DISP-101 | WiFi 鱼眼 36×36，位于太极上眼位（阴中阳），**随太极旋转** | P0 |
-| R-DISP-102 | BLE 鱼眼 36×36，位于太极下眼位（阳中阴），**随太极旋转** | P0 |
-| R-DISP-103 | `WifiStatus` / `BleStatus` 枚举与更新 API | P0 |
-| R-DISP-104 | CONNECTING / ADVERTISING 态 opacity 300ms 脉冲 | P1 |
-| R-DISP-105 | 鱼眼创建在 **`taiji_container_`** 内（非 screen 层） | P0 |
-| R-DISP-106 | 太极外径 `TAIJI_RADIUS=108`，与 36px 鱼眼几何对齐 | P0 |
-| R-DISP-107 | 旋转施加于 `taiji_container_`，鱼眼与阴阳鱼视觉一体 | P0 |
-| R-DISP-108 | Layer2 鎏金细环 r=143，位于太极外缘与外圈边框中间 | P0 |
+| ID | 需求描述 | 优先级 | 实现状态 |
+|----|---------|--------|---------|
+| R-DISP-101 | WiFi 鱼眼 **28×28**，位于太极上眼位，**随太极旋转** | P0 | ✅ |
+| R-DISP-102 | BLE 鱼眼 **28×28**，位于太极下眼位，**随太极旋转** | P0 | ✅ |
+| R-DISP-103 | `WifiStatus` / `BleStatus` 枚举与更新 API | P0 | ✅ |
+| R-DISP-104 | CONNECTING / ADVERTISING 态 opacity 300ms 脉冲 | P1 | ✅ |
+| R-DISP-105 | 鱼眼创建在 **`taiji_container_`** 内（非 screen 层） | P0 | ✅ |
+| R-DISP-106 | 太极外径 `TAIJI_RADIUS=86`，与 **28px** 鱼眼几何对齐 | P0 | ✅ |
+| R-DISP-107 | 旋转施加于 `taiji_container_`，鱼眼与阴阳鱼视觉一体 | P0 | ✅ |
+| R-DISP-108 | ~~Layer2 鎏金细环~~ | P0 | ❌ 已移除 |
+| R-DISP-109 | BLE 鱼眼 **白底 + 边框** 三态（灰 / 脉冲 / 蓝） | P0 | ✅ |
 
 ### 5.2 任务拆分
 
 | # | 任务 | 修改文件 | 产出 |
 |---|------|---------|------|
 | 1.1 | 鱼眼/太极尺寸宏 + 状态枚举 | `attitude_display.h` | `FISHEYE_*` / `TAIJI_RADIUS` / `enum WifiStatus/BleStatus` ✅ |
-| 1.2 | 太极 R=108，canvas 不绘鱼眼圆点 | `compass_taiji.cc` | 鱼眼位留白，供图标叠加 🟡 |
-| 1.3 | 容器级旋转 + `GetContainer()` | `compass_taiji.cc/.h` | 鱼眼与 canvas 共旋转 🟡 |
-| 1.4 | `CreateWifiFisheye()` / `CreateBleFisheye()` | `attitude_display.cc` | 父对象 `taiji_container_` 🟡 |
+| 1.2 | 太极 R=86，canvas 不绘鱼眼圆点 | `compass_taiji.cc` | 172×172 canvas ✅ |
+| 1.3 | 容器级旋转 + LVGL timer 150ms | `compass_taiji.cc/.h` | 60s/圈 ✅ |
+| 1.4 | `CreateWifiFisheye()` / `CreateBleFisheye()` | `attitude_display.cc` | 父对象 `taiji_container_` ✅ |
 | 1.5 | `UpdateWifiFisheye()` / `UpdateBleFisheye()` | `attitude_display.cc` | 手动状态驱动 ✅ |
 | 1.6 | `lv_anim_t` 脉冲动画 | `attitude_display.cc` | 连接中/广播中视觉反馈 ✅ |
 | 1.7 | MCP 测试 API | `mcp_server.cc` | `self.attitude.set_wifi/ble_fisheye` ✅ |
-| 1.8 | Layer2 鎏金细环随太极放大 | `attitude_display.cc` | `LAYER2_ARC_RADIUS=143` 🟡 |
-| 1.9 | 编译烧录真机验证 | `build_and_flash.ps1` | COM9 + `screenshot_iter1_layer2.jpg` 🟡 待确认金环 |
+| 1.8 | ~~Layer2 鎏金细环~~ | — | **已移除** |
+| 1.9 | 编译烧录真机验证 | `build_and_flash.ps1` | COM9 + `screenshot_iter1_v12.jpg` ✅ |
 
 ### 5.3 验收清单
 
 #### 5.3.1 视觉与布局
 
-- [x] 上电后可见 **两个** 36×36 圆形鱼眼，分别叠在太极图上下鱼眼位（2026-06-15 人工确认）
-- [x] 鱼眼圆心与太极 canvas 鱼眼位对齐，直径与阴阳鱼眼 socket **一致**（36px）
-- [x] 太极 30s/圈旋转时，鱼眼 **与太极一体旋转**（非 screen 固定）
-- [x] 太极外径约 **216×216**（R=108），较迭代 0（R=44）放大以容纳 36px 鱼眼
-- [~] Layer2 鎏金细环位于太极外缘（R=108）与外圈（R=178）之间，有效半径 **r=143**（待本轮烧录确认）
-- [x] 迭代 0 四层圆环仍完整；**N/E/S/W 6×6 方位圆点已移除**（2026-06-15 视觉简化）
+- [x] 上电后可见 **两个** **28×28** 圆形鱼眼，叠在太极上下鱼眼位
+- [x] 鱼眼与太极 canvas 鱼眼位对齐（R=86）
+- [x] 太极 **60s/圈**旋转时，鱼眼 **与太极一体旋转**
+- [x] 太极外径约 **172×172**（R=86，90% 缩放）
+- [x] Layer2 细环 **不可见**（已移除）
+- [x] L4 外圈 **r=170**（340×340）**3px** 鎏金可见
 
 #### 5.3.2 手动状态切换（MCP 测试 API）
 
-- [ ] WiFi `DISCONNECTED` → 灰色（MCP: `self.attitude.set_wifi_fisheye` status=0）
-- [ ] WiFi `CONNECTING` → 金色脉冲（150↔255 opacity，约 300ms 周期）（MCP status=1）
-- [ ] WiFi `CONNECTED` → 金色常亮（MCP status=2）
-- [ ] BLE `DISABLED` → 灰底灰符号（MCP: `self.attitude.set_ble_fisheye` status=0）
-- [ ] BLE `ADVERTISING` → 白色脉冲（MCP status=1）
-- [ ] BLE `CONNECTED` → 白底金色符号（MCP status=2）
-- [ ] 旋转过程中切换状态，鱼眼仍随太极转动、无脱离/抖动
+- [x] WiFi `DISCONNECTED` → 灰底灰标（白鱼区域）（MCP status=0）
+- [x] WiFi `CONNECTING` → 金色脉冲（150↔255 opacity，约 300ms 周期）（MCP status=1）
+- [x] WiFi `CONNECTED` → 金色常亮（MCP status=2）
+- [x] BLE `DISABLED` → **白底 + 灰边框** + 灰图标（MCP status=0）
+- [x] BLE `ADVERTISING` → **白底 + 灰↔白边框脉冲**（MCP status=1）
+- [x] BLE `CONNECTED` → **白底 + 蓝边框** `#2196F3` + 蓝图标（MCP status=2）
+- [x] 旋转过程中切换状态，鱼眼仍随太极转动、无脱离/抖动
 
 #### 5.3.3 稳定性
 
-- [ ] 连续切换状态 20 次无崩溃、无内存泄漏迹象
-- [ ] 串口无 `Guru Meditation` / `heap` 相关错误
-- [~] `snapshot_recv.py` 截图可产出有效 JPEG（2026-06-15 COM9 v1.2 固件，16859 bytes → `screenshot_iter1_v12.jpg`）
+- [x] 连续切换状态 20 次无崩溃、无内存泄漏迹象
+- [x] 串口无 `Guru Meditation` / `heap` 相关错误
+- [x] `snapshot_recv.py` 截图可产出有效 JPEG（`screenshot_iter1_v12.jpg`）
 
 #### 5.3.4 资源
 
-- [ ] 太极 canvas PSRAM 约 216²×4 ≈ **186KB**（可接受，8MB PSRAM 充裕）
-- [ ] 鱼眼状态变化时 CPU 占用无明显尖峰（脉冲仅改 opacity，非每 50ms 全屏刷新）
+- [x] 太极 canvas PSRAM 约 192²×4 ≈ **144KB**
+- [x] 鱼眼状态变化时 CPU 占用无明显尖峰；BLE 脉冲改 **边框色** 非全屏刷新
 
 ---
 
 ## 6. 迭代 2 — AI 运势三态状态机 + 结果卡
 
-**状态**: ⬜ 未开始  
+**状态**: 🟡 进行中（代码已实现，待真机验收）  
 **前置**: 迭代 1  
 **预估**: ~2 周  
+**完成日期**: —（待人工确认）  
 **源文档**: §4.1、§7.3、附录 A.2
 
 ### 6.1 需求清单
@@ -268,14 +269,14 @@ flowchart LR
 | ID | 需求描述 | 优先级 |
 |----|---------|--------|
 | R-FORT-001 | `FortuneState`: Idle / Animating / Result 三态 | P0 |
-| R-FORT-002 | `EnterAnimatingState()` 3 秒（亮度/边框/鱼眼/可选进度环脉冲；太极 30s/圈不变） | P0 |
+| R-FORT-002 | `EnterAnimatingState()` **20 秒**（每 **4s** 一档太极 **0.2→0.4→0.4→0.4→0.2 圈**；亮度/**太极金边**/鱼眼同步；L4 静态；**恢复 60s/圈 + 1s** 后再出结果卡） | P0 |
 | R-FORT-003 | `HighlightDirection()` → **N/E/S/W 6×6 圆点**颜色脉冲（非方位大字） | P1 |
 | R-FORT-004 | `HighlightGua()` → **结果卡内**卦名/卦象颜色脉冲（非环上八卦） | P1 |
 | R-FORT-005 | 200×240 胶囊结果卡，7 行内容 | P0 |
 | R-FORT-006 | 关闭结果卡：Boot 键 / MCP / 30s 超时（触控见迭代 5A） | P0 |
 | R-FORT-007 | Result 态 30s 超时自动回 Idle | P1 |
 | R-FORT-008 | `ShowFortune(...)` 手动触发完整流程 | P0 |
-| R-FORT-009 | Animating 态 **不**加速太极、**不**恢复八卦环 | P0 |
+| R-FORT-009 | Animating 态每 **4s** 转 **0.2→0.4→0.4→0.4→0.2 圈**（共 20s），恢复常态 **1s** 后出卡 | P0 |
 
 ### 6.2 任务拆分
 
@@ -306,19 +307,23 @@ flowchart LR
 
 #### 6.4.1 状态机流程
 
-- [ ] 调用 `ShowFortune(...)` → **Animating** 3 秒
-- [ ] Animating 结束自动进入 **Result**，弹出结果卡
+- [ ] 调用 `ShowFortune(...)` → **Animating** **20** 秒（分段快转）
+- [ ] Animating 结束（恢复 60s/圈 + **1s**）自动进入 **Result**
 - [ ] Boot 键或 MCP 关闭 → 销毁卡片 → **Idle**
 - [ ] 不操作情况下 30 秒 → 自动回 **Idle**
 - [ ] 多次完整流程（≥5 次）无崩溃、无卡片残留
 
 #### 6.4.2 动画与视觉约束（Target2）
 
-- [ ] Animating 期间太极 **仍为 30s/圈**；无八卦环旋转
+- [ ] Animating 每 **4s** 太极转 **0.2→0.4→0.4→0.4→0.2 圈**；20s 后恢复 **60s/圈**，**1s** 后淡入结果卡
+- [ ] 亮度 / **太极金边** / 鱼眼与上述 20s **同步**
+- [ ] L4 外圈 **保持静态**
+- [ ] 太极金边鎏金↔亮金脉冲（随太极一体旋转）
+- [ ] 太极恢复常态转速后 **再** 弹出 Result 结果卡（非加速中途出卡）
 - [ ] 高亮仅改颜色/透明度，**不改**圆点/卡片控件尺寸与位置
 - [ ] 全局亮度脉冲 opacity 200↔255，周期约 600ms
-- [ ] 外圈 border 金色↔亮金脉冲
-- [ ] 鱼眼在 Animating 态金↔深灰脉冲约 5 次
+- [ ] 外圈 border 金色↔亮金脉冲 → **已改为太极金边脉冲**
+- [ ] 鱼眼在 Animating 态金↔深灰脉冲约 **5** 次（每 4s 一档）
 - [ ] `HighlightDirection` 作用于 **r=72 圆点**；`HighlightGua` 作用于 **结果卡内** 卦名/卦象
 
 #### 6.4.3 与迭代 1 集成
@@ -326,16 +331,16 @@ flowchart LR
 - [ ] 鱼眼在运势各态下仍随太极旋转、不被结果卡永久遮挡（Result 态卡片可遮罩但关闭后恢复）
 - [ ] 迭代 0 罗盘基线无回归
 
-#### 6.4.4 资源
+#### 6.4.4 资源与刷屏
 
 - [ ] PSRAM 增量约 +150KB 内可接受
-- [ ] Animating 态 CPU 增量约 +3~5% 内可接受
+- [ ] Animating 态 CPU 增量可接受；旋转撕裂较 v1.8 有改善（72 行 DMA + 150ms 步进 + 窄脏区）
 
 ---
 
 ## 7. 迭代 3 — 真实 WiFi / BLE 驱动鱼眼
 
-**状态**: ⬜ 未开始  
+**状态**: 🟡 代码已交付，待真机验收  
 **前置**: 迭代 1（可与迭代 2 部分并行，但验收依赖鱼眼 UI）  
 **预估**: ~1.5 周  
 **源文档**: §4.2、§7.4
@@ -344,8 +349,8 @@ flowchart LR
 
 | ID | 需求描述 | 优先级 |
 |----|---------|--------|
-| R-DISP-201 | WiFi 事件 → `UpdateWifiFisheye()` 自动更新 | P0 |
-| R-BLE-001 | NimBLE 广播/连接 → `UpdateBleFisheye()` | P0 |
+| R-DISP-201 | WiFi 事件 → `UpdateWifiFisheye()` 自动更新 | P0 | 🟡 |
+| R-BLE-001 | NimBLE 广播/连接 → `UpdateBleFisheye()` | P0 | 🟡 |
 | R-BLE-002 | BLE GATT：WiFi 配网 / 控制 / 通知（基础） | P2 |
 | R-HW-004 | BQ27220 电量 <20% 鱼眼红色告警（可选） | P2 |
 | R-HW-005 | PCF85363 时间同步可读（可选） | P2 |
@@ -357,6 +362,7 @@ flowchart LR
 
 #### 7.2.1 WiFi 鱼眼联动
 
+- [x] 代码：`application.cc` 网络事件 → `UpdateWifiFisheye()`（启动时 `SyncWifiFisheyeFromNetwork`）
 - [ ] 设备启动未连 WiFi → 鱼眼灰色
 - [ ] 开始连接 → 金色脉冲
 - [ ] 连接成功 → 金色常亮
@@ -365,22 +371,23 @@ flowchart LR
 
 #### 7.2.2 BLE 鱼眼联动
 
+- [x] 代码：`main/ble/ble_server.*` + `CONFIG_BT_NIMBLE_ENABLED=y`
 - [ ] `CONFIG_BT_NIMBLE_ENABLED=y` 编译通过
-- [ ] 开启 BLE 广播 → 下方鱼眼白色脉冲
-- [ ] 手机连接成功 → 白底金色符号
-- [ ] 关闭 BLE → 灰态
+- [ ] 开启 BLE 广播 → 下方鱼眼 **白底 + 边框脉冲**
+- [ ] 手机连接成功 → **白底蓝边** `#2196F3`
+- [ ] 关闭 BLE → 白底灰边（DISABLED）
 - [ ] WiFi 语音对话与 BLE 广播可同时运行，语音无明显中断
 
-#### 7.2.3 可选外设（本迭代可分期）
+#### 7.2.3 可选外设（本迭代可分期，驱动未就绪已跳过）
 
-- [ ] 电量 <20% 时鱼眼或叠加文字红色告警（若启用 BQ27220）
-- [ ] RTC 读取时间与系统时间一致（若启用 PCF85363）
-- [ ] IMU 原始数据日志可读（若启用 QMI8658）
+- [ ] 电量 <20% 时鱼眼或叠加文字红色告警（若启用 BQ27220）— **跳过**
+- [ ] RTC 读取时间与系统时间一致（若启用 PCF85363）— **跳过**
+- [ ] IMU 原始数据日志可读（若启用 QMI8658）— **跳过**
 
 #### 7.2.4 回归
 
 - [ ] 迭代 0 显示基线通过
-- [ ] 迭代 1 鱼眼与太极一体旋转、36px 对齐仍正确
+- [ ] 迭代 1 鱼眼与太极一体旋转、**28px** 对齐仍正确
 
 ---
 
@@ -576,6 +583,9 @@ flowchart LR
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.7 | 2026-06-15 | **v1.11**：太极 R=86、L4 直径 340；Animating 改太极金边脉冲 |
+| 1.5 | 2026-06-15 | **v1.9**：90% 缩放、L4 r=165；移除 Layer2；运势 Animating 20s |
+| 1.4 | 2026-06-15 | **迭代 1 ✅ 完成**：鱼眼共旋转、Layer2 r=143、BLE 白底灰标、MCP 六态与真机验收 |
 | 1.3 | 2026-06-15 | v1.2：鱼眼改为太极一体旋转；TAIJI_RADIUS=108 对齐 36px 鱼眼；废弃伪旋转方案 |
 | 1.2 | 2026-06-15 | 迭代 1 鱼眼 UI 初版（screen 层伪旋转，已废弃） |
 | 1.1 | 2026-06-15 | 对齐产品规格 v1.6：Target2 运势验收、迭代 0 分栏、R-TOOL ID、阶段对照、语音移迭代 4 |

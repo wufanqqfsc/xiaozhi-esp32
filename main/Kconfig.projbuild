@@ -875,6 +875,18 @@ menu "WiFi Configuration Method"
         select MBEDTLS_DHM_C
 endmenu
 
+menu "AI Compass"
+    config XIAOZHI_ENABLE_BLE_FISHEYE
+        bool "Enable NimBLE server for BLE fisheye status"
+        default y
+        depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_85B
+        select BT_ENABLED
+        select BT_NIMBLE_ENABLED
+        help
+            Starts a lightweight NimBLE peripheral that drives the BLE fisheye
+            icon (advertising / connected / disabled). Coexists with WiFi voice.
+endmenu
+
 config AUDIO_DEBUG_UDP_SERVER
     string "Audio Debug UDP Server Address"
     default "192.168.2.100:8000"

@@ -363,6 +363,9 @@ private:
                 self->EnterWifiConfigMode();
                 return;
             }
+            if (app.HandleFortuneBootKey()) {
+                return;
+            }
             app.ToggleChatState();
         }, this);
 

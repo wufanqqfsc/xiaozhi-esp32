@@ -93,6 +93,12 @@ public:
     void ToggleChatState();
 
     /**
+     * 迭代 2: Boot 键运势测试入口（AttitudeDisplay 板卡）
+     * @return true 若运势流程已消费按键，否则应继续 ToggleChatState
+     */
+    bool HandleFortuneBootKey();
+
+    /**
      * Start listening (event-based, thread-safe)
      * Sends MAIN_EVENT_START_LISTENING to be handled in Run()
      */

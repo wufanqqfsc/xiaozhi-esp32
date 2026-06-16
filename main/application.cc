@@ -1,6 +1,7 @@
 #include "application.h"
 #include "board.h"
 #include "display.h"
+#include "attitude_display.h"
 #include "system_info.h"
 #include "audio_codec.h"
 #include "mqtt_protocol.h"
@@ -16,8 +17,58 @@
 #include <driver/gpio.h>
 #include <arpa/inet.h>
 #include <font_awesome.h>
+#include <wifi_manager.h>
+
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+#include "ble/ble_server.h"
+#endif
 
 #define TAG "Application"
+
+namespace {
+
+AttitudeDisplay* GetAttitudeDisplay()
+{
+    return dynamic_cast<AttitudeDisplay*>(Board::GetInstance().GetDisplay());
+}
+
+WifiStatus NetworkEventToWifiFisheyeStatus(NetworkEvent event)
+{
+    switch (event) {
+    case NetworkEvent::Connecting:
+        return WifiStatus::CONNECTING;
+    case NetworkEvent::Connected:
+        return WifiStatus::CONNECTED;
+    default:
+        return WifiStatus::DISCONNECTED;
+    }
+}
+
+void ApplyWifiFisheyeStatus(WifiStatus status)
+{
+    if (auto* attitude = GetAttitudeDisplay()) {
+        attitude->UpdateWifiFisheye(status);
+    }
+}
+
+void ApplyBleFisheyeStatus(BleStatus status)
+{
+    if (auto* attitude = GetAttitudeDisplay()) {
+        attitude->UpdateBleFisheye(status);
+    }
+}
+
+void SyncWifiFisheyeFromNetwork()
+{
+    WifiStatus status = WifiStatus::DISCONNECTED;
+    auto& wifi = WifiManager::GetInstance();
+    if (wifi.IsInitialized() && wifi.IsConnected()) {
+        status = WifiStatus::CONNECTED;
+    }
+    ApplyWifiFisheyeStatus(status);
+}
+
+}  // namespace
 
 
 Application::Application() {
@@ -153,10 +204,32 @@ void Application::Initialize() {
                 display->SetStatus(Lang::Strings::REGISTERING_NETWORK);
                 break;
         }
+
+        // 迭代 3: WiFi 网络事件 → 鱼眼状态（与 MCP 手动切换可共存）
+        const WifiStatus wifi_fisheye_status = NetworkEventToWifiFisheyeStatus(event);
+        Schedule([wifi_fisheye_status]() {
+            ApplyWifiFisheyeStatus(wifi_fisheye_status);
+        });
     });
+
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    BleServer::GetInstance().SetStatusCallback([this](BleStatus status) {
+        Schedule([status]() {
+            ApplyBleFisheyeStatus(status);
+        });
+    });
+    if (BleServer::GetInstance().Start() != ESP_OK) {
+        ESP_LOGW(TAG, "BLE fisheye server failed to start");
+    }
+#endif
 
     // Start network asynchronously
     board.StartNetwork();
+
+    // 启动时根据当前 WiFi 状态初始化鱼眼
+    Schedule([]() {
+        SyncWifiFisheyeFromNetwork();
+    });
 
     // Update the status bar immediately to show the network state
     display->UpdateStatusBar(true);
@@ -661,6 +734,13 @@ void Application::DismissAlert() {
 
 void Application::ToggleChatState() {
     xEventGroupSetBits(event_group_, MAIN_EVENT_TOGGLE_CHAT);
+}
+
+bool Application::HandleFortuneBootKey() {
+    if (auto* attitude = GetAttitudeDisplay()) {
+        return attitude->HandleBootKey();
+    }
+    return false;
 }
 
 void Application::StartListening() {

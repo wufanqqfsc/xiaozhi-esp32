@@ -20,6 +20,9 @@
 #ifdef CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
 #include "blufi.h"
 #endif
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+#include "ble/ble_server.h"
+#endif
 
 static const char *TAG = "WifiBoard";
 
@@ -111,6 +114,9 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
 #ifdef CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
             // make sure blufi resources has been released
             Blufi::GetInstance().deinit();
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+            BleServer::GetInstance().Start();
+#endif
 #endif
             in_config_mode_ = false;
             ESP_LOGI(TAG, "Connected to WiFi: %s", data.c_str());
@@ -175,6 +181,9 @@ void WifiBoard::StartWifiConfigMode() {
         Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "gear", Lang::Sounds::OGG_WIFICONFIG);
     });
 #elif CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    BleServer::GetInstance().Stop();
+#endif
     auto &blufi = Blufi::GetInstance();
     // initialize esp-blufi protocol
     blufi.init();

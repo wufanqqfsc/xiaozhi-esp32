@@ -44,9 +44,24 @@ public:
     /**
      * 启动自动旋转
      * @param period_ms 旋转周期 (毫秒) - 转 360° 所需时间
-     *                  默认 30000ms = 30秒转一圈
+     *                  默认 60000ms = 60秒转一圈
      */
-    static void StartAutoRotation(int period_ms = 30000);
+    static void StartAutoRotation(int period_ms = 60000);
+
+    /**
+     * 运行中调整旋转周期（用于运势 Animating 加速/减速）
+     * @param period_ms 新的 360° 周期 (ms)，越小转得越快
+     */
+    static void SetAutoRotationPeriod(int period_ms);
+
+    /** 当前自动旋转周期 (ms) */
+    static int GetAutoRotationPeriod();
+
+    /** 暂停/恢复后台旋转任务（Animating 时由 LVGL 定时器接管步进） */
+    static void SetAutoRotationPaused(bool paused);
+
+    /** 按当前 step 旋转一步；调用方须持有 LVGL 锁 */
+    static void TickAutoRotationStep();
 
     /**
      * 停止自动旋转
@@ -68,8 +83,9 @@ public:
     static int GetStepInternal() { return auto_rotation_step_; }
     static int GetIntervalInternal() { return auto_rotation_interval_ms_; }
 
-    // 自动旋转 FreeRTOS 任务入口 (类静态成员, 可访问 private 成员)
-    static void AutoRotationTaskEntry(void* arg);
+    static void RecalcAutoRotationStep();
+
+    static void OnAutoRotationTimer(lv_timer_t* timer);
 
 private:
     // 太极图组件句柄（使用静态变量，便于跨实例访问）
@@ -85,11 +101,12 @@ private:
     static int current_rotation_;         // 当前旋转角度 (0.1°单位)
 
     // 自动旋转控制
-    static void* auto_rotation_task_handle_;  // FreeRTOS 任务句柄
+    static lv_timer_t* auto_rotation_timer_;
     static bool auto_rotation_running_;       // 是否正在自动旋转
     static int auto_rotation_period_ms_;      // 旋转周期 (ms)
     static int auto_rotation_step_;           // 每步旋转角度 (0.1°单位)
     static int auto_rotation_interval_ms_;    // 步进间隔 (ms)
+    static volatile bool auto_rotation_paused_;  // Animating 时由 LVGL 定时器驱动
 
     /**
      * 创建一个圆形 lv_obj

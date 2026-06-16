@@ -133,12 +133,17 @@ SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
 #endif
     lvgl_port_init(&port_cfg);
 
+    // SPI 屏须用 DMA 内部 RAM 绘制缓冲；整帧 PSRAM 双缓冲会导致白屏
+    const uint32_t draw_lines = 72;
+    const uint32_t draw_buf_pixels = static_cast<uint32_t>(width_) * draw_lines;
+    ESP_LOGI(TAG, "LCD draw buf: %ux%u (%u lines), single DMA buffer", width_, draw_lines, draw_lines);
+
     ESP_LOGI(TAG, "Adding LCD display");
     const lvgl_port_display_cfg_t display_cfg = {
         .io_handle = panel_io_,
         .panel_handle = panel_,
         .control_handle = nullptr,
-        .buffer_size = static_cast<uint32_t>(width_ * 20),
+        .buffer_size = draw_buf_pixels,
         .double_buffer = false,
         .trans_size = 0,
         .hres = static_cast<uint32_t>(width_),
