@@ -134,6 +134,16 @@ void Application::Initialize() {
     callbacks.on_vad_change = [this](bool speaking) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
+    // 播放队列清空时回调：用于调试信息卡的"播完再隐藏"
+    callbacks.on_playback_finished = [this]() {
+        // 通过主循环安全调用（audio task 不应直接操作 LVGL）
+        Schedule([]() {
+            if (auto* attitude = GetAttitudeDisplay()) {
+                ESP_LOGD(TAG, "audio playback finished -> hide debug info card");
+                attitude->HideDebugInfo();
+            }
+        });
+    };
     audio_service_.SetCallbacks(callbacks);
 
     // Add state change listeners
@@ -177,14 +187,22 @@ void Application::Initialize() {
                 display->ShowNotification(msg.c_str(), 30000);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_CONNECTED);
                 // 调试卡 + 音频播报：WiFi 已连接
+                // 设计：先显示调试卡（短促本地提示音播报），
+                //      然后调用 RequestDebugTts 让服务端 TTS 朗读事件文字
+                //      卡片在服务端 TTS 音频播放完成回调中自动隐藏
                 if (auto* attitude = GetAttitudeDisplay()) {
                     std::string detail = data;
                     if (detail.size() > 24) detail = detail.substr(0, 24) + "...";
                     Schedule([this, attitude, detail]() {
-                        // 显示卡延长到 4s 覆盖播报
-                        attitude->ShowDebugInfo("WiFi 已连接", detail, 4000);
+                        // 短促本地提示音 + 显示卡，hold 5s 兜底（实际由播放完成回调隐藏）
+                        attitude->ShowDebugInfo("WiFi 已连接", detail, 5000);
                         audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
                     });
+                }
+                // 请求服务端 TTS 朗读 "WiFi 已连接到 <SSID>"（若服务端不识别该协议则静默）
+                {
+                    std::string tts_text = std::string("WiFi 已连接：") + data;
+                    RequestDebugTts(tts_text);
                 }
                 break;
             }
@@ -593,9 +611,17 @@ void Application::InitializeProtocol() {
             char detail[32];
             snprintf(detail, sizeof(detail), "SR=%dHz", protocol_->server_sample_rate());
             Schedule([this, attitude, detail]() {
-                attitude->ShowDebugInfo("握手成功", detail, 3500);
+                // 短促本地提示音 + 显示卡
+                attitude->ShowDebugInfo("握手成功", detail, 5000);
                 audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
             });
+        }
+        // 服务端 TTS 朗读（已存在通道，复用）
+        {
+            char tts_text[64];
+            snprintf(tts_text, sizeof(tts_text), "握手成功，采样率 %d 赫兹",
+                     protocol_->server_sample_rate());
+            RequestDebugTts(tts_text);
         }
     });
     
@@ -929,11 +955,12 @@ void Application::HandleWakeWordDetectedEvent() {
     if (auto* attitude = GetAttitudeDisplay()) {
         std::string detail = wake_word.empty() ? std::string("(无)") : wake_word;
         Schedule([this, attitude, detail]() {
-            // 注意：唤醒后的真实播报由服务端 TTS 处理；这里仅短促提示
-            attitude->ShowDebugInfo("唤醒成功", detail, 2500);
+            // 短促本地提示音 + 显示卡（由播放完成回调隐藏）
+            attitude->ShowDebugInfo("唤醒成功", detail, 5000);
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
         });
     }
+    // 不在此处触发服务端 TTS：唤醒词后 LLM 即将开始接管对话，避免双声道冲突
 
     if (state == kDeviceStateIdle) {
         audio_service_.EncodeWakeWord();
@@ -1274,6 +1301,42 @@ void Application::PlayUiSound(const std::string_view& sound) {
     Schedule([this, sound]() {
         ESP_LOGI(TAG, "PlayUiSound (%zu bytes)", sound.size());
         audio_service_.PlaySound(sound);
+    });
+}
+
+void Application::RequestDebugTts(const std::string& text) {
+    if (text.empty()) {
+        return;
+    }
+    if (GetDeviceState() != kDeviceStateIdle) {
+        ESP_LOGD(TAG, "RequestDebugTts skipped (not idle): %s", text.c_str());
+        return;
+    }
+    if (!protocol_) {
+        return;
+    }
+    ESP_LOGI(TAG, "RequestDebugTts: %s", text.c_str());
+    Schedule([this, prompt = text]() {
+        // 1. 尝试复用已有通道；否则建立新通道
+        if (!protocol_->IsAudioChannelOpened()) {
+            if (!protocol_->OpenAudioChannel()) {
+                ESP_LOGW(TAG, "RequestDebugTts: OpenAudioChannel failed");
+                return;
+            }
+        }
+        // 2. 主动触发 listen.start，让服务端进入可接收消息的状态
+        //    mode=manual：仅响应 stop，避免 server 主动超时结束
+        protocol_->SendStartListening(kListeningModeManualStop);
+        // 3. 主动发送 user_prompt，让服务端处理（具体由服务端决定是否 TTS）
+        protocol_->SendUserPrompt(prompt);
+    });
+}
+
+void Application::DismissDebugInfo() {
+    Schedule([]() {
+        if (auto* attitude = GetAttitudeDisplay()) {
+            attitude->HideDebugInfo();
+        }
     });
 }
 

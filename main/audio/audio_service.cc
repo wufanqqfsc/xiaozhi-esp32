@@ -295,6 +295,9 @@ void AudioService::AudioOutputTask() {
             break;
         }
 
+        // 记录出队前状态：用于判断"刚播完一个 task 之后整个队列是否变空"
+        const bool queue_was_non_empty = (audio_playback_queue_.size() > 1);
+
         auto task = std::move(audio_playback_queue_.front());
         audio_playback_queue_.pop_front();
         audio_queue_cv_.notify_all();
@@ -319,6 +322,17 @@ void AudioService::AudioOutputTask() {
             timestamp_queue_.push_back(task->timestamp);
         }
 #endif
+
+        // 播放完成回调：当本次出队后整个播放队列已空（且之前至少有一个 task 在排）
+        // 说明一段音频已全部播报完。回调在锁外触发，避免重入。
+        if (queue_was_non_empty) {
+            std::unique_lock<std::mutex> cb_lock(audio_queue_mutex_);
+            const bool both_empty = audio_playback_queue_.empty() && audio_decode_queue_.empty();
+            cb_lock.unlock();
+            if (both_empty && callbacks_.on_playback_finished) {
+                callbacks_.on_playback_finished();
+            }
+        }
     }
 
     ESP_LOGW(TAG, "Audio output task stopped");

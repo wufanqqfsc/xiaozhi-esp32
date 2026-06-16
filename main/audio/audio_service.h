@@ -80,6 +80,11 @@ struct AudioServiceCallbacks {
     std::function<void(const std::string&)> on_wake_word_detected;
     std::function<void(bool)> on_vad_change;
     std::function<void(void)> on_audio_testing_queue_full;
+    /**
+     * 播放队列从非空变为空时触发一次。可用于联动 UI（如调试信息卡显示时长）：
+     * 播报结束时自动隐藏卡片，避免固定时长过早/过晚。
+     */
+    std::function<void(void)> on_playback_finished;
 };
 
 

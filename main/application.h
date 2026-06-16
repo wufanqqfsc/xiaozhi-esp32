@@ -125,6 +125,15 @@ public:
     // UI 反馈音：投递到主循环播放（与激活成功音相同路径，避免 LVGL/定时器任务直接播音频）
     void PlayUiSound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
+    /**
+     * 调试用：让服务端 TTS 朗读一段文字（用于播报后台交互事件）。
+     * 当前协议下通过 OpenAudioChannel + SendUserPrompt 触发；
+     * 服务端可选择性响应，不识别时静默失败。
+     * 仅在 Idle 态 + WiFi 已连接时才会真正执行。
+     */
+    void RequestDebugTts(const std::string& text);
+    /** 隐藏调试信息卡（包装到主循环） */
+    void DismissDebugInfo();
     
     /**
      * Reset protocol resources (thread-safe)

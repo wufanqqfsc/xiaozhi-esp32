@@ -73,6 +73,12 @@ public:
     virtual void SendStopListening();
     virtual void SendAbortSpeaking(AbortReason reason);
     virtual void SendMcpMessage(const std::string& message);
+    /**
+     * 调试用：发送一段用户提示文本让服务端处理（如 TTS 朗读事件文字）。
+     * 默认实现发送 {"type":"user_prompt","text":"..."}，服务端可选择性响应。
+     * 若服务端不识别该 type 则安全忽略。
+     */
+    virtual void SendUserPrompt(const std::string& text);
 
 protected:
     std::function<void(const cJSON* root)> on_incoming_json_;

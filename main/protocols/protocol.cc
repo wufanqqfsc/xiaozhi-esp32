@@ -78,6 +78,33 @@ void Protocol::SendMcpMessage(const std::string& payload) {
     SendText(message);
 }
 
+void Protocol::SendUserPrompt(const std::string& text) {
+    // 构造一个 user_prompt 消息：{"type":"user_prompt","text":"..."}
+    // 注意：必须转义 JSON 字符串中的特殊字符
+    std::string escaped;
+    escaped.reserve(text.size() + 2);
+    for (char c : text) {
+        switch (c) {
+            case '"':  escaped += "\\\""; break;
+            case '\\': escaped += "\\\\"; break;
+            case '\n': escaped += "\\n";  break;
+            case '\r': escaped += "\\r";  break;
+            case '\t': escaped += "\\t";  break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    escaped += buf;
+                } else {
+                    escaped += c;
+                }
+        }
+    }
+    std::string message = "{\"session_id\":\"" + session_id_ + "\",\"type\":\"user_prompt\",\"text\":\"" + escaped + "\"}";
+    SendText(message);
+    ESP_LOGI(TAG, "SendUserPrompt: %s", text.c_str());
+}
+
 bool Protocol::IsTimeout() const {
     const int kTimeoutSeconds = 120;
     auto now = std::chrono::steady_clock::now();
