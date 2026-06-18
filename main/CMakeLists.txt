@@ -1,4 +1,7 @@
 # Define source files
+# 学业计时/架子鼓：OFF 时不编入固件（源码仍保留）；置 ON 重新启用
+set(XIAOZHI_STUDY_SUB_FEATURES OFF CACHE BOOL "Build study focus timer and drum pad into firmware")
+
 set(SOURCES "audio/audio_codec.cc"
             "audio/audio_service.cc"
             "audio/demuxer/ogg_demuxer.cc"
@@ -45,6 +48,10 @@ set(SOURCES "audio/audio_codec.cc"
             )
 
 set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "display/snapshot" "audio" "audio/demuxer" "protocols")
+
+if(XIAOZHI_STUDY_SUB_FEATURES)
+    list(APPEND SOURCES "drum/drum_synth.cc")
+endif()
 
 # Add board common files
 list(APPEND SOURCES
@@ -985,6 +992,9 @@ if(NOT LANG_DIR STREQUAL "en-US")
 endif()
 
 file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
+if(NOT XIAOZHI_STUDY_SUB_FEATURES)
+    list(FILTER COMMON_SOUNDS EXCLUDE REGEX "study_focus_bgm\\.ogg$")
+endif()
 
 # If target chip is ESP32, exclude specific files to avoid build errors
 if(CONFIG_IDF_TARGET_ESP32)
@@ -1054,6 +1064,14 @@ target_compile_definitions(${COMPONENT_LIB}
                     PRIVATE BOARD_TYPE=\"${BOARD_TYPE}\" BOARD_NAME=\"${BOARD_NAME}\"
                     PRIVATE BUILTIN_TEXT_FONT=${BUILTIN_TEXT_FONT} BUILTIN_ICON_FONT=${BUILTIN_ICON_FONT}
                     )
+
+if(XIAOZHI_STUDY_SUB_FEATURES)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE STUDY_SUB_FEATURES_ENABLED=1)
+    message(STATUS "Study sub-features: ENABLED (timer + drum in firmware)")
+else()
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE STUDY_SUB_FEATURES_ENABLED=0)
+    message(STATUS "Study sub-features: DISABLED (placeholder prompt only)")
+endif()
 
 # Add generation rules
 add_custom_command(

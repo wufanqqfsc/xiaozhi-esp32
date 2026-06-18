@@ -134,16 +134,8 @@ void Application::Initialize() {
     callbacks.on_vad_change = [this](bool speaking) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
-    // 播放队列清空时回调：用于调试信息卡的"播完再隐藏"
-    callbacks.on_playback_finished = [this]() {
-        // 通过主循环安全调用（audio task 不应直接操作 LVGL）
-        Schedule([]() {
-            if (auto* attitude = GetAttitudeDisplay()) {
-                ESP_LOGD(TAG, "audio playback finished -> hide debug info card");
-                attitude->HideDebugInfo();
-            }
-        });
-    };
+    // 播放队列清空回调：勿在此隐藏提示卡——UI 短音效（POPUP/SUCCESS）结束会误关运势功能卡
+    callbacks.on_playback_finished = nullptr;
     audio_service_.SetCallbacks(callbacks);
 
     // Add state change listeners
@@ -186,20 +178,17 @@ void Application::Initialize() {
                 msg += data;
                 display->ShowNotification(msg.c_str(), 30000);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_CONNECTED);
-                // 调试卡 + 音频播报：WiFi 已连接
-                // 设计：先显示调试卡（短促本地提示音播报），
-                //      然后调用 RequestDebugTts 让服务端 TTS 朗读事件文字
-                //      卡片在服务端 TTS 音频播放完成回调中自动隐藏
-                if (auto* attitude = GetAttitudeDisplay()) {
+                if (!wifi_connected_debug_shown_ && GetAttitudeDisplay() != nullptr) {
+                    wifi_connected_debug_shown_ = true;
                     std::string detail = data;
                     if (detail.size() > 24) detail = detail.substr(0, 24) + "...";
-                    Schedule([this, attitude, detail]() {
-                        // 短促本地提示音 + 显示卡，hold 5s 兜底（实际由播放完成回调隐藏）
-                        attitude->ShowDebugInfo("WiFi 已连接", detail, 5000);
-                        audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+                    Schedule([this, detail]() {
+                        if (auto* attitude = GetAttitudeDisplay()) {
+                            attitude->ShowDebugInfo("WiFi 已连接", detail, 5000);
+                            audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+                        }
                     });
                 }
-                // 请求服务端 TTS 朗读 "WiFi 已连接到 <SSID>"（若服务端不识别该协议则静默）
                 {
                     std::string tts_text = std::string("WiFi 已连接：") + data;
                     RequestDebugTts(tts_text);
@@ -207,6 +196,7 @@ void Application::Initialize() {
                 break;
             }
             case NetworkEvent::Disconnected:
+                wifi_connected_debug_shown_ = false;
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::WifiConfigModeEnter:

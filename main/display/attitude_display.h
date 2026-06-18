@@ -31,10 +31,12 @@
 #define LAYER4_BOUNDARY_RADIUS (SCREEN_W / 2 - GOLD_RING_ARC_WIDTH / 2)  // 贴屏幕圆边
 #define LAYER4_OUTER_SIZE      (LAYER4_BOUNDARY_RADIUS * 2)
 
-// 太极 + 鱼眼（外径 R=100，直径 200px）
-#define TAIJI_RADIUS          100
+// 太极 + 鱼眼（外径 R=86，直径 172px，与规格/验收一致）
+#define TAIJI_RADIUS          86
 #define TAIJI_CANVAS_SIZE     (TAIJI_RADIUS * 2)
 #define FISHEYE_ICON_SIZE     (TAIJI_RADIUS / 3)   // eye_r = R/6
+static_assert(TAIJI_RADIUS == 86, "TAIJI_RADIUS must be 86 (172px canvas, per product spec)");
+static_assert(FISHEYE_ICON_SIZE == 28, "FISHEYE_ICON_SIZE must be 28px at R=86");
 #define FISHEYE_PULSE_MS      300
 #define TAIJI_GOLD_RING_WIDTH 3
 #define FISHEYE_BORDER_WIDTH  2
@@ -97,6 +99,11 @@ enum class FortuneState {
     Result = 2,
 };
 
+#ifndef STUDY_SUB_FEATURES_ENABLED
+#define STUDY_SUB_FEATURES_ENABLED 0
+#endif
+
+#if STUDY_SUB_FEATURES_ENABLED
 /** 学业运势（序号 9）L0 子功能 */
 enum class StudyMenuItem {
     Timer = 0,  // 专注计时（默认选中）
@@ -109,6 +116,7 @@ enum class StudySubState {
     Menu = 1,         // 时钟 + 架子鼓图标
     FocusRunning = 2, // 60s 专注计时环
     CompleteBgm = 3,  // 计时结束，播放约 5s 背景音乐
+    DrumPad = 4,      // 架子鼓模式（8 扇区触摸 + 中心 Kick）
 };
 
 #define STUDY_FOCUS_DURATION_MS   60000
@@ -118,7 +126,8 @@ enum class StudySubState {
 #define STUDY_FOCUS_ARC_OUTER_MAX_R (TAIJI_RADIUS - TAIJI_GOLD_RING_WIDTH - STUDY_FOCUS_ARC_RING_GAP)
 #define STUDY_FOCUS_ARC_TRACK_WIDTH    24   // 底轨 +50%（16→24）
 #define STUDY_FOCUS_ARC_INDICATOR_WIDTH 27  // 进度条 +50%（18→27）
-#define STUDY_FOCUS_ARC_RADIUS_TARGET  ((78 * 15 + 5) / 10)  // 原半径 78 加大 50% → 117
+#define STUDY_FOCUS_ARC_RADIUS_NOMINAL ((TAIJI_RADIUS * 78 + 50) / 100)  // 约 78% 太极外径
+#define STUDY_FOCUS_ARC_RADIUS_TARGET  ((STUDY_FOCUS_ARC_RADIUS_NOMINAL * 15 + 5) / 10)
 #define STUDY_FOCUS_ARC_RADIUS  \
     ((STUDY_FOCUS_ARC_RADIUS_TARGET <= STUDY_FOCUS_ARC_OUTER_MAX_R) \
         ? STUDY_FOCUS_ARC_RADIUS_TARGET : STUDY_FOCUS_ARC_OUTER_MAX_R)
@@ -129,6 +138,7 @@ enum class StudySubState {
 #define STUDY_ICON_SCALE_SELECTED ((STUDY_ICON_GLYPH_PX * 11 * 256 / 10 + FORTUNE_MENU_ICON_BASE_PX / 2) / FORTUNE_MENU_ICON_BASE_PX)
 #define STUDY_ICON_OFFSET_Y       40  // 时钟/鼓图标相对中心的纵向间距
 #define STUDY_AREA_ROTATION_OFFSET_TENTH_DEG 900  // 学业功能区整体顺时针旋转 90°
+#endif  // STUDY_SUB_FEATURES_ENABLED
 
 class AttitudeDisplay : public SpiLcdDisplay {
 public:
@@ -207,6 +217,7 @@ private:
     lv_obj_t* dir_w_label_ = nullptr;
 
     lv_obj_t* layer1_container_ = nullptr;
+    lv_obj_t* fortune_prompt_title_ = nullptr;
     lv_obj_t* layer3_bg_arc_ = nullptr;
     lv_obj_t* layer3_progress_arc_ = nullptr;
     lv_obj_t* layer4_outer_ring_ = nullptr;
@@ -255,17 +266,31 @@ private:
     int FortuneMenuIndexFromPoint(int x, int y) const;
     void SetFortuneMenuVisible(bool visible);
     void SelectFortuneMenuItem(int index);
+    void SelectFortuneMenuItemUnlocked(int index);
     void UpdateFortuneMenuSelection();
     void UpdateFortuneMenuItemVisual(int index, bool selected);
     void CycleFortuneMenuSelection();
+    void CycleFortuneMenuSelectionUnlocked();
     void PlayFortuneMenuSelectSound();
+#if STUDY_SUB_FEATURES_ENABLED
     void CreateStudyArea();
+#endif
     void SyncStudyAreaWithMenu();
+    void ShowFortuneMenuFeatureCard(int index);
+    void ShowFortuneMenuFeatureCardUnlocked(int index);
+#if STUDY_SUB_FEATURES_ENABLED
     void EnterStudyMenu();
     void ExitStudyArea();
     void ShowStudyMenuPanel();
     void UpdateStudyMenuSelection();
     void SelectStudyMenuItem(StudyMenuItem item);
+    void EnterDrumPad();
+    void ExitDrumPad();
+    void ShowDrumPadUI();
+    void HideDrumPadUI();
+    void OnDrumPadTouched(lv_event_t* e);
+    static void OnDrumPadTouchedStatic(lv_event_t* e);
+    void FlashDrumSector(int piece_idx);
     void StartStudyFocusTimer();
     void StopStudyFocusTimer();
     void CancelStudyFocusToMenu();
@@ -275,6 +300,9 @@ private:
     void UpdateStudyFocusDisplay(int remaining_ms);
     void OnStudyFocusComplete();
     void PlayStudyFocusCompleteBgm();
+#else
+    void ExitStudyArea() {}
+#endif
     void CreateCompassPoints();
     void UpdateStateColor(int level);
 
@@ -311,19 +339,45 @@ private:
     lv_obj_t* debug_info_card_ = nullptr;
     lv_obj_t* debug_info_title_ = nullptr;
     lv_obj_t* debug_info_detail_ = nullptr;
+    lv_obj_t* debug_info_gua_label_ = nullptr;
+    lv_obj_t* debug_info_core_label_ = nullptr;
+    lv_obj_t* debug_info_yi_label_ = nullptr;
+    lv_obj_t* debug_info_ji_label_ = nullptr;
     lv_timer_t* debug_info_hide_timer_ = nullptr;
     uint32_t debug_info_last_show_ms_ = 0;
     std::string debug_info_last_title_;
+    std::string debug_info_fortune_title_;
     void CreateDebugInfoCard();
     void DestroyDebugInfoCard();
+    void ApplyDebugInfoCardLayout();
+    void EnsureFortunePromptTitle();
+    void HideFortunePromptTitle();
+    void HideDebugInfoCardLabels();
+    struct DebugInfoPresentOpts {
+        bool persistent = false;
+        /** 运势 L0 短提示：文字画在 screen 顶层，卡片仅作半透明底 */
+        bool screen_title_overlay = false;
+    };
+    void PresentDebugInfoCardUnlocked(const std::string& title, const std::string& detail,
+                                      uint32_t hold_ms, const DebugInfoPresentOpts& opts);
+    void HideDebugInfoUnlocked();
     static void OnDebugInfoHideTimer(lv_timer_t* timer);
+    bool debug_info_is_fortune_feature_ = false;
 
+#if STUDY_SUB_FEATURES_ENABLED
     StudySubState study_sub_state_ = StudySubState::Hidden;
     StudyMenuItem study_menu_selected_ = StudyMenuItem::Timer;
     lv_obj_t* study_panel_ = nullptr;
     lv_obj_t* study_clock_label_ = nullptr;
     lv_obj_t* study_drum_label_ = nullptr;
     lv_obj_t* study_focus_arc_ = nullptr;
+
+    lv_obj_t* drum_pad_ = nullptr;
+    lv_obj_t* drum_center_ = nullptr;
+    lv_obj_t* drum_sectors_[8] = {nullptr};
+    lv_obj_t* drum_sector_labels_[8] = {nullptr};
+    int drum_flash_timer_id_ = -1;
+    uint32_t drum_flash_start_ms_ = 0;
     lv_obj_t* study_time_label_ = nullptr;
     lv_timer_t* study_focus_timer_ = nullptr;
     lv_timer_t* study_complete_bgm_timer_ = nullptr;
@@ -332,8 +386,9 @@ private:
     int study_saved_rotation_period_ms_ = 60000;
     int study_saved_taiji_rotation_ = 0;
     bool study_orientation_applied_ = false;
-    /** 电源键退出学业区后抑制自动重入，直至用户再次选中序号 9 */
-    bool study_area_suppressed_ = false;
+#endif
+    /** 电源键关闭功能提示卡后抑制重显，直至切换到其他运势项 */
+    bool fortune_feature_card_suppressed_ = false;
 
     void DestroyFortuneCard();
     void StopFortuneAnimatingEffects(bool restore_taiji_rotation = true);
@@ -348,9 +403,11 @@ private:
     static void OnFortuneProgressStepTimer(lv_timer_t* timer);
     static void OnFortuneTaijiRampTimer(lv_timer_t* timer);
     static void OnFortuneMenuRingTouched(lv_event_t* e);
+#if STUDY_SUB_FEATURES_ENABLED
     static void OnStudyFocusTimer(lv_timer_t* timer);
     static void OnStudyCompleteBgmTimer(lv_timer_t* timer);
     static void OnStudyMenuIconClicked(lv_event_t* e);
+#endif
 };
 
 #endif // ATTITUDE_DISPLAY_H

@@ -4,10 +4,14 @@
 #include "assets/lang_config.h"
 #include "board.h"
 #include "compass_taiji.h"
+#if STUDY_SUB_FEATURES_ENABLED
+#include "drum/drum_synth.h"
+#endif
 #include <esp_log.h>
 #include <esp_heap_caps.h>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <inttypes.h>
 #include <ctime>
 #include <cmath>
@@ -138,27 +142,46 @@ static void LabelColorAnimCb(void* obj, int32_t value)
 struct FortuneMenuItemDef {
     const char* icon;
     const char* func_label;
-    const char* gua_name;
-    const char* core_text;
-    const char* yi;
-    const char* ji;
     int gua_index;
     int dir_index;
 };
 
+/** Boot 长按完整运势卡文案（与环上功能项一一对应，不用于短提示卡） */
+struct FortuneMenuFortuneText {
+    const char* gua_name;
+    const char* core_text;
+    const char* yi;
+    const char* ji;
+};
+
 static const FortuneMenuItemDef kFortuneMenuDefs[FORTUNE_MENU_COUNT] = {
-    {FONT_AWESOME_SUN, "今日运势", "乾为天", "今日宜进取，顺势而行。", "宜：签约、出行", "忌：熬夜、口舌", 63, 0},
-    {FONT_AWESOME_LOCATION_DOT, "财运方位", "坤为地", "财位东南，守成为上。", "宜：理财、储蓄", "忌：投机、借贷", 2, 1},
-    {FONT_AWESOME_GEAR, "事业运势", "震为雷", "事业有转机，宜主动。", "宜：述职、立项", "忌：冲动决策", 51, 2},
-    {FONT_AWESOME_HEART, "感情运势", "兑为泽", "情缘渐暖，多沟通。", "宜：表白、约会", "忌：猜疑、冷战", 58, 3},
-    {FONT_AWESOME_COMPASS, "心情卦", "水雷屯", "心绪繁杂，宜静思。", "宜：独处、冥想", "忌：争执、赶工", 3, 4},
-    {FONT_AWESOME_CALENDAR, "黄历宜忌", "离为火", "今日宜祭祀安床。", "宜：嫁娶、开市", "忌：破土、动土", 30, 5},
-    {FONT_AWESOME_ARROWS_ROTATE, "节气提示", "艮为山", "惊蛰将至，万物生发。", "宜：播种、养生", "忌：寒凉、懒动", 52, 6},
-    {FONT_AWESOME_PEN_TO_SQUARE, "自定义", "天地否", "所问之事，宜待时机。", "宜：蓄力、观望", "忌：强求、冒进", 12, 7},
-    {FONT_AWESOME_STAR, "健康运势", "风为木", "身心调和，宜养正气。", "宜：早睡、运动", "忌：过劳、贪凉", 57, 0},
-    {FONT_AWESOME_GLASSES, "学业运势", "水火既济", "学业渐进，宜温故知新。", "宜：复习、请教", "忌：浮躁、分心", 63, 1},
-    {FONT_AWESOME_LOCATION_ARROW, "出行吉日", "天风姤", "远行有利，宜择吉启程。", "宜：出行、访友", "忌：仓促、夜行", 44, 2},
-    {FONT_AWESOME_USER, "贵人运势", "地天泰", "贵人暗助，宜广结善缘。", "宜：拜访、合作", "忌：孤行、傲慢", 11, 3},
+    {FONT_AWESOME_SUN, "今日运势", 63, 0},
+    {FONT_AWESOME_LOCATION_DOT, "财运方位", 2, 1},
+    {FONT_AWESOME_GEAR, "事业运势", 51, 2},
+    {FONT_AWESOME_HEART, "感情运势", 58, 3},
+    {FONT_AWESOME_COMPASS, "心情卦", 3, 4},
+    {FONT_AWESOME_CALENDAR, "黄历宜忌", 30, 5},
+    {FONT_AWESOME_ARROWS_ROTATE, "节气提示", 52, 6},
+    {FONT_AWESOME_PEN_TO_SQUARE, "自定义", 12, 7},
+    {FONT_AWESOME_STAR, "健康运势", 57, 0},
+    {FONT_AWESOME_GLASSES, "学业运势", 63, 1},
+    {FONT_AWESOME_LOCATION_ARROW, "出行吉日", 44, 2},
+    {FONT_AWESOME_USER, "贵人运势", 11, 3},
+};
+
+static const FortuneMenuFortuneText kFortuneMenuFortuneTexts[FORTUNE_MENU_COUNT] = {
+    {"乾为天", "今日宜进取，顺势而行。", "宜：签约、出行", "忌：熬夜、口舌"},
+    {"坤为地", "财位东南，守成为上。", "宜：理财、储蓄", "忌：投机、借贷"},
+    {"震为雷", "事业有转机，宜主动。", "宜：述职、立项", "忌：冲动决策"},
+    {"兑为泽", "情缘渐暖，多沟通。", "宜：表白、约会", "忌：猜疑、冷战"},
+    {"水雷屯", "心绪繁杂，宜静思。", "宜：独处、冥想", "忌：争执、赶工"},
+    {"离为火", "今日宜祭祀安床。", "宜：嫁娶、开市", "忌：破土、动土"},
+    {"艮为山", "惊蛰将至，万物生发。", "宜：播种、养生", "忌：寒凉、懒动"},
+    {"天地否", "所问之事，宜待时机。", "宜：蓄力、观望", "忌：强求、冒进"},
+    {"风为木", "身心调和，宜养正气。", "宜：早睡、运动", "忌：过劳、贪凉"},
+    {"水火既济", "学业渐进，宜温故知新。", "宜：复习、请教", "忌：浮躁、分心"},
+    {"天风姤", "远行有利，宜择吉启程。", "宜：出行、访友", "忌：仓促、夜行"},
+    {"地天泰", "贵人暗助，宜广结善缘。", "宜：拜访、合作", "忌：孤行、傲慢"},
 };
 
 static const lv_font_t* GetFortuneMenuIconFont()
@@ -217,6 +240,10 @@ void AttitudeDisplay::SetupUI()
     // 防御：Setup 阶段确保调试卡为干净状态
     DestroyDebugInfoCard();
 
+#if STUDY_SUB_FEATURES_ENABLED
+    drum::DrumSynth::GetInstance().Init();
+#endif
+
     auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
     if (lvgl_theme == nullptr) {
         ESP_LOGE(TAG, "Theme is null!");
@@ -254,11 +281,14 @@ void AttitudeDisplay::SetupUI()
     CreateLayer0Taiji();
     CreateWifiFisheye();
     CreateBleFisheye();
+#if STUDY_SUB_FEATURES_ENABLED
     CreateStudyArea();
+#endif
     UpdateWifiFisheye(WifiStatus::DISCONNECTED);
     UpdateBleFisheye(BleStatus::DISABLED);
     CompassTaiji::StartAutoRotation(TAIJI_ROTATION_PERIOD_NORMAL_MS);
-    ESP_LOGI(TAG, "Taiji auto rotation started (period=30s, fisheyes co-rotate)");
+    ESP_LOGI(TAG, "Taiji auto rotation started (period=%dms, fisheyes co-rotate)",
+             TAIJI_ROTATION_PERIOD_NORMAL_MS);
 
     CreateLayer1CoreInfo();
     CreateFortuneMenuRing();
@@ -360,6 +390,7 @@ void AttitudeDisplay::CreateLayer1CoreInfo()
     lv_obj_set_size(layer1_container_, TAIJI_CANVAS_SIZE, TAIJI_CANVAS_SIZE);
     lv_obj_set_pos(layer1_container_, CENTER_X - TAIJI_RADIUS, CENTER_Y - TAIJI_RADIUS);
     lv_obj_set_style_radius(layer1_container_, TAIJI_RADIUS, 0);
+    lv_obj_set_style_clip_corner(layer1_container_, false, 0);
     lv_obj_set_style_bg_opa(layer1_container_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(layer1_container_, 0, 0);
     lv_obj_set_style_pad_all(layer1_container_, 0, 0);
@@ -482,10 +513,10 @@ int AttitudeDisplay::FortuneMenuIndexFromPoint(int x, int y) const
 
 void AttitudeDisplay::PlayFortuneMenuSelectSound()
 {
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+    // 环上运势图标选中静音（学业子功能仍可直接 PlayUiSound）
 }
 
-void AttitudeDisplay::SelectFortuneMenuItem(int index)
+void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
 {
     if (index < 0 || index >= FORTUNE_MENU_COUNT) {
         return;
@@ -494,16 +525,21 @@ void AttitudeDisplay::SelectFortuneMenuItem(int index)
     const bool was_active = fortune_menu_selection_active_;
     fortune_menu_selection_active_ = true;
     fortune_menu_selected_index_ = index;
-    if (index == static_cast<int>(FortuneMenuType::Study)) {
-        study_area_suppressed_ = false;
-    }
+    fortune_feature_card_suppressed_ = false;
     if (was_active && prev != index) {
         UpdateFortuneMenuItemVisual(prev, false);
     }
     UpdateFortuneMenuItemVisual(index, true);
+    ShowFortuneMenuFeatureCardUnlocked(index);
     SyncStudyAreaWithMenu();
     ESP_LOGI(TAG, "Fortune menu select -> %d (%s)", index,
              kFortuneMenuDefs[index].func_label);
+}
+
+void AttitudeDisplay::SelectFortuneMenuItem(int index)
+{
+    DisplayLockGuard lock(this);
+    SelectFortuneMenuItemUnlocked(index);
 }
 
 void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
@@ -537,20 +573,26 @@ void AttitudeDisplay::UpdateFortuneMenuSelection()
     }
 }
 
-void AttitudeDisplay::CycleFortuneMenuSelection()
+void AttitudeDisplay::CycleFortuneMenuSelectionUnlocked()
 {
     const int prev = fortune_menu_selected_index_;
     fortune_menu_selected_index_ = (prev + 1) % FORTUNE_MENU_COUNT;
-    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)) {
-        study_area_suppressed_ = false;
-    }
+    fortune_feature_card_suppressed_ = false;
     UpdateFortuneMenuItemVisual(prev, false);
     UpdateFortuneMenuItemVisual(fortune_menu_selected_index_, true);
+    if (!fortune_feature_card_suppressed_) {
+        ShowFortuneMenuFeatureCardUnlocked(fortune_menu_selected_index_);
+    }
     SyncStudyAreaWithMenu();
-    PlayFortuneMenuSelectSound();
     ESP_LOGI(TAG, "Fortune menu selected -> %d (%s)",
              fortune_menu_selected_index_,
              kFortuneMenuDefs[fortune_menu_selected_index_].func_label);
+}
+
+void AttitudeDisplay::CycleFortuneMenuSelection()
+{
+    DisplayLockGuard lock(this);
+    CycleFortuneMenuSelectionUnlocked();
 }
 
 void AttitudeDisplay::SetFortuneMenuVisible(bool visible)
@@ -594,8 +636,11 @@ void AttitudeDisplay::OnFortuneMenuRingTouched(lv_event_t* e)
     }
 
     self->SelectFortuneMenuItem(idx);
-    self->PlayFortuneMenuSelectSound();
+    ESP_LOGI(TAG, "Fortune ring touch -> idx=%d (%s)", idx,
+             kFortuneMenuDefs[idx].func_label);
 }
+
+#if STUDY_SUB_FEATURES_ENABLED
 
 void AttitudeDisplay::CreateStudyArea()
 {
@@ -638,7 +683,7 @@ void AttitudeDisplay::CreateStudyArea()
     lv_obj_set_style_transform_scale(study_drum_label_, STUDY_ICON_SCALE, 0);
     lv_obj_set_style_transform_pivot_x(study_drum_label_, LV_PCT(50), 0);
     lv_obj_set_style_transform_pivot_y(study_drum_label_, LV_PCT(50), 0);
-    lv_label_set_text(study_drum_label_, FONT_AWESOME_DRUM);
+    lv_label_set_text(study_drum_label_, FONT_AWESOME_MUSIC);
     lv_obj_align(study_drum_label_, LV_ALIGN_CENTER, 0, STUDY_ICON_OFFSET_Y);
     lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(study_drum_label_, OnStudyMenuIconClicked, LV_EVENT_CLICKED, this);
@@ -713,6 +758,7 @@ void AttitudeDisplay::OnStudyMenuIconClicked(lv_event_t* e)
         self->SelectStudyMenuItem(StudyMenuItem::Timer);
     } else if (target == self->study_drum_label_) {
         self->SelectStudyMenuItem(StudyMenuItem::Drum);
+        self->EnterDrumPad();
     }
 }
 
@@ -823,26 +869,6 @@ void AttitudeDisplay::ShowStudyMenuPanel()
     }
     study_sub_state_ = StudySubState::Menu;
     UpdateStudyMenuSelection();
-}
-
-void AttitudeDisplay::SyncStudyAreaWithMenu()
-{
-    if (fortune_state_ != FortuneState::Idle) {
-        ExitStudyArea();
-        return;
-    }
-    if (!fortune_menu_selection_active_) {
-        ExitStudyArea();
-        return;
-    }
-    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)) {
-        if (study_sub_state_ == StudySubState::Hidden && !study_area_suppressed_) {
-            EnterStudyMenu();
-        }
-    } else {
-        study_area_suppressed_ = false;
-        ExitStudyArea();
-    }
 }
 
 void AttitudeDisplay::UpdateStudyFocusDisplay(int remaining_ms)
@@ -977,17 +1003,84 @@ void AttitudeDisplay::StartStudyFocusTimer()
     ESP_LOGI(TAG, "Study focus timer started (%ds)", STUDY_FOCUS_DURATION_MS / 1000);
 }
 
+#endif  // STUDY_SUB_FEATURES_ENABLED
+
+void AttitudeDisplay::SyncStudyAreaWithMenu()
+{
+    if (fortune_state_ != FortuneState::Idle) {
+#if STUDY_SUB_FEATURES_ENABLED
+        ExitStudyArea();
+#endif
+        return;
+    }
+    if (!fortune_menu_selection_active_) {
+#if STUDY_SUB_FEATURES_ENABLED
+        ExitStudyArea();
+#endif
+        return;
+    }
+#if STUDY_SUB_FEATURES_ENABLED
+    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)) {
+        if (study_sub_state_ == StudySubState::Hidden && !fortune_feature_card_suppressed_) {
+            EnterStudyMenu();
+        }
+    } else {
+        fortune_feature_card_suppressed_ = false;
+        ExitStudyArea();
+    }
+#endif
+}
+
+void AttitudeDisplay::ShowFortuneMenuFeatureCardUnlocked(int index)
+{
+    if (index < 0 || index >= FORTUNE_MENU_COUNT) {
+        return;
+    }
+    if (fortune_state_ != FortuneState::Idle) {
+        return;
+    }
+#if STUDY_SUB_FEATURES_ENABLED
+    if (study_sub_state_ != StudySubState::Hidden) {
+        return;
+    }
+#endif
+
+    const auto& def = kFortuneMenuDefs[index];
+    debug_info_is_fortune_feature_ = true;
+    DebugInfoPresentOpts opts;
+    opts.persistent = true;
+    // 与 WiFi 相同：卡片内 title+detail 双行（日志证实仅 title 或 screen overlay 均不绘制）
+    opts.screen_title_overlay = false;
+    PresentDebugInfoCardUnlocked(def.func_label, " ", 0, opts);
+    debug_info_last_title_ = def.func_label;
+    debug_info_last_show_ms_ = lv_tick_get();
+}
+
+void AttitudeDisplay::ShowFortuneMenuFeatureCard(int index)
+{
+    DisplayLockGuard lock(this);
+    ShowFortuneMenuFeatureCardUnlocked(index);
+}
+
 bool AttitudeDisplay::HandleStudyPowerKey()
 {
     DisplayLockGuard lock(this);
-    if (study_sub_state_ == StudySubState::Hidden) {
-        return false;
+#if STUDY_SUB_FEATURES_ENABLED
+    if (study_sub_state_ != StudySubState::Hidden) {
+        ExitStudyArea();
+        fortune_feature_card_suppressed_ = true;
+        ESP_LOGI(TAG, "PWR: study area exited -> full taiji (re-select Study to re-enter)");
+        return true;
     }
-
-    ExitStudyArea();
-    study_area_suppressed_ = true;
-    ESP_LOGI(TAG, "PWR: study area exited -> full taiji (re-select Study to re-enter)");
-    return true;
+#endif
+    if (debug_info_card_ != nullptr
+        && !lv_obj_has_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN)) {
+        fortune_feature_card_suppressed_ = true;
+        HideDebugInfoUnlocked();
+        ESP_LOGI(TAG, "PWR: fortune feature card dismissed");
+        return true;
+    }
+    return false;
 }
 
 void AttitudeDisplay::ShowFortuneFromMenu(FortuneMenuType type)
@@ -997,8 +1090,9 @@ void AttitudeDisplay::ShowFortuneFromMenu(FortuneMenuType type)
         return;
     }
 
-    const auto& d = kFortuneMenuDefs[idx];
-    ShowFortune(d.func_label, d.gua_name, d.core_text, d.yi, d.ji, d.gua_index, d.dir_index);
+    const auto& m = kFortuneMenuDefs[idx];
+    const auto& t = kFortuneMenuFortuneTexts[idx];
+    ShowFortune(m.func_label, t.gua_name, t.core_text, t.yi, t.ji, m.gua_index, m.dir_index);
 }
 
 void AttitudeDisplay::CreateCompassPoints()
@@ -1924,47 +2018,184 @@ void AttitudeDisplay::CreateDebugInfoCard()
     auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
     const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
         ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
+    const int text_w = FORTUNE_CARD_W - 24;
 
-    // 与 fortune_card 同位同尺寸，覆盖在太极圈内（与运势卡互斥使用，靠 ShowDebugInfo 防冲突）
     debug_info_card_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(debug_info_card_, FORTUNE_CARD_W, FORTUNE_CARD_H);
     lv_obj_set_pos(debug_info_card_, FORTUNE_CARD_X, FORTUNE_CARD_Y);
     lv_obj_set_style_radius(debug_info_card_, TAIJI_RADIUS, 0);
     lv_obj_set_style_clip_corner(debug_info_card_, true, 0);
-    // 半透明黑底 + 青色描边：与运势卡（金）视觉区分
     lv_obj_set_style_bg_color(debug_info_card_, lv_color_hex(0x0A1414), 0);
     lv_obj_set_style_bg_opa(debug_info_card_, LV_OPA_80, 0);
     lv_obj_set_style_border_color(debug_info_card_, DEBUG_INFO_BORDER_COLOR, 0);
     lv_obj_set_style_border_width(debug_info_card_, 2, 0);
-    lv_obj_set_style_pad_all(debug_info_card_, 10, 0);
-    lv_obj_set_style_pad_row(debug_info_card_, 6, 0);
+    lv_obj_set_style_pad_all(debug_info_card_, 4, 0);
+    lv_obj_set_style_pad_row(debug_info_card_, 2, 0);
     lv_obj_set_flex_flow(debug_info_card_, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(debug_info_card_, LV_FLEX_ALIGN_CENTER,
+    lv_obj_set_flex_align(debug_info_card_, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(debug_info_card_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
 
-    // 标题（小标签样式）
     debug_info_title_ = lv_label_create(debug_info_card_);
     lv_obj_set_style_text_font(debug_info_title_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_title_, DEBUG_INFO_TITLE_COLOR, 0);
+    lv_obj_set_width(debug_info_title_, text_w);
+    lv_label_set_long_mode(debug_info_title_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(debug_info_title_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(debug_info_title_, "");
 
-    // 详情（长文本自动换行）
     debug_info_detail_ = lv_label_create(debug_info_card_);
     lv_obj_set_style_text_font(debug_info_detail_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_detail_, DEBUG_INFO_DETAIL_COLOR, 0);
-    lv_obj_set_width(debug_info_detail_, FORTUNE_CARD_W - 32);
+    lv_obj_set_width(debug_info_detail_, text_w);
     lv_label_set_long_mode(debug_info_detail_, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(debug_info_detail_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(debug_info_detail_, "");
 
-    // 隐藏定时器：单次触发，到期后自动隐藏卡片
+    debug_info_gua_label_ = lv_label_create(debug_info_card_);
+    lv_obj_set_style_text_font(debug_info_gua_label_, text_font, 0);
+    lv_obj_set_style_text_color(debug_info_gua_label_, DEBUG_INFO_DETAIL_COLOR, 0);
+    lv_obj_set_width(debug_info_gua_label_, text_w);
+    lv_label_set_long_mode(debug_info_gua_label_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(debug_info_gua_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(debug_info_gua_label_, "");
+
+    debug_info_core_label_ = lv_label_create(debug_info_card_);
+    lv_obj_set_style_text_font(debug_info_core_label_, text_font, 0);
+    lv_obj_set_style_text_color(debug_info_core_label_, DEBUG_INFO_TITLE_COLOR, 0);
+    lv_obj_set_width(debug_info_core_label_, text_w);
+    lv_label_set_long_mode(debug_info_core_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(debug_info_core_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(debug_info_core_label_, "");
+
+    debug_info_yi_label_ = lv_label_create(debug_info_card_);
+    lv_obj_set_style_text_font(debug_info_yi_label_, text_font, 0);
+    lv_obj_set_style_text_color(debug_info_yi_label_, lv_color_hex(0x4CAF50), 0);
+    lv_obj_set_width(debug_info_yi_label_, text_w);
+    lv_label_set_long_mode(debug_info_yi_label_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(debug_info_yi_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(debug_info_yi_label_, "");
+
+    debug_info_ji_label_ = lv_label_create(debug_info_card_);
+    lv_obj_set_style_text_font(debug_info_ji_label_, text_font, 0);
+    lv_obj_set_style_text_color(debug_info_ji_label_, lv_color_hex(0xE53935), 0);
+    lv_obj_set_width(debug_info_ji_label_, text_w);
+    lv_label_set_long_mode(debug_info_ji_label_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(debug_info_ji_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(debug_info_ji_label_, "");
+
+    ApplyDebugInfoCardLayout();
+
     debug_info_hide_timer_ = lv_timer_create(OnDebugInfoHideTimer, DEBUG_INFO_SHOW_MS, this);
     lv_timer_set_repeat_count(debug_info_hide_timer_, 1);
 
     ESP_LOGD(TAG, "Debug info card created");
+}
+
+void AttitudeDisplay::EnsureFortunePromptTitle()
+{
+    if (fortune_prompt_title_ != nullptr) {
+        return;
+    }
+    lv_obj_t* screen = lv_screen_active();
+    if (screen == nullptr) {
+        return;
+    }
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
+        ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
+    const int text_w = FORTUNE_CARD_W - 24;
+
+    fortune_prompt_title_ = lv_label_create(screen);
+    lv_obj_set_style_text_font(fortune_prompt_title_, text_font, 0);
+    lv_obj_set_style_text_color(fortune_prompt_title_, DEBUG_INFO_TITLE_COLOR, 0);
+    lv_obj_set_style_text_opa(fortune_prompt_title_, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(fortune_prompt_title_, LV_OPA_TRANSP, 0);
+    lv_obj_set_width(fortune_prompt_title_, text_w);
+    lv_label_set_long_mode(fortune_prompt_title_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(fortune_prompt_title_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_clear_flag(fortune_prompt_title_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(fortune_prompt_title_, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(fortune_prompt_title_, "");
+}
+
+void AttitudeDisplay::HideFortunePromptTitle()
+{
+    if (fortune_prompt_title_ != nullptr) {
+        lv_obj_add_flag(fortune_prompt_title_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(fortune_prompt_title_, "");
+    }
+}
+
+void AttitudeDisplay::HideDebugInfoCardLabels()
+{
+    if (debug_info_title_ != nullptr) {
+        lv_obj_add_flag(debug_info_title_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (debug_info_detail_ != nullptr) {
+        lv_obj_add_flag(debug_info_detail_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (debug_info_gua_label_ != nullptr) {
+        lv_obj_add_flag(debug_info_gua_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (debug_info_core_label_ != nullptr) {
+        lv_obj_add_flag(debug_info_core_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (debug_info_yi_label_ != nullptr) {
+        lv_obj_add_flag(debug_info_yi_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (debug_info_ji_label_ != nullptr) {
+        lv_obj_add_flag(debug_info_ji_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void AttitudeDisplay::ApplyDebugInfoCardLayout()
+{
+    if (debug_info_detail_ == nullptr) {
+        return;
+    }
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
+        ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
+    const int text_w = FORTUNE_CARD_W - 24;
+
+    if (debug_info_card_ != nullptr) {
+        lv_obj_set_style_clip_corner(debug_info_card_, true, 0);
+        lv_obj_set_style_layout(debug_info_card_, LV_LAYOUT_FLEX, 0);
+        lv_obj_set_flex_flow(debug_info_card_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(debug_info_card_, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_all(debug_info_card_, 4, 0);
+    }
+    if (debug_info_title_ != nullptr) {
+        lv_obj_remove_flag(debug_info_title_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(debug_info_title_, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_set_style_text_font(debug_info_title_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_title_, DEBUG_INFO_TITLE_COLOR, 0);
+        lv_obj_set_style_text_opa(debug_info_title_, LV_OPA_COVER, 0);
+        lv_obj_set_width(debug_info_title_, text_w);
+        lv_obj_set_height(debug_info_title_, LV_SIZE_CONTENT);
+        lv_label_set_long_mode(debug_info_title_, LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_align(debug_info_title_, LV_TEXT_ALIGN_CENTER, 0);
+    }
+    lv_obj_remove_flag(debug_info_detail_, LV_OBJ_FLAG_HIDDEN);
+    if (debug_info_gua_label_ != nullptr) {
+        lv_obj_add_flag(debug_info_gua_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(debug_info_gua_label_, "");
+    }
+    if (debug_info_core_label_ != nullptr) {
+        lv_obj_add_flag(debug_info_core_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(debug_info_core_label_, "");
+    }
+    if (debug_info_yi_label_ != nullptr) {
+        lv_obj_add_flag(debug_info_yi_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(debug_info_yi_label_, "");
+    }
+    if (debug_info_ji_label_ != nullptr) {
+        lv_obj_add_flag(debug_info_ji_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(debug_info_ji_label_, "");
+    }
 }
 
 void AttitudeDisplay::DestroyDebugInfoCard()
@@ -1973,12 +2204,110 @@ void AttitudeDisplay::DestroyDebugInfoCard()
         lv_timer_delete(debug_info_hide_timer_);
         debug_info_hide_timer_ = nullptr;
     }
+    HideFortunePromptTitle();
+    if (fortune_prompt_title_ != nullptr) {
+        lv_obj_del(fortune_prompt_title_);
+        fortune_prompt_title_ = nullptr;
+    }
     if (debug_info_card_ != nullptr) {
         lv_obj_del(debug_info_card_);
         debug_info_card_ = nullptr;
     }
     debug_info_title_ = nullptr;
     debug_info_detail_ = nullptr;
+    debug_info_gua_label_ = nullptr;
+    debug_info_core_label_ = nullptr;
+    debug_info_yi_label_ = nullptr;
+    debug_info_ji_label_ = nullptr;
+}
+
+void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
+                                                    const std::string& detail,
+                                                    uint32_t hold_ms,
+                                                    const DebugInfoPresentOpts& opts)
+{
+    CreateDebugInfoCard();
+    if (debug_info_card_ == nullptr || debug_info_title_ == nullptr || debug_info_detail_ == nullptr) {
+        ESP_LOGW(TAG, "PresentDebugInfoCard: widgets missing");
+        return;
+    }
+
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
+        ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
+    const bool builtin_font = (text_font == &BUILTIN_TEXT_FONT);
+
+    if (opts.screen_title_overlay) {
+        ApplyDebugInfoCardLayout();
+        HideDebugInfoCardLabels();
+        EnsureFortunePromptTitle();
+        if (fortune_prompt_title_ == nullptr) {
+            ESP_LOGW(TAG, "PresentDebugInfoCard: screen title missing");
+            return;
+        }
+        debug_info_fortune_title_ = title;
+        lv_obj_set_style_text_font(fortune_prompt_title_, text_font, 0);
+        lv_label_set_text(fortune_prompt_title_, debug_info_fortune_title_.c_str());
+        lv_obj_align(fortune_prompt_title_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_remove_flag(fortune_prompt_title_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(fortune_prompt_title_);
+    } else {
+        HideFortunePromptTitle();
+        ApplyDebugInfoCardLayout();
+        lv_label_set_text(debug_info_title_, title.c_str());
+        lv_label_set_text(debug_info_detail_, detail.c_str());
+        lv_obj_remove_flag(debug_info_title_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(debug_info_detail_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(debug_info_title_);
+        lv_obj_move_foreground(debug_info_detail_);
+    }
+
+    lv_obj_remove_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(debug_info_card_);
+    if (opts.screen_title_overlay && fortune_prompt_title_ != nullptr) {
+        lv_obj_move_foreground(fortune_prompt_title_);
+    }
+    lv_obj_update_layout(debug_info_card_);
+    if (display_ != nullptr) {
+        lv_refr_now(display_);
+    }
+
+    if (debug_info_hide_timer_ != nullptr) {
+        if (opts.persistent) {
+            lv_timer_pause(debug_info_hide_timer_);
+        } else {
+            const uint32_t actual_hold = (hold_ms == 0) ? DEBUG_INFO_SHOW_MS
+                                    : (hold_ms > DEBUG_INFO_HOLD_MAX_MS) ? DEBUG_INFO_HOLD_MAX_MS
+                                    : hold_ms;
+            lv_timer_resume(debug_info_hide_timer_);
+            lv_timer_set_period(debug_info_hide_timer_, actual_hold);
+            lv_timer_reset(debug_info_hide_timer_);
+        }
+    }
+
+    if (opts.screen_title_overlay) {
+        ESP_LOGI(TAG, "Fortune feature card: %s screen_title=%dx%d@%d,%d builtin_font=%d font=%p card_hidden=%d",
+                 title.c_str(),
+                 fortune_prompt_title_ != nullptr ? lv_obj_get_width(fortune_prompt_title_) : 0,
+                 fortune_prompt_title_ != nullptr ? lv_obj_get_height(fortune_prompt_title_) : 0,
+                 fortune_prompt_title_ != nullptr ? lv_obj_get_x(fortune_prompt_title_) : 0,
+                 fortune_prompt_title_ != nullptr ? lv_obj_get_y(fortune_prompt_title_) : 0,
+                 builtin_font ? 1 : 0,
+                 text_font,
+                 lv_obj_has_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN) ? 1 : 0);
+    } else if (opts.persistent) {
+        ESP_LOGI(TAG, "Fortune feature card: %s card_title=%dx%d@%d,%d detail=%dx%d builtin_font=%d font=%p",
+                 title.c_str(),
+                 lv_obj_get_width(debug_info_title_), lv_obj_get_height(debug_info_title_),
+                 lv_obj_get_x(debug_info_title_), lv_obj_get_y(debug_info_title_),
+                 lv_obj_get_width(debug_info_detail_), lv_obj_get_height(debug_info_detail_),
+                 builtin_font ? 1 : 0, text_font);
+    } else {
+        ESP_LOGI(TAG, "DebugInfo: %s | %s (hold=%ums builtin_font=%d)",
+                 title.c_str(), detail.c_str(),
+                 (unsigned)((hold_ms == 0) ? DEBUG_INFO_SHOW_MS : hold_ms),
+                 builtin_font ? 1 : 0);
+    }
 }
 
 void AttitudeDisplay::OnDebugInfoHideTimer(lv_timer_t* timer)
@@ -1987,7 +2316,11 @@ void AttitudeDisplay::OnDebugInfoHideTimer(lv_timer_t* timer)
     if (self == nullptr) {
         return;
     }
-    self->HideDebugInfo();
+    if (self->debug_info_is_fortune_feature_) {
+        return;
+    }
+    DisplayLockGuard lock(self);
+    self->HideDebugInfoUnlocked();
 }
 
 void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms)
@@ -1999,11 +2332,17 @@ void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string&
         ESP_LOGD(TAG, "ShowDebugInfo skipped (fortune busy): %s", title.c_str());
         return;
     }
+    if (fortune_menu_selection_active_ && !fortune_feature_card_suppressed_) {
+        ESP_LOGD(TAG, "ShowDebugInfo skipped (fortune menu active): %s", title.c_str());
+        return;
+    }
+#if STUDY_SUB_FEATURES_ENABLED
     // 与学业区互斥
     if (study_sub_state_ != StudySubState::Hidden) {
         ESP_LOGD(TAG, "ShowDebugInfo skipped (study busy): %s", title.c_str());
         return;
     }
+#endif
 
     const uint32_t now = lv_tick_get();
     // 同标题去重，避免快速连续触发同一事件
@@ -2018,32 +2357,36 @@ void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string&
         return;
     }
 
-    lv_label_set_text(debug_info_title_, title.c_str());
-    lv_label_set_text(debug_info_detail_, detail.c_str());
-    lv_obj_remove_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(debug_info_card_);
-
-    // 根据调用方传入的 hold_ms 重置隐藏定时器（上限 DEBUG_INFO_HOLD_MAX_MS 兜底）
-    const uint32_t actual_hold = (hold_ms == 0) ? DEBUG_INFO_SHOW_MS
-                                : (hold_ms > DEBUG_INFO_HOLD_MAX_MS) ? DEBUG_INFO_HOLD_MAX_MS
-                                : hold_ms;
-    if (debug_info_hide_timer_ != nullptr) {
-        lv_timer_set_period(debug_info_hide_timer_, actual_hold);
-        lv_timer_reset(debug_info_hide_timer_);
-    }
+    debug_info_is_fortune_feature_ = false;
+    DebugInfoPresentOpts opts;
+    PresentDebugInfoCardUnlocked(title, detail, hold_ms, opts);
 
     debug_info_last_title_ = title;
     debug_info_last_show_ms_ = now;
-    ESP_LOGI(TAG, "DebugInfo: %s | %s (hold=%ums)", title.c_str(), detail.c_str(),
-             (unsigned)actual_hold);
+}
+
+void AttitudeDisplay::HideDebugInfoUnlocked()
+{
+    const bool restore_fortune = fortune_menu_selection_active_
+        && !fortune_feature_card_suppressed_
+        && fortune_state_ == FortuneState::Idle;
+    const int restore_index = fortune_menu_selected_index_;
+
+    debug_info_is_fortune_feature_ = false;
+    HideFortunePromptTitle();
+    if (debug_info_card_ != nullptr) {
+        lv_obj_add_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (restore_fortune) {
+        ShowFortuneMenuFeatureCardUnlocked(restore_index);
+    }
 }
 
 void AttitudeDisplay::HideDebugInfo()
 {
     DisplayLockGuard lock(this);
-    if (debug_info_card_ != nullptr) {
-        lv_obj_add_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
-    }
+    HideDebugInfoUnlocked();
 }
 
 void AttitudeDisplay::HighlightDirection(int dir)
@@ -2082,25 +2425,28 @@ bool AttitudeDisplay::HandleBootKey()
     if (fortune_state_ == FortuneState::Animating) {
         return true;
     }
+#if STUDY_SUB_FEATURES_ENABLED
     if (study_sub_state_ == StudySubState::FocusRunning
         || study_sub_state_ == StudySubState::CompleteBgm) {
         return true;
     }
+#endif
 
     if (!fortune_menu_selection_active_) {
-        SelectFortuneMenuItem(0);
-        PlayFortuneMenuSelectSound();
+        SelectFortuneMenuItemUnlocked(0);
         ESP_LOGI(TAG, "Boot: selection on, default today (index 0)");
         return true;
     }
 
+#if STUDY_SUB_FEATURES_ENABLED
     if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)
         && study_sub_state_ == StudySubState::Menu) {
         StartStudyFocusTimer();
         return true;
     }
+#endif
 
-    CycleFortuneMenuSelection();
+    CycleFortuneMenuSelectionUnlocked();
     return true;
 }
 
@@ -2114,14 +2460,339 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
     if (!fortune_menu_selection_active_) {
         return false;
     }
+#if STUDY_SUB_FEATURES_ENABLED
     if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)
         && study_sub_state_ != StudySubState::Hidden) {
         ESP_LOGI(TAG, "Boot long press ignored in study area");
         return true;
     }
+#endif
 
     ESP_LOGI(TAG, "Boot long press: trigger fortune menu %d",
              fortune_menu_selected_index_);
     ShowFortuneFromMenu(static_cast<FortuneMenuType>(fortune_menu_selected_index_));
     return true;
 }
+
+// =================================================================
+// 架子鼓模式实现（8 扇区 + 中心 Kick）
+// =================================================================
+#if STUDY_SUB_FEATURES_ENABLED
+
+// 8 个扇区相对正上（0°）的起始角度（顺时针，单位：度）
+// 扇区 0 = 正上（Kick 备用），1 = 右上 45°，2 = 右，...
+// 但这里 0 改为正上 Snare，便于将 Kick 放中心
+static constexpr int DRUM_SECTOR_ANGLE_DEG[8] = {
+    -90,  // 0: 正上 (Snare)
+    -45,  // 1: 右上 (Hi-Hat Closed)
+       0, // 2: 右   (Tom Hi)
+      45,  // 3: 右下 (Tom Mid)
+      90,  // 4: 正下 (Kick 备用)
+     135,  // 5: 左下 (Hi-Hat Open)
+     180,  // 6: 左   (Crash)
+    -135,  // 7: 左上 (Ride)
+};
+
+// 8 个扇区的中文标签（按 ID 顺序，对应 drum::Piece 枚举）
+static constexpr const char* DRUM_SECTOR_LABELS[8] = {
+    "军鼓", "闭镲", "高桶", "中桶",
+    "底鼓", "开镲", "强音钹", "叮叮镲"
+};
+
+void AttitudeDisplay::EnterDrumPad()
+{
+    if (study_sub_state_ != StudySubState::Menu) {
+        ESP_LOGD(TAG, "EnterDrumPad ignored: state=%d", static_cast<int>(study_sub_state_));
+        return;
+    }
+    auto& app = Application::GetInstance();
+    if (app.GetDeviceState() != kDeviceStateIdle) {
+        ESP_LOGI(TAG, "EnterDrumPad blocked: device busy");
+        // 与 StartStudyFocusTimer 行为一致：忙碌时不进入
+        return;
+    }
+
+    // 隐藏菜单图标
+    if (study_clock_label_ != nullptr) {
+        lv_obj_add_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_drum_label_ != nullptr) {
+        lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_focus_arc_ != nullptr) {
+        lv_obj_add_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_time_label_ != nullptr) {
+        lv_obj_add_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    study_sub_state_ = StudySubState::DrumPad;
+    drum::DrumSynth::GetInstance().SetActive(true);
+    ShowDrumPadUI();
+    ESP_LOGI(TAG, "DrumPad entered");
+}
+
+void AttitudeDisplay::ExitDrumPad()
+{
+    if (study_sub_state_ != StudySubState::DrumPad) {
+        return;
+    }
+    drum::DrumSynth::GetInstance().SetActive(false);
+    HideDrumPadUI();
+
+    // 恢复菜单
+    study_sub_state_ = StudySubState::Menu;
+    if (study_clock_label_ != nullptr) {
+        lv_obj_remove_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_drum_label_ != nullptr) {
+        lv_obj_remove_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (study_focus_arc_ != nullptr) {
+        lv_obj_remove_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
+    }
+    UpdateStudyMenuSelection();
+    ESP_LOGI(TAG, "DrumPad exited");
+}
+
+void AttitudeDisplay::ShowDrumPadUI()
+{
+    if (drum_pad_ != nullptr) {
+        lv_obj_remove_flag(drum_pad_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_color_t accent = (lvgl_theme != nullptr) ? lvgl_theme->border_color()
+                                                      : lv_color_hex(0x00C8C8);
+    const lv_color_t dim = lv_color_hex(0x333333);
+
+    // 架子鼓触摸板：覆盖 study_panel_，占满整个圆形画布
+    drum_pad_ = lv_obj_create(study_panel_);
+    lv_obj_set_size(drum_pad_, lv_pct(100), lv_pct(100));
+    lv_obj_set_pos(drum_pad_, 0, 0);
+    lv_obj_set_style_bg_opa(drum_pad_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(drum_pad_, 0, 0);
+    lv_obj_set_style_pad_all(drum_pad_, 0, 0);
+    lv_obj_clear_flag(drum_pad_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(drum_pad_, LV_OBJ_FLAG_SCROLLABLE);
+
+    // 8 扇区：以中心为锚点
+    // 圆形屏直径 360px，扇区径向覆盖 [80, 170]，中间留出中心按钮
+    static constexpr int SECTOR_R_INNER = 80;
+    static constexpr int SECTOR_R_OUTER = 168;
+    static constexpr int SECTOR_ANGLE_WIDTH = 36;  // 每个扇区 36°，8 扇区覆盖 288°，留 72° 死区
+    static constexpr int SECTOR_OFFSET_DEG = 0;    // 旋转偏移：把"正上"对准第一个扇区中心
+
+    for (int i = 0; i < 8; i++) {
+        int center_angle = DRUM_SECTOR_ANGLE_DEG[i] + SECTOR_OFFSET_DEG;
+        // 扇区中心 = center_angle，扇区覆盖 [center_angle - 18, center_angle + 18]
+        int start_angle = (center_angle - SECTOR_ANGLE_WIDTH / 2 + 360) % 360;
+        int end_angle = (center_angle + SECTOR_ANGLE_WIDTH / 2 + 360) % 360;
+
+        // 使用 lv_arc 表示扇区
+        lv_obj_t* arc = lv_arc_create(drum_pad_);
+        lv_obj_set_size(arc, SECTOR_R_OUTER * 2, SECTOR_R_OUTER * 2);
+        lv_obj_align(arc, LV_ALIGN_CENTER, 0, 0);
+        // lv_arc 0° 在正下方（6 点钟），需要偏移 -90° 让 0° 在正上（12 点钟）
+        // 扇区角度转换：用户角度 0=正上 → lv_arc 角度 270
+        int lv_start = (start_angle + 90) % 360;
+        int lv_end = (end_angle + 90) % 360;
+        lv_arc_set_bg_angles(arc, lv_start, lv_end);
+        lv_arc_set_angles(arc, lv_start, lv_end);
+        lv_arc_set_range(arc, 0, 360);
+        lv_arc_set_value(arc, 0);
+        // 背景轨道不可见
+        lv_obj_set_style_arc_color(arc, dim, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(arc, SECTOR_R_OUTER - SECTOR_R_INNER, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(arc, LV_OPA_30, LV_PART_MAIN);
+        // 前景扇区
+        lv_obj_set_style_arc_color(arc, accent, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_width(arc, SECTOR_R_OUTER - SECTOR_R_INNER, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(arc, LV_OPA_20, LV_PART_INDICATOR);
+        // 点击扇区
+        lv_obj_add_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(arc, OnDrumPadTouchedStatic, LV_EVENT_CLICKED, this);
+        // 存储扇区索引到 user_data 不行（arc 自带），用数组下标
+        // 改用自定义机制：在 user_data 不行时，用 arc 对象的坐标存 piece idx
+        // 简化：把 arc 直接存到数组
+        drum_sectors_[i] = arc;
+        // 扇区标签
+        lv_obj_t* label = lv_label_create(drum_pad_);
+        lv_obj_set_style_text_font(label, &BUILTIN_TEXT_FONT, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(label, DRUM_SECTOR_LABELS[i]);
+        // 标签位置 = 扇区中心方向 × 半径 (SECTOR_R_INNER + SECTOR_R_OUTER) / 2
+        float mid_r = (SECTOR_R_INNER + SECTOR_R_OUTER) / 2.0f;
+        float rad = (center_angle) * 3.14159265f / 180.0f;
+        // 角度 -> 屏幕坐标（Y 轴向下，正上对应 -Y）
+        int lx = (int)(mid_r * sinf(rad));
+        int ly = -(int)(mid_r * cosf(rad));
+        lv_obj_align(label, LV_ALIGN_CENTER, lx, ly);
+        drum_sector_labels_[i] = label;
+    }
+
+    // 中心 Kick 按钮
+    drum_center_ = lv_obj_create(drum_pad_);
+    lv_obj_set_size(drum_center_, SECTOR_R_INNER * 2, SECTOR_R_INNER * 2);
+    lv_obj_align(drum_center_, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(drum_center_, SECTOR_R_INNER, 0);
+    lv_obj_set_style_bg_color(drum_center_, accent, 0);
+    lv_obj_set_style_bg_opa(drum_center_, LV_OPA_30, 0);
+    lv_obj_set_style_border_color(drum_center_, accent, 0);
+    lv_obj_set_style_border_width(drum_center_, 3, 0);
+    lv_obj_set_style_border_opa(drum_center_, LV_OPA_60, 0);
+    lv_obj_set_style_pad_all(drum_center_, 0, 0);
+    lv_obj_add_flag(drum_center_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(drum_center_, OnDrumPadTouchedStatic, LV_EVENT_CLICKED, this);
+
+    // 中心标签
+    lv_obj_t* center_label = lv_label_create(drum_center_);
+    lv_obj_set_style_text_font(center_label, &BUILTIN_TEXT_FONT, 0);
+    lv_obj_set_style_text_color(center_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_align(center_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(center_label, "底鼓");
+    lv_obj_align(center_label, LV_ALIGN_CENTER, 0, 0);
+
+    // 退出提示（顶部小字）+ 长按退出
+    lv_obj_t* hint = lv_label_create(drum_pad_);
+    lv_obj_set_style_text_font(hint, &BUILTIN_TEXT_FONT, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(hint, "架子鼓  长按顶边退出");
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 4);
+
+    // 顶部"退出区"：长按 2s 退出架子鼓模式
+    lv_obj_t* exit_zone = lv_obj_create(drum_pad_);
+    lv_obj_set_size(exit_zone, lv_pct(100), 24);
+    lv_obj_align(exit_zone, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(exit_zone, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(exit_zone, 0, 0);
+    lv_obj_set_style_pad_all(exit_zone, 0, 0);
+    lv_obj_add_flag(exit_zone, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(exit_zone, OnDrumPadTouchedStatic, LV_EVENT_LONG_PRESSED, this);
+
+    ESP_LOGI(TAG, "DrumPad UI created");
+}
+
+void AttitudeDisplay::HideDrumPadUI()
+{
+    if (drum_pad_ != nullptr) {
+        lv_obj_add_flag(drum_pad_, LV_OBJ_FLAG_HIDDEN);
+    }
+    // 释放闪烁定时器
+    if (drum_flash_timer_id_ >= 0) {
+        lv_timer_del(reinterpret_cast<lv_timer_t*>(static_cast<uintptr_t>(drum_flash_timer_id_)));
+        drum_flash_timer_id_ = -1;
+    }
+}
+
+void AttitudeDisplay::OnDrumPadTouchedStatic(lv_event_t* e)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
+    if (self != nullptr) {
+        self->OnDrumPadTouched(e);
+    }
+}
+
+void AttitudeDisplay::OnDrumPadTouched(lv_event_t* e)
+{
+    if (study_sub_state_ != StudySubState::DrumPad) {
+        return;
+    }
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+
+    // 长按顶部退出区 → 退出架子鼓模式
+    if (code == LV_EVENT_LONG_PRESSED) {
+        // 顶部 24px 高度的 exit_zone
+        lv_coord_t y = 0;
+        if (target != nullptr) {
+            y = lv_obj_get_y(target);
+        }
+        if (y == 0) {
+            ESP_LOGI(TAG, "DrumPad long press top -> exit");
+            ExitDrumPad();
+            return;
+        }
+    }
+
+    if (code != LV_EVENT_CLICKED) {
+        return;
+    }
+    int piece_idx = -1;
+
+    // 判断是哪个扇区/中心
+    if (target == drum_center_) {
+        piece_idx = static_cast<int>(drum::Piece::KICK);
+    } else {
+        for (int i = 0; i < 8; i++) {
+            if (drum_sectors_[i] == target) {
+                piece_idx = i;
+                break;
+            }
+        }
+    }
+    if (piece_idx < 0) {
+        return;
+    }
+
+    ESP_LOGD(TAG, "DrumPad touch piece=%d", piece_idx);
+    drum::DrumSynth::GetInstance().Trigger(
+        static_cast<drum::Piece>(piece_idx));
+    FlashDrumSector(piece_idx);
+}
+
+void AttitudeDisplay::FlashDrumSector(int piece_idx)
+{
+    // 简单的视觉反馈：被点击的扇区前景色不透明度 20% -> 80% -> 20%
+    // 200ms 淡入 + 200ms 淡出
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_color_t accent = (lvgl_theme != nullptr) ? lvgl_theme->border_color()
+                                                      : lv_color_hex(0x00C8C8);
+    (void)accent;  // 仅用于未来扩展
+
+    if (piece_idx == static_cast<int>(drum::Piece::KICK)) {
+        // 中心：背景不透明度跳到 80% 再回 30%
+        if (drum_center_ != nullptr) {
+            lv_obj_set_style_bg_opa(drum_center_, LV_OPA_80, 0);
+        }
+        // 200ms 后恢复
+        if (drum_flash_timer_id_ < 0) {
+            drum_flash_start_ms_ = lv_tick_get();
+            lv_timer_t* t = lv_timer_create([](lv_timer_t* timer) {
+                auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+                if (self != nullptr) {
+                    if (self->drum_center_ != nullptr) {
+                        lv_obj_set_style_bg_opa(self->drum_center_, LV_OPA_30, 0);
+                    }
+                    self->drum_flash_timer_id_ = -1;
+                }
+                lv_timer_del(timer);
+            }, 200, this);
+            drum_flash_timer_id_ = static_cast<int>(reinterpret_cast<uintptr_t>(t));
+        }
+        return;
+    }
+
+    // 扇区：前景不透明度短暂提升
+    if (piece_idx < 0 || piece_idx >= 8) {
+        return;
+    }
+    lv_obj_t* arc = drum_sectors_[piece_idx];
+    if (arc == nullptr) {
+        return;
+    }
+    lv_obj_set_style_arc_opa(arc, LV_OPA_80, LV_PART_INDICATOR);
+    // 200ms 后恢复
+    lv_timer_t* t = lv_timer_create([](lv_timer_t* timer) {
+        lv_obj_t* target_arc = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
+        if (target_arc != nullptr) {
+            lv_obj_set_style_arc_opa(target_arc, LV_OPA_20, LV_PART_INDICATOR);
+        }
+        lv_timer_del(timer);
+    }, 200, arc);
+    (void)t;  // 定时器自动释放
+}
+
+#endif  // STUDY_SUB_FEATURES_ENABLED
