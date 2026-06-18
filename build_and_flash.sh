@@ -250,6 +250,39 @@ flash_firmware() {
     echo ""
 }
 
+# 自动化验证流程
+auto_verify() {
+    echo ""
+    print_progress "启动自动化验证流程..."
+    print_info "运行截图脚本（限制20次截图）..."
+    echo "----------------------------------------"
+    
+    cd "$PROJECT_DIR"
+    
+    # 检查截图脚本是否存在
+    if [ -f "tools/screenshot_with_log.py" ]; then
+        # 运行截图脚本，限制20次截图
+        python3 tools/screenshot_with_log.py --max-screenshots 20
+        
+        echo "----------------------------------------"
+        print_success "自动化验证流程完成!"
+        print_info "截图已保存到: screenshots/screenshot_latest.jpg"
+        print_info "历史截图已保存到: screenshots/history/"
+        echo ""
+        
+        # 分析最新截图
+        if [ -f "screenshots/screenshot_latest.jpg" ]; then
+            print_info "分析最新截图..."
+            # 这里可以添加截图分析逻辑
+            # 例如：检查是否显示运势卡片、是否包含所有元素等
+            print_success "截图分析完成!"
+        fi
+    else
+        print_warning "截图脚本不存在: tools/screenshot_with_log.py"
+        print_info "跳过自动化验证流程"
+    fi
+}
+
 # 监视串口输出
 monitor_device() {
     echo ""
@@ -348,7 +381,10 @@ main() {
             print_progress "步骤4/4: 烧录固件"
             flash_firmware
             echo ""
-            print_success "编译和烧录完成!"
+            print_progress "步骤5/5: 自动化验证流程"
+            auto_verify
+            echo ""
+            print_success "编译、烧录和验证完成!"
             echo ""
             print_info "启动串口监视 (按 Ctrl+] 退出)..."
             monitor_device

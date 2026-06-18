@@ -1,9 +1,13 @@
 #include "snapshot_service.h"
 #include "display.h"
 #include "board.h"
+#include "attitude_display.h"
 #include "jpg/image_to_jpeg.h"
 #include <esp_log.h>
 #include <esp_lvgl_port.h>
+#include <driver/uart.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <cstdio>
 #include <cstring>
 
@@ -57,9 +61,11 @@ esp_err_t SnapshotService::Start() {
         return ESP_ERR_INVALID_STATE;
     }
     
-    // 不需要创建任务，使用同步方式通过 printf 输出
+    // 创建UART命令接收任务
+    xTaskCreate(&SnapshotService::UARTTask, "snapshot_uart", 4096, NULL, 5, NULL);
+    
     running_ = true;
-    ESP_LOGI(TAG, "Snapshot service started (synchronous mode)");
+    ESP_LOGI(TAG, "Snapshot service started (async mode with UART command receiver)");
     return ESP_OK;
 }
 
@@ -87,7 +93,66 @@ esp_err_t SnapshotService::TakeSnapshot() {
 }
 
 void SnapshotService::UARTTask(void* arg) {
-    // 空实现 - 使用同步模式
+    // 配置UART参数
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    };
+    
+    // 使用console UART端口
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));
+    
+    // 设置TX引脚（不需要RX，因为console已经配置）
+    ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    
+    // 安装UART驱动（不使用缓冲区，因为我们手动读取）
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 1024, 0, 0, NULL, 0));
+    
+    ESP_LOGI(TAG, "UART command receiver started");
+    
+    // 命令缓冲区
+    uint8_t data[128];
+    
+    while (true) {
+        // 读取UART数据
+        int len = uart_read_bytes(UART_NUM_0, data, sizeof(data) - 1, 100 / portTICK_PERIOD_MS);
+        
+        if (len > 0) {
+            data[len] = '\0';
+            
+            // 解析命令
+            // 格式: CLICK:<index> (例如: CLICK:0 表示点击第一个按钮)
+            if (strncmp((char*)data, "CLICK:", 6) == 0) {
+                int index = atoi((char*)data + 6);
+                ESP_LOGI(TAG, "[UART] Received CLICK command: index=%d", index);
+                
+                // 触发按钮点击
+                SnapshotService::GetInstance().TriggerButtonClick(index);
+                
+                // 发送确认
+                printf("[SNAPSHOT] CLICK_ACK: index=%d\n", index);
+                fflush(stdout);
+            }
+            // 格式: SNAP (快捷命令，等同于SNAPSHOT_CMD_SNAPSHOT_REQ)
+            else if (strncmp((char*)data, "SNAP", 4) == 0) {
+                ESP_LOGI(TAG, "[UART] Received SNAP command");
+                
+                // 触发截图
+                SnapshotService::GetInstance().TakeSnapshot();
+                
+                // 发送确认
+                printf("[SNAPSHOT] SNAP_ACK\n");
+                fflush(stdout);
+            }
+        }
+        
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+    
+    // 永远不会执行到这里
     vTaskDelete(NULL);
 }
 
@@ -273,4 +338,31 @@ void SnapshotService::SendPONG() {
     // 简化为 printf 输出
     printf("[SNAPSHOT] PONG\n");
     fflush(stdout);
+}
+
+esp_err_t SnapshotService::TriggerButtonClick(int index) {
+    ESP_LOGI(TAG, "[TriggerButtonClick] index=%d", index);
+    
+    // 获取AttitudeDisplay实例
+    auto* attitude = dynamic_cast<AttitudeDisplay*>(Board::GetInstance().GetDisplay());
+    
+    if (!attitude) {
+        ESP_LOGE(TAG, "AttitudeDisplay not available");
+        return ESP_FAIL;
+    }
+    
+    // 将index转换为FortuneMenuType
+    FortuneMenuType type = static_cast<FortuneMenuType>(index);
+    
+    // 在LVGL线程中执行按钮点击
+    if (lvgl_port_lock(1000)) {
+        // 使用公共方法ShowFortuneFromMenu来显示运势
+        attitude->ShowFortuneFromMenu(type);
+        lvgl_port_unlock();
+        ESP_LOGI(TAG, "[TriggerButtonClick] Success, triggered index=%d", index);
+        return ESP_OK;
+    } else {
+        ESP_LOGE(TAG, "Failed to acquire LVGL lock");
+        return ESP_ERR_TIMEOUT;
+    }
 }

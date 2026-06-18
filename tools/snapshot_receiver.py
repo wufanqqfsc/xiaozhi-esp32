@@ -30,12 +30,11 @@ SNAPSHOT_ERR_NO_MEM = 0x04
 SNAPSHOT_MAX_DATA_SIZE = 4096
 SNAPSHOT_MAX_FRAME_SIZE = SNAPSHOT_MAX_DATA_SIZE + 6
 
-# CRC16-CCITT
-crc16_ccitt = crcmod.predefined.Crc('crc-ccitt-false')
+import crcmod.predefined
 
 def calculate_crc(data):
     """计算CRC16-CCITT校验"""
-    crc16_ccitt.reset()
+    crc16_ccitt = crcmod.predefined.Crc('crc-ccitt-false')
     crc16_ccitt.update(data)
     return crc16_ccitt.digest()
 
@@ -196,7 +195,7 @@ def main():
             baudrate=args.baud,
             timeout=args.timeout,
             parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_1,
+            stopbits=serial.STOPBITS_ONE,
             bytesize=serial.EIGHTBITS
         )
         

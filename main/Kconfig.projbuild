@@ -878,7 +878,7 @@ endmenu
 menu "AI Compass"
     config XIAOZHI_ENABLE_BLE_FISHEYE
         bool "Enable NimBLE server for BLE fisheye status"
-        default y
+        default n
         depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_85B
         select BT_ENABLED
         select BT_NIMBLE_ENABLED

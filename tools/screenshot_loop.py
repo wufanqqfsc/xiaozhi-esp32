@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+import serial
+import time
+import os
+import base64 as b64
+import sys
+
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(script_dir)
+os.chdir(project_dir)
+
+MAX_HISTORY = 20
+MAX_SCREENSHOTS = 5  # 最多抓取5张截图
+TIMEOUT_SECONDS = 60  # 持续监听60秒
+
+def get_history_count():
+    history_dir = "screenshots/history"
+    if not os.path.exists(history_dir):
+        return 0
+    return len([f for f in os.listdir(history_dir) if f.endswith('.jpg')])
+
+def backup_old_screenshot():
+    latest_path = "screenshots/screenshot_latest.jpg"
+    history_dir = "screenshots/history"
+    if os.path.exists(latest_path):
+        os.makedirs(history_dir, exist_ok=True)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        backup_path = f"{history_dir}/screenshot_{timestamp}.jpg"
+        try:
+            os.rename(latest_path, backup_path)
+            print(f"Backed up old screenshot to: {backup_path}")
+        except Exception as e:
+            print(f"Backup error: {e}")
+
+def main():
+    port = '/dev/tty.usbmodem1101'
+    baud = 115200
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    os.makedirs(f"screenshots/logs", exist_ok=True)
+    log_file = open(f"screenshots/logs/raw_{timestamp}.log", "wb")
+
+    base64_data = []
+    in_screenshot = False
+    screenshot_count = 0
+
+    print(f"Using port: {port}")
+    print(f"Will capture up to {MAX_SCREENSHOTS} screenshots within {TIMEOUT_SECONDS}s")
+
+    try:
+        ser = serial.Serial(
+            port=port,
+            baudrate=baud,
+            timeout=1,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            bytesize=serial.EIGHTBITS
+        )
+
+        print(f"Connected to {port} at {baud} baud")
+
+        start_time = time.time()
+        last_progress = 0
+        while (time.time() - start_time) < TIMEOUT_SECONDS and screenshot_count < MAX_SCREENSHOTS:
+            if ser.in_waiting > 0:
+                data = ser.read(ser.in_waiting)
+                log_file.write(data)
+
+                try:
+                    text = data.decode('utf-8', errors='replace')
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+                except:
+                    pass
+
+                text_str = data.decode('utf-8', errors='ignore')
+                if '===SCREENSHOT_START===' in text_str:
+                    in_screenshot = True
+                    base64_data = []
+                    screenshot_count += 1
+                    print(f"\n[CAPTURING SCREENSHOT #{screenshot_count}...]")
+                elif '===SCREENSHOT_END===' in text_str:
+                    in_screenshot = False
+                    print(f"[SCREENSHOT #{screenshot_count} CAPTURED]")
+                    if base64_data:
+                        try:
+                            jpeg_data = b64.b64decode(''.join(base64_data))
+                            backup_old_screenshot()
+                            output_jpg = "screenshots/screenshot_latest.jpg"
+                            with open(output_jpg, 'wb') as f:
+                                f.write(jpeg_data)
+                            print(f"Saved: {output_jpg} ({len(jpeg_data)} bytes)")
+                        except Exception as e:
+                            print(f"Decode error: {e}")
+                elif in_screenshot:
+                    lines = text_str.strip().split('\n')
+                    for line in lines:
+                        line = line.strip()
+                        if line and not line.startswith('==='):
+                            base64_data.append(line)
+
+            # 每5秒打印进度
+            elapsed = int(time.time() - start_time)
+            if elapsed - last_progress >= 5:
+                print(f"[{elapsed}s elapsed, {screenshot_count} screenshots captured]")
+                last_progress = elapsed
+
+            time.sleep(0.01)
+
+        print(f"\nDone. Total screenshots: {screenshot_count}")
+
+    except serial.SerialException as e:
+        print(f"Serial error: {e}")
+    except KeyboardInterrupt:
+        print("\nInterrupted")
+    finally:
+        if 'ser' in locals():
+            ser.close()
+        log_file.close()
+
+if __name__ == '__main__':
+    main()

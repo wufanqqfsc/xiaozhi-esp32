@@ -34,6 +34,7 @@ typedef enum {
     SNAPSHOT_CMD_NACK = 0x04,            // 否定确认
     SNAPSHOT_CMD_PING = 0x05,            // 心跳检测
     SNAPSHOT_CMD_PONG = 0x06,            // 心跳响应
+    SNAPSHOT_CMD_CLICK_BUTTON = 0x07,    // 触发功能按钮点击事件
 } snapshot_cmd_t;
 
 // 错误码定义

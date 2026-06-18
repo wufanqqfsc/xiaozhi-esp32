@@ -28,7 +28,7 @@
 #define DEBUG_INFO_DEDUP_MS       1500   // 同一标题的去重间隔
 // 调试卡配色：与运势卡（金）区分，使用青/品红强调，便于识别
 #define DEBUG_INFO_BORDER_COLOR   lv_color_hex(0x00C8C8)   // 青色描边
-#define DEBUG_INFO_TITLE_COLOR    lv_color_hex(0x00E5E5)
+#define DEBUG_INFO_TITLE_COLOR    lv_color_hex(0xD4AF37)  // 金色
 #define DEBUG_INFO_DETAIL_COLOR   lv_color_hex(0xE0E0E0)
 #define TAIJI_ROTATION_PERIOD_NORMAL_MS  60000   // 常态 60s/圈（减慢旋转 + 降低刷屏）
 #define FORTUNE_TAIJI_PHASE_MS           4000   // 每 4s 一档
@@ -1046,14 +1046,84 @@ void AttitudeDisplay::ShowFortuneMenuFeatureCardUnlocked(int index)
 #endif
 
     const auto& def = kFortuneMenuDefs[index];
+    const auto& texts = kFortuneMenuFortuneTexts[index];
     debug_info_is_fortune_feature_ = true;
     DebugInfoPresentOpts opts;
     opts.persistent = true;
-    // 与 WiFi 相同：卡片内 title+detail 双行（日志证实仅 title 或 screen overlay 均不绘制）
     opts.screen_title_overlay = false;
-    PresentDebugInfoCardUnlocked(def.func_label, " ", 0, opts);
+    
+    CreateDebugInfoCard();
+    if (debug_info_card_ == nullptr) {
+        return;
+    }
+    
+    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
+    const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
+        ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
+
+    lv_obj_remove_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(debug_info_card_);
+
+    if (debug_info_title_ != nullptr) {
+        lv_obj_remove_flag(debug_info_title_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_font(debug_info_title_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_title_, DEBUG_INFO_TITLE_COLOR, 0);
+        lv_label_set_text(debug_info_title_, def.func_label);
+        lv_obj_move_foreground(debug_info_title_);
+    }
+
+    if (debug_info_gua_label_ != nullptr) {
+        lv_obj_remove_flag(debug_info_gua_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_font(debug_info_gua_label_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_gua_label_, DEBUG_INFO_DETAIL_COLOR, 0);
+        lv_label_set_text(debug_info_gua_label_, texts.gua_name);
+        lv_obj_move_foreground(debug_info_gua_label_);
+    }
+
+    if (debug_info_core_label_ != nullptr) {
+        lv_obj_remove_flag(debug_info_core_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_font(debug_info_core_label_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_core_label_, DEBUG_INFO_TITLE_COLOR, 0);
+        lv_label_set_text(debug_info_core_label_, texts.core_text);
+        lv_obj_move_foreground(debug_info_core_label_);
+    }
+
+    if (debug_info_yi_label_ != nullptr) {
+        lv_obj_remove_flag(debug_info_yi_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_font(debug_info_yi_label_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_yi_label_, lv_color_hex(0x4CAF50), 0);
+        lv_label_set_text(debug_info_yi_label_, texts.yi);
+        lv_obj_move_foreground(debug_info_yi_label_);
+    }
+
+    if (debug_info_ji_label_ != nullptr) {
+        lv_obj_remove_flag(debug_info_ji_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_font(debug_info_ji_label_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_ji_label_, lv_color_hex(0xE53935), 0);
+        lv_label_set_text(debug_info_ji_label_, texts.ji);
+        lv_obj_move_foreground(debug_info_ji_label_);
+    }
+
+    if (debug_info_detail_ != nullptr) {
+        lv_obj_add_flag(debug_info_detail_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(debug_info_detail_, "");
+    }
+
+    lv_obj_update_layout(debug_info_card_);
+    if (display_ != nullptr) {
+        lv_refr_now(display_);
+    }
+
+    // 调试日志：串口数据源校验（按故障分析文档 3.1 节）
+    ESP_LOGI(TAG, "[Fortune:Today] title='%s' gua='%s' core='%s' yi='%s' ji='%s'",
+             def.func_label, texts.gua_name, texts.core_text, texts.yi, texts.ji);
+
     debug_info_last_title_ = def.func_label;
     debug_info_last_show_ms_ = lv_tick_get();
+
+    if (debug_info_hide_timer_ != nullptr) {
+        lv_timer_pause(debug_info_hide_timer_);
+    }
 }
 
 void AttitudeDisplay::ShowFortuneMenuFeatureCard(int index)
@@ -1841,73 +1911,127 @@ void AttitudeDisplay::CreateFortuneCard()
     const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
         ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
 
+    // 使用绝对定位方式（与 debug_info_card 相同模式）
+    // 避免圆形容器 + clip_corner + flex 布局导致子对象尺寸计算异常
+    const int card_w = FORTUNE_CARD_W;
+    const int text_w = card_w - 40;
+    const int text_x = 20;
+    const int row_h = 40;
+    const int core_h = 60;
+
     fortune_card_ = lv_obj_create(attitude_container_);
-    lv_obj_add_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_size(fortune_card_, FORTUNE_CARD_W, FORTUNE_CARD_H);
+    lv_obj_set_size(fortune_card_, card_w, card_w);
     lv_obj_set_pos(fortune_card_, FORTUNE_CARD_X, FORTUNE_CARD_Y);
-    lv_obj_set_style_radius(fortune_card_, TAIJI_RADIUS, 0);
+    lv_obj_set_style_radius(fortune_card_, FORTUNE_CARD_RADIUS, 0);
     lv_obj_set_style_clip_corner(fortune_card_, true, 0);
     lv_obj_set_style_bg_color(fortune_card_, c.card_bg, 0);
     lv_obj_set_style_bg_opa(fortune_card_, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(fortune_card_, c.border_line, 0);
     lv_obj_set_style_border_width(fortune_card_, 2, 0);
-    lv_obj_set_style_pad_all(fortune_card_, 4, 0);
-    lv_obj_set_style_pad_row(fortune_card_, 2, 0);
-    lv_obj_set_style_opa(fortune_card_, LV_OPA_COVER, 0);
-    lv_obj_set_flex_flow(fortune_card_, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(fortune_card_, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(fortune_card_, 0, 0);
+    lv_obj_set_style_layout(fortune_card_, LV_LAYOUT_NONE, 0);
     lv_obj_clear_flag(fortune_card_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
 
+    // 计算各行 y 坐标
+    // total content: row_h(func) + row_h(gua_widget_h=36 取 row_h) + row_h(gua_name) +
+    //                core_h(core) + row_h(yi) + row_h(ji) + row_h(close)
+    //              = 40 + 40 + 40 + 60 + 40 + 40 + 40 = 300
+    // card_w = 356, start_y = (356 - 300) / 2 = 28
+    const int start_y = 28;
+    int cur_y = start_y;
+
+    // func 标题
     fortune_func_label_ = lv_label_create(fortune_card_);
     lv_obj_set_style_text_font(fortune_func_label_, text_font, 0);
     lv_obj_set_style_text_color(fortune_func_label_, c.text_main, 0);
+    lv_obj_set_width(fortune_func_label_, text_w);
+    lv_obj_set_height(fortune_func_label_, row_h);
+    lv_obj_set_x(fortune_func_label_, text_x);
+    lv_obj_set_y(fortune_func_label_, cur_y);
+    lv_label_set_long_mode(fortune_func_label_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(fortune_func_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(fortune_func_label_, fortune_func_label_text_.c_str());
+    cur_y += row_h;
 
+    // 卦象 widget
     fortune_gua_widget_ = CreateHexagramWidget(fortune_card_, fortune_gua_index_);
+    if (fortune_gua_widget_ != nullptr) {
+        lv_obj_set_x(fortune_gua_widget_, text_x + (text_w - FORTUNE_GUA_CANVAS_W) / 2);
+        lv_obj_set_y(fortune_gua_widget_, cur_y + (row_h - FORTUNE_GUA_CANVAS_H) / 2);
+    }
+    cur_y += row_h;
 
+    // 卦名
     fortune_gua_name_label_ = lv_label_create(fortune_card_);
     lv_obj_set_style_text_font(fortune_gua_name_label_, text_font, 0);
     lv_obj_set_style_text_color(fortune_gua_name_label_, c.text_main, 0);
+    lv_obj_set_width(fortune_gua_name_label_, text_w);
+    lv_obj_set_height(fortune_gua_name_label_, row_h);
+    lv_obj_set_x(fortune_gua_name_label_, text_x);
+    lv_obj_set_y(fortune_gua_name_label_, cur_y);
+    lv_label_set_long_mode(fortune_gua_name_label_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(fortune_gua_name_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(fortune_gua_name_label_, fortune_gua_name_text_.c_str());
+    cur_y += row_h;
 
+    // 核心文案（两行高度）
     fortune_core_label_ = lv_label_create(fortune_card_);
     lv_obj_set_style_text_font(fortune_core_label_, text_font, 0);
     lv_obj_set_style_text_color(fortune_core_label_, c.text_high, 0);
-    lv_obj_set_width(fortune_core_label_, FORTUNE_CARD_W - 24);
+    lv_obj_set_width(fortune_core_label_, text_w);
+    lv_obj_set_height(fortune_core_label_, core_h);
+    lv_obj_set_x(fortune_core_label_, text_x);
+    lv_obj_set_y(fortune_core_label_, cur_y);
     lv_label_set_long_mode(fortune_core_label_, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(fortune_core_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(fortune_core_label_, fortune_core_text_.c_str());
+    cur_y += core_h;
 
+    // 宜
     fortune_yi_label_ = lv_label_create(fortune_card_);
     lv_obj_set_style_text_font(fortune_yi_label_, text_font, 0);
     lv_obj_set_style_text_color(fortune_yi_label_, kFortuneGreen, 0);
-    lv_obj_set_width(fortune_yi_label_, FORTUNE_CARD_W - 24);
-    lv_label_set_long_mode(fortune_yi_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(fortune_yi_label_, text_w);
+    lv_obj_set_height(fortune_yi_label_, row_h);
+    lv_obj_set_x(fortune_yi_label_, text_x);
+    lv_obj_set_y(fortune_yi_label_, cur_y);
+    lv_label_set_long_mode(fortune_yi_label_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(fortune_yi_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(fortune_yi_label_, fortune_yi_text_.c_str());
+    cur_y += row_h;
 
+    // 忌
     fortune_ji_label_ = lv_label_create(fortune_card_);
     lv_obj_set_style_text_font(fortune_ji_label_, text_font, 0);
     lv_obj_set_style_text_color(fortune_ji_label_, kFortuneRed, 0);
-    lv_obj_set_width(fortune_ji_label_, FORTUNE_CARD_W - 24);
-    lv_label_set_long_mode(fortune_ji_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(fortune_ji_label_, text_w);
+    lv_obj_set_height(fortune_ji_label_, row_h);
+    lv_obj_set_x(fortune_ji_label_, text_x);
+    lv_obj_set_y(fortune_ji_label_, cur_y);
+    lv_label_set_long_mode(fortune_ji_label_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(fortune_ji_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(fortune_ji_label_, fortune_ji_text_.c_str());
+    cur_y += row_h;
 
+    // 关闭提示
     fortune_close_label_ = lv_label_create(fortune_card_);
     lv_obj_set_style_text_font(fortune_close_label_, text_font, 0);
     lv_obj_set_style_text_color(fortune_close_label_, c.text_sub, 0);
+    lv_obj_set_width(fortune_close_label_, text_w);
+    lv_obj_set_height(fortune_close_label_, row_h);
+    lv_obj_set_x(fortune_close_label_, text_x);
+    lv_obj_set_y(fortune_close_label_, cur_y);
+    lv_obj_set_style_text_align(fortune_close_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(fortune_close_label_, "按 Boot 关闭");
 
-    lv_obj_move_foreground(fortune_card_);
     lv_obj_remove_flag(fortune_card_, LV_OBJ_FLAG_HIDDEN);
 
     if (lv_obj_t* taiji = CompassTaiji::GetContainer()) {
         lv_obj_add_flag(taiji, LV_OBJ_FLAG_HIDDEN);
     }
-    ESP_LOGI(TAG, "Fortune card shown %dx%d at (%d,%d) (taiji bounds)",
-             FORTUNE_CARD_W, FORTUNE_CARD_H, FORTUNE_CARD_X, FORTUNE_CARD_Y);
+    ESP_LOGI(TAG, "Fortune card shown %dx%d at (%d,%d) (absolute layout)",
+             card_w, card_w, FORTUNE_CARD_X, FORTUNE_CARD_Y);
 }
 
 void AttitudeDisplay::DestroyFortuneCard()
@@ -2018,72 +2142,111 @@ void AttitudeDisplay::CreateDebugInfoCard()
     auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
     const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
         ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
-    const int text_w = FORTUNE_CARD_W - 24;
+    // 300px 卡片，边距 20px，标签宽度 260px，高度更紧凑，确保内容全部在圆内
+    const int card_w = DEBUG_INFO_CARD_W;
+    const int text_w = card_w - 40;
+    const int text_x = 20;
+    // 30px 字体约占 36px 行高，标签高度设为 40-44 以确保完整显示
+    const int row_h = 40;
+    const int core_h = 60; // core 允许两行
 
     debug_info_card_ = lv_obj_create(attitude_container_);
-    lv_obj_set_size(debug_info_card_, FORTUNE_CARD_W, FORTUNE_CARD_H);
-    lv_obj_set_pos(debug_info_card_, FORTUNE_CARD_X, FORTUNE_CARD_Y);
-    lv_obj_set_style_radius(debug_info_card_, TAIJI_RADIUS, 0);
+    lv_obj_set_size(debug_info_card_, card_w, card_w); // 正方形，300x300
+    lv_obj_set_pos(debug_info_card_, DEBUG_INFO_CARD_X, DEBUG_INFO_CARD_Y);
+    lv_obj_set_style_radius(debug_info_card_, DEBUG_INFO_CARD_RADIUS, 0);
     lv_obj_set_style_clip_corner(debug_info_card_, true, 0);
     lv_obj_set_style_bg_color(debug_info_card_, lv_color_hex(0x0A1414), 0);
-    lv_obj_set_style_bg_opa(debug_info_card_, LV_OPA_80, 0);
+    lv_obj_set_style_bg_opa(debug_info_card_, LV_OPA_90, 0);
     lv_obj_set_style_border_color(debug_info_card_, DEBUG_INFO_BORDER_COLOR, 0);
     lv_obj_set_style_border_width(debug_info_card_, 2, 0);
-    lv_obj_set_style_pad_all(debug_info_card_, 4, 0);
-    lv_obj_set_style_pad_row(debug_info_card_, 2, 0);
-    lv_obj_set_flex_flow(debug_info_card_, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(debug_info_card_, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(debug_info_card_, 0, 0);
+    lv_obj_set_style_layout(debug_info_card_, LV_LAYOUT_NONE, 0);
     lv_obj_clear_flag(debug_info_card_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
 
+    // total content: row_h + row_h + core_h + row_h + row_h = 220px
+    // start y = (300 - 220) / 2 = 40
+    const int start_y = 40;
+    int cur_y = start_y;
+
+    // title（功能标题）：第一行
     debug_info_title_ = lv_label_create(debug_info_card_);
     lv_obj_set_style_text_font(debug_info_title_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_title_, DEBUG_INFO_TITLE_COLOR, 0);
+    lv_obj_set_style_text_opa(debug_info_title_, LV_OPA_COVER, 0);
     lv_obj_set_width(debug_info_title_, text_w);
+    lv_obj_set_height(debug_info_title_, row_h);
+    lv_obj_set_x(debug_info_title_, text_x);
+    lv_obj_set_y(debug_info_title_, cur_y);
     lv_label_set_long_mode(debug_info_title_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(debug_info_title_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(debug_info_title_, "");
+    cur_y += row_h;
 
-    debug_info_detail_ = lv_label_create(debug_info_card_);
-    lv_obj_set_style_text_font(debug_info_detail_, text_font, 0);
-    lv_obj_set_style_text_color(debug_info_detail_, DEBUG_INFO_DETAIL_COLOR, 0);
-    lv_obj_set_width(debug_info_detail_, text_w);
-    lv_label_set_long_mode(debug_info_detail_, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_align(debug_info_detail_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(debug_info_detail_, "");
-
+    // gua_name（卦名）：第二行
     debug_info_gua_label_ = lv_label_create(debug_info_card_);
     lv_obj_set_style_text_font(debug_info_gua_label_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_gua_label_, DEBUG_INFO_DETAIL_COLOR, 0);
     lv_obj_set_width(debug_info_gua_label_, text_w);
+    lv_obj_set_height(debug_info_gua_label_, row_h);
+    lv_obj_set_x(debug_info_gua_label_, text_x);
+    lv_obj_set_y(debug_info_gua_label_, cur_y);
     lv_label_set_long_mode(debug_info_gua_label_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(debug_info_gua_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(debug_info_gua_label_, "");
+    cur_y += row_h;
 
+    // core（核心文案）：第三行，两行高度，WRAP 模式允许多行
     debug_info_core_label_ = lv_label_create(debug_info_card_);
     lv_obj_set_style_text_font(debug_info_core_label_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_core_label_, DEBUG_INFO_TITLE_COLOR, 0);
     lv_obj_set_width(debug_info_core_label_, text_w);
+    lv_obj_set_height(debug_info_core_label_, core_h);
+    lv_obj_set_x(debug_info_core_label_, text_x);
+    lv_obj_set_y(debug_info_core_label_, cur_y);
     lv_label_set_long_mode(debug_info_core_label_, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(debug_info_core_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(debug_info_core_label_, "");
+    cur_y += core_h;
 
+    // yi（宜）：第四行，绿色强调
     debug_info_yi_label_ = lv_label_create(debug_info_card_);
     lv_obj_set_style_text_font(debug_info_yi_label_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_yi_label_, lv_color_hex(0x4CAF50), 0);
     lv_obj_set_width(debug_info_yi_label_, text_w);
+    lv_obj_set_height(debug_info_yi_label_, row_h);
+    lv_obj_set_x(debug_info_yi_label_, text_x);
+    lv_obj_set_y(debug_info_yi_label_, cur_y);
     lv_label_set_long_mode(debug_info_yi_label_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(debug_info_yi_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(debug_info_yi_label_, "");
+    cur_y += row_h;
 
+    // ji（忌）：第五行，红色强调
     debug_info_ji_label_ = lv_label_create(debug_info_card_);
     lv_obj_set_style_text_font(debug_info_ji_label_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_ji_label_, lv_color_hex(0xE53935), 0);
     lv_obj_set_width(debug_info_ji_label_, text_w);
+    lv_obj_set_height(debug_info_ji_label_, row_h);
+    lv_obj_set_x(debug_info_ji_label_, text_x);
+    lv_obj_set_y(debug_info_ji_label_, cur_y);
     lv_label_set_long_mode(debug_info_ji_label_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(debug_info_ji_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(debug_info_ji_label_, "");
+    cur_y += row_h;
+
+    // detail（通用详情备用）：保持兼容，置于最底部（隐藏）
+    debug_info_detail_ = lv_label_create(debug_info_card_);
+    lv_obj_set_style_text_font(debug_info_detail_, text_font, 0);
+    lv_obj_set_style_text_color(debug_info_detail_, DEBUG_INFO_DETAIL_COLOR, 0);
+    lv_obj_set_width(debug_info_detail_, text_w);
+    lv_obj_set_height(debug_info_detail_, row_h);
+    lv_obj_set_x(debug_info_detail_, text_x);
+    lv_obj_set_y(debug_info_detail_, cur_y);
+    lv_label_set_long_mode(debug_info_detail_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(debug_info_detail_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(debug_info_detail_, "");
+    lv_obj_add_flag(debug_info_detail_, LV_OBJ_FLAG_HIDDEN);
 
     ApplyDebugInfoCardLayout();
 
@@ -2113,6 +2276,7 @@ void AttitudeDisplay::EnsureFortunePromptTitle()
     lv_obj_set_style_text_opa(fortune_prompt_title_, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_opa(fortune_prompt_title_, LV_OPA_TRANSP, 0);
     lv_obj_set_width(fortune_prompt_title_, text_w);
+    lv_obj_set_height(fortune_prompt_title_, 40);  // 固定40px确保中文字体完整显示
     lv_label_set_long_mode(fortune_prompt_title_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(fortune_prompt_title_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_clear_flag(fortune_prompt_title_, LV_OBJ_FLAG_CLICKABLE);
@@ -2152,49 +2316,79 @@ void AttitudeDisplay::HideDebugInfoCardLabels()
 
 void AttitudeDisplay::ApplyDebugInfoCardLayout()
 {
-    if (debug_info_detail_ == nullptr) {
+    if (debug_info_card_ == nullptr) {
         return;
     }
     auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
     const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
         ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
-    const int text_w = FORTUNE_CARD_W - 24;
+    const int card_w = DEBUG_INFO_CARD_W;
+    const int text_w = card_w - 40;
+    const int text_x = 20;
+    const int row_h = 40;
+    const int core_h = 60;
+
+    // 计算各行 y 坐标（与 CreateDebugInfoCard 保持一致）
+    const int start_y = 40;
+    const int y_title = start_y;
+    const int y_gua   = start_y + row_h;
+    const int y_core  = start_y + row_h * 2;
+    const int y_yi    = start_y + row_h * 2 + core_h;
+    const int y_ji    = start_y + row_h * 2 + core_h + row_h;
 
     if (debug_info_card_ != nullptr) {
         lv_obj_set_style_clip_corner(debug_info_card_, true, 0);
-        lv_obj_set_style_layout(debug_info_card_, LV_LAYOUT_FLEX, 0);
-        lv_obj_set_flex_flow(debug_info_card_, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(debug_info_card_, LV_FLEX_ALIGN_START,
-                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_all(debug_info_card_, 4, 0);
     }
     if (debug_info_title_ != nullptr) {
-        lv_obj_remove_flag(debug_info_title_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(debug_info_title_, LV_OBJ_FLAG_IGNORE_LAYOUT);
         lv_obj_set_style_text_font(debug_info_title_, text_font, 0);
         lv_obj_set_style_text_color(debug_info_title_, DEBUG_INFO_TITLE_COLOR, 0);
         lv_obj_set_style_text_opa(debug_info_title_, LV_OPA_COVER, 0);
         lv_obj_set_width(debug_info_title_, text_w);
-        lv_obj_set_height(debug_info_title_, LV_SIZE_CONTENT);
+        lv_obj_set_height(debug_info_title_, row_h);
+        lv_obj_set_x(debug_info_title_, text_x);
+        lv_obj_set_y(debug_info_title_, y_title);
         lv_label_set_long_mode(debug_info_title_, LV_LABEL_LONG_CLIP);
         lv_obj_set_style_text_align(debug_info_title_, LV_TEXT_ALIGN_CENTER, 0);
     }
-    lv_obj_remove_flag(debug_info_detail_, LV_OBJ_FLAG_HIDDEN);
     if (debug_info_gua_label_ != nullptr) {
-        lv_obj_add_flag(debug_info_gua_label_, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(debug_info_gua_label_, "");
+        lv_obj_set_style_text_font(debug_info_gua_label_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_gua_label_, DEBUG_INFO_DETAIL_COLOR, 0);
+        lv_obj_set_width(debug_info_gua_label_, text_w);
+        lv_obj_set_height(debug_info_gua_label_, row_h);
+        lv_obj_set_x(debug_info_gua_label_, text_x);
+        lv_obj_set_y(debug_info_gua_label_, y_gua);
+        lv_label_set_long_mode(debug_info_gua_label_, LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_align(debug_info_gua_label_, LV_TEXT_ALIGN_CENTER, 0);
     }
     if (debug_info_core_label_ != nullptr) {
-        lv_obj_add_flag(debug_info_core_label_, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(debug_info_core_label_, "");
+        lv_obj_set_style_text_font(debug_info_core_label_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_core_label_, DEBUG_INFO_TITLE_COLOR, 0);
+        lv_obj_set_width(debug_info_core_label_, text_w);
+        lv_obj_set_height(debug_info_core_label_, core_h);
+        lv_obj_set_x(debug_info_core_label_, text_x);
+        lv_obj_set_y(debug_info_core_label_, y_core);
+        lv_label_set_long_mode(debug_info_core_label_, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(debug_info_core_label_, LV_TEXT_ALIGN_CENTER, 0);
     }
     if (debug_info_yi_label_ != nullptr) {
-        lv_obj_add_flag(debug_info_yi_label_, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(debug_info_yi_label_, "");
+        lv_obj_set_style_text_font(debug_info_yi_label_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_yi_label_, lv_color_hex(0x4CAF50), 0);
+        lv_obj_set_width(debug_info_yi_label_, text_w);
+        lv_obj_set_height(debug_info_yi_label_, row_h);
+        lv_obj_set_x(debug_info_yi_label_, text_x);
+        lv_obj_set_y(debug_info_yi_label_, y_yi);
+        lv_label_set_long_mode(debug_info_yi_label_, LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_align(debug_info_yi_label_, LV_TEXT_ALIGN_CENTER, 0);
     }
     if (debug_info_ji_label_ != nullptr) {
-        lv_obj_add_flag(debug_info_ji_label_, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(debug_info_ji_label_, "");
+        lv_obj_set_style_text_font(debug_info_ji_label_, text_font, 0);
+        lv_obj_set_style_text_color(debug_info_ji_label_, lv_color_hex(0xE53935), 0);
+        lv_obj_set_width(debug_info_ji_label_, text_w);
+        lv_obj_set_height(debug_info_ji_label_, row_h);
+        lv_obj_set_x(debug_info_ji_label_, text_x);
+        lv_obj_set_y(debug_info_ji_label_, y_ji);
+        lv_label_set_long_mode(debug_info_ji_label_, LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_align(debug_info_ji_label_, LV_TEXT_ALIGN_CENTER, 0);
     }
 }
 
@@ -2260,6 +2454,19 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
         lv_obj_remove_flag(debug_info_detail_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_move_foreground(debug_info_title_);
         lv_obj_move_foreground(debug_info_detail_);
+        lv_obj_move_foreground(debug_info_card_);
+        if (debug_info_gua_label_ != nullptr) {
+            lv_obj_add_flag(debug_info_gua_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (debug_info_core_label_ != nullptr) {
+            lv_obj_add_flag(debug_info_core_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (debug_info_yi_label_ != nullptr) {
+            lv_obj_add_flag(debug_info_yi_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (debug_info_ji_label_ != nullptr) {
+            lv_obj_add_flag(debug_info_ji_label_, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     lv_obj_remove_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN);
@@ -2271,6 +2478,12 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
     if (display_ != nullptr) {
         lv_refr_now(display_);
     }
+
+    // 调试日志：确认标题可见性
+    ESP_LOGI(TAG, "DebugInfoCard shown: title=%s hidden=%d card_hidden=%d",
+             title.c_str(),
+             lv_obj_has_flag(debug_info_title_, LV_OBJ_FLAG_HIDDEN) ? 1 : 0,
+             lv_obj_has_flag(debug_info_card_, LV_OBJ_FLAG_HIDDEN) ? 1 : 0);
 
     if (debug_info_hide_timer_ != nullptr) {
         if (opts.persistent) {

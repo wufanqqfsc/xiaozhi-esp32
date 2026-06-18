@@ -22,6 +22,10 @@ public:
     // 手动触发截图
     esp_err_t TakeSnapshot();
     
+    // 触发功能按钮点击事件（通过串口命令）
+    // index: 功能按钮索引（0=今日运势, 1=今日指南, 2=出门看卦, 3=今日求财）
+    esp_err_t TriggerButtonClick(int index);
+    
     // 检查服务是否运行
     bool IsRunning() const { return running_; }
     
