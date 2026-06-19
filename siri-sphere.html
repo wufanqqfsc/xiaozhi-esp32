@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Siri Sphere - Apple Style</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
+            overflow: hidden;
+        }
+        #canvas { display: block; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <script>
+/**
+ * Apple Siri Sphere - 炫彩玻璃球形交互光效组件
+ * 纯 Canvas 2D，无第三方依赖
+ */
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 配置参数
+// ═══════════════════════════════════════════════════════════════════════════════
+const CONFIG = {
+    // 球体
+    sphere: {
+        radius: 150,
+        baseColor: 'rgba(15, 15, 25, 0.92)',
+        rimColor: 'rgba(60, 60, 100, 0.5)',
+    },
+    
+    // 光带 [紫, 蓝, 青绿, 玫红]
+    bands: [
+        { radius: 0.30, thickness: 16, color: [147, 51, 234], alpha: 0.7, blur: 4 },
+        { radius: 0.48, thickness: 20, color: [59, 130, 246], alpha: 0.75, blur: 6 },
+        { radius: 0.66, thickness: 24, color: [34, 211, 185], alpha: 0.8, blur: 8 },
+        { radius: 0.82, thickness: 28, color: [236, 72, 153], alpha: 0.85, blur: 10 },
+    ],
+    
+    // 呼吸
+    breathing: { enabled: true, speed: 0.015, amplitude: 0.12 },
+    
+    // 交互
+    interaction: { 
+        hoverSpeed: 3.5, 
+        accel: 0.04, 
+        decel: 0.02 
+    },
+    
+    // 外圈柔光
+    outerGlow: { enabled: true, blur: 60 }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 主类
+// ═══════════════════════════════════════════════════════════════════════════════
+class SiriSphere {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.time = 0;
+        this.speed = 1;
+        this.targetSpeed = 1;
+        this.hovering = false;
+        
+        this.resize();
+        this.bindEvents();
+        this.animate();
+    }
+    
+    resize() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        
+        this.canvas.width = w * dpr;
+        this.canvas.height = h * dpr;
+        this.canvas.style.width = w + 'px';
+        this.canvas.style.height = h + 'px';
+        
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        
+        this.cx = w / 2;
+        this.cy = h / 2;
+        this.radius = Math.min(CONFIG.sphere.radius, Math.min(w, h) * 0.38);
+    }
+    
+    bindEvents() {
+        window.addEventListener('resize', () => this.resize());
+        
+        this.canvas.addEventListener('mouseenter', () => {
+            this.hovering = true;
+            this.targetSpeed = CONFIG.interaction.hoverSpeed;
+        });
+        
+        this.canvas.addEventListener('mouseleave', () => {
+            this.hovering = false;
+            this.targetSpeed = 1;
+        });
+    }
+    
+    breathe(phase = 0) {
+        if (!CONFIG.breathing.enabled) return 1;
+        return 1 + Math.sin(this.time * CONFIG.breathing.speed + phase) * CONFIG.breathing.amplitude;
+    }
+    
+    // 渲染外圈柔光
+    drawOuterGlow() {
+        const glow = CONFIG.outerGlow;
+        if (!glow.enabled) return;
+        
+        const b = this.breathe();
+        const colors = [
+            [147, 51, 234],
+            [59, 130, 246],
+            [34, 211, 185],
+            [236, 72, 153]
+        ];
+        
+        colors.forEach((c, i) => {
+            const r = this.radius * (1.15 + i * 0.12) * b;
+            const g = this.ctx.createRadialGradient(this.cx, this.cy, this.radius * 0.8, this.cx, this.cy, r);
+            g.addColorStop(0, `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${0.12 - i * 0.02})`);
+            g.addColorStop(1, 'rgba(0,0,0,0)');
+            
+            this.ctx.save();
+            this.ctx.filter = `blur(${glow.blur}px)`;
+            this.ctx.fillStyle = g;
+            this.ctx.beginPath();
+            this.ctx.arc(this.cx, this.cy, r, 0, Math.PI * 2);
+            this.ctx.fill();
+            this.ctx.restore();
+        });
+    }
+    
+    // 渲染球体
+    drawSphere() {
+        const b = this.breathe();
+        const r = this.radius * b;
+        
+        // 外圈模糊背景
+        this.ctx.save();
+        this.ctx.filter = 'blur(30px)';
+        const bg = this.ctx.createRadialGradient(this.cx, this.cy, r * 0.6, this.cx, this.cy, r * 1.3);
+        bg.addColorStop(0, 'rgba(20, 20, 35, 0.9)');
+        bg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        this.ctx.fillStyle = bg;
+        this.ctx.beginPath();
+        this.ctx.arc(this.cx, this.cy, r * 1.3, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.restore();
+        
+        // 主球体
+        const sg = this.ctx.createRadialGradient(
+            this.cx - r * 0.35, this.cy - r * 0.35, 0,
+            this.cx, this.cy, r
+        );
+        sg.addColorStop(0, 'rgba(35, 35, 55, 0.95)');
+        sg.addColorStop(0.6, CONFIG.sphere.baseColor);
+        sg.addColorStop(1, CONFIG.sphere.rimColor);
+        
+        this.ctx.fillStyle = sg;
+        this.ctx.beginPath();
+        this.ctx.arc(this.cx, this.cy, r, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // 边缘光
+        this.ctx.save();
+        this.ctx.filter = 'blur(6px)';
+        this.ctx.strokeStyle = 'rgba(80, 80, 120, 0.25)';
+        this.ctx.lineWidth = 3;
+        this.ctx.stroke();
+        this.ctx.restore();
+    }
+    
+    // 渲染光带
+    drawBands() {
+        const b = this.breathe();
+        
+        // 丝滑速度过渡
+        const accel = this.hovering ? CONFIG.interaction.accel : CONFIG.interaction.decel;
+        this.speed += (this.targetSpeed - this.speed) * accel;
+        
+        CONFIG.bands.forEach((band, i) => {
+            const rot = this.time * (0.003 + band.radius * 0.002) * this.speed + i * Math.PI * 0.4;
+            const r = this.radius * band.radius * b;
+            const thick = band.thickness * b;
+            
+            // 270度弧
+            const start = rot;
+            const end = rot + Math.PI * 1.6;
+            
+            this.ctx.save();
+            
+            // 外发光
+            this.ctx.shadowColor = `rgba(${band.color[0]}, ${band.color[1]}, ${band.color[2]}, ${band.alpha * 0.8})`;
+            this.ctx.shadowBlur = band.blur * 2;
+            
+            // 主光带
+            this.ctx.beginPath();
+            this.ctx.arc(this.cx, this.cy, r, start, end);
+            this.ctx.strokeStyle = `rgba(${band.color[0]}, ${band.color[1]}, ${band.color[2]}, ${band.alpha})`;
+            this.ctx.lineWidth = thick;
+            this.ctx.lineCap = 'round';
+            this.ctx.stroke();
+            
+            // 内芯 (白色高亮)
+            this.ctx.shadowBlur = 0;
+            this.ctx.strokeStyle = `rgba(255, 255, 255, ${band.alpha * 0.25})`;
+            this.ctx.lineWidth = thick * 0.25;
+            this.ctx.stroke();
+            
+            this.ctx.restore();
+        });
+    }
+    
+    // 渲染高光
+    drawHighlight() {
+        const b = this.breathe(Math.PI);
+        const r = this.radius * CONFIG.sphere.radius * 0.003 * b;
+        const intensity = 0.6 + this.breathe() * 0.2;
+        
+        // 主高光
+        const hg = this.ctx.createRadialGradient(
+            this.cx - r * 0.5, this.cy - r * 0.5, 0,
+            this.cx - r * 0.3, this.cy - r * 0.3, r
+        );
+        hg.addColorStop(0, `rgba(255, 255, 255, ${intensity})`);
+        hg.addColorStop(0.4, `rgba(220, 235, 255, ${intensity * 0.4})`);
+        hg.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        
+        this.ctx.fillStyle = hg;
+        this.ctx.beginPath();
+        this.ctx.arc(this.cx - r * 0.3, this.cy - r * 0.3, r, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // 锐利核心
+        const coreG = this.ctx.createRadialGradient(
+            this.cx - r * 0.6, this.cy - r * 0.6, 0,
+            this.cx - r * 0.6, this.cy - r * 0.6, r * 0.35
+        );
+        coreG.addColorStop(0, `rgba(255, 255, 255, ${intensity * 0.9})`);
+        coreG.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        
+        this.ctx.fillStyle = coreG;
+        this.ctx.beginPath();
+        this.ctx.arc(this.cx - r * 0.6, this.cy - r * 0.6, r * 0.35, 0, Math.PI * 2);
+        this.ctx.fill();
+    }
+    
+    // 渲染顶部弧光
+    drawRimLight() {
+        const b = this.breathe();
+        const r = this.radius * b;
+        
+        const rg = this.ctx.createLinearGradient(
+            this.cx - r, this.cy - r,
+            this.cx + r, this.cy - r * 0.5
+        );
+        rg.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        rg.addColorStop(0.3, 'rgba(255, 255, 255, 0.12)');
+        rg.addColorStop(0.5, 'rgba(255, 255, 255, 0.06)');
+        rg.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        
+        this.ctx.save();
+        this.ctx.filter = 'blur(8px)';
+        this.ctx.strokeStyle = rg;
+        this.ctx.lineWidth = 4;
+        this.ctx.beginPath();
+        this.ctx.arc(this.cx, this.cy, r * 0.95, Math.PI * 1.15, Math.PI * 1.85);
+        this.ctx.stroke();
+        this.ctx.restore();
+    }
+    
+    render() {
+        this.ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        this.drawOuterGlow();
+        this.drawSphere();
+        this.drawBands();
+        this.drawHighlight();
+        this.drawRimLight();
+    }
+    
+    animate() {
+        this.time++;
+        this.render();
+        requestAnimationFrame(() => this.animate());
+    }
+}
+
+// 初始化
+window.addEventListener('DOMContentLoaded', () => {
+    new SiriSphere(document.getElementById('canvas'));
+});
+    </script>
+</body>
+</html>

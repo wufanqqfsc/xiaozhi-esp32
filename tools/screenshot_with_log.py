@@ -8,50 +8,24 @@ import os
 import argparse
 import base64 as b64
 
-# 添加项目路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from snapshot_receiver import pack_frame, parse_frame, SNAPSHOT_CMD_SNAPSHOT_REQ, SNAPSHOT_CMD_PING
-
 MAX_SCREENSHOTS = 20  # 默认最大截图次数
 
-def read_serial(ser, log_file):
-    """读取串口数据并保存到日志"""
-    buffer = bytearray()
+def receive_all_data(ser, buffer):
+    """在后台线程中接收所有串口数据"""
     while True:
         try:
             if ser.in_waiting > 0:
                 data = ser.read(ser.in_waiting)
                 buffer.extend(data)
-
-                # 尝试解析帧
-                while len(buffer) >= 6:
-                    frame, consumed = parse_frame(buffer)
-                    if frame is None:
-                        if consumed < 0:
-                            buffer = buffer[1:]
-                        break
-
-                    buffer = buffer[consumed:]
-
-                    # 只处理非SNAPSHOT帧（打印日志）
-                    if frame['cmd'] not in [0x02]:  # 0x02 is SNAPSHOT_DATA
-                        print(f"LOG: {data.decode('utf-8', errors='replace')}", end='')
-                        if log_file:
-                            log_file.write(data)
-                            log_file.flush()
         except Exception as e:
-            print(f"Read error: {e}")
+            print(f"Receive error: {e}")
             break
         time.sleep(0.01)
 
 def send_command(ser, command):
     """发送命令到设备"""
-    # 添加换行符（如果需要）
     if not command.endswith('\n'):
         command += '\n'
-    
-    # 发送命令
     ser.write(command.encode('utf-8'))
     print(f"Sent command: {command.strip()}")
 
@@ -69,15 +43,16 @@ def main():
     args = parser.parse_args()
     
     port = args.port
-    baud = 115200  # 使用115200监控波特率
+    baud = 115200
     max_screenshots = args.max_screenshots
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     os.makedirs("screenshots/logs", exist_ok=True)
+    os.makedirs("screenshots/history", exist_ok=True)
     log_file = open(f"screenshots/logs/run_{timestamp}.log", "wb")
 
     try:
-        # 打开串口（用于监控）
+        # 打开串口
         ser = serial.Serial(
             port=port,
             baudrate=baud,
@@ -89,74 +64,265 @@ def main():
 
         print(f"Connected to {port} at {baud} baud")
         print(f"Max screenshots: {max_screenshots}")
-        log_file.write(f"Connected to {port} at {baud} baud\n".encode())
-        log_file.write(f"Max screenshots: {max_screenshots}\n".encode())
-
-        # 启动读取线程
-        reader_thread = threading.Thread(target=read_serial, args=(ser, log_file))
-        reader_thread.daemon = True
-        reader_thread.start()
 
         # 等待设备启动
-        print("Waiting 5s for device to initialize...")
-        time.sleep(5)
+        print("Waiting 2s for device to initialize...")
+        time.sleep(2)
 
         # 处理命令行参数
         if args.click is not None:
+            # 创建一个共享buffer用于接收数据
+            buffer = bytearray()
+            
+            # 在后台启动一个线程来接收数据
+            import threading
+            def receive_all():
+                while True:
+                    try:
+                        if ser.in_waiting > 0:
+                            data = ser.read(ser.in_waiting)
+                            buffer.extend(data)
+                    except Exception as e:
+                        print(f"Receive error: {e}")
+                        break
+                    time.sleep(0.01)
+            
+            receive_thread = threading.Thread(target=receive_all)
+            receive_thread.daemon = True
+            receive_thread.start()
+            
+            # 等待一小段时间确保线程开始接收
+            time.sleep(0.5)
+            
             # 发送CLICK命令
             print(f"Sending CLICK command: index={args.click}")
             send_command(ser, f"CLICK:{args.click}")
-            time.sleep(2)
             
-            # 发送截图请求
-            print("Sending snapshot request...")
-            snapshot_frame = pack_frame(SNAPSHOT_CMD_SNAPSHOT_REQ)
-            ser.write(snapshot_frame)
+            # 等待一小段时间让设备处理命令并开始发送截图数据
+            time.sleep(0.5)
             
-            # 等待响应
-            print("Waiting for response (30s timeout)...")
-            time.sleep(30)
+            # 接收截图数据
+            print("Waiting for screenshot...")
+            
+            # 等待SCREENSHOT_START
+            start_time = time.time()
+            screenshot_start_pos = -1
+            while time.time() - start_time < 30:
+                buffer_str = buffer.decode('utf-8', errors='replace')
+                if '===SCREENSHOT_START===' in buffer_str:
+                    # 找到最后一个START（因为可能有多个）
+                    screenshot_start_pos = buffer_str.rfind('===SCREENSHOT_START===')
+                    print("SCREENSHOT_START received")
+                    break
+                time.sleep(0.1)
+            
+            if screenshot_start_pos < 0:
+                print("No SCREENSHOT_START received")
+                ser.close()
+                return
+            
+            # 继续等待SCREENSHOT_END
+            start_time = time.time()
+            while time.time() - start_time < 30:
+                buffer_str = buffer.decode('utf-8', errors='replace')
+                end_pos = buffer_str.find('===SCREENSHOT_END===')
+                if end_pos > screenshot_start_pos:
+                    print("SCREENSHOT_END received")
+                    break
+                time.sleep(0.1)
+            
+            # 解析数据
+            buffer_str = buffer.decode('utf-8', errors='replace')
+            
+            start_marker = '===SCREENSHOT_START==='
+            end_marker = '===SCREENSHOT_END==='
+            
+            # 找最后一个END
+            last_end = buffer_str.rfind(end_marker)
+            if last_end < 0:
+                print("No END marker found")
+                ser.close()
+                return
+            
+            # 在last_end之前找START（确保START在END之前）
+            search_area = buffer_str[:last_end]
+            last_start = search_area.rfind(start_marker)
+            
+            if last_start < 0:
+                print(f"START not found before END at {last_end}")
+                print(f"Buffer length: {len(buffer_str)}")
+                ser.close()
+                return
+            
+            # 提取Base64数据
+            start_idx = last_start + len(start_marker)
+            b64_data = buffer_str[start_idx:last_end].strip()
+            
+            if len(b64_data) < 100:
+                print(f"Data too short: {len(b64_data)} chars")
+                ser.close()
+                return
+            
+            print(f"Screenshot data extracted: {len(b64_data)} chars")
+            
+            if b64_data:
+                try:
+                    jpeg_data = b64.b64decode(b64_data)
+                    output_file = 'screenshots/screenshot_latest.jpg'
+                    with open(output_file, 'wb') as f:
+                        f.write(jpeg_data)
+                    print(f"Snapshot saved to {output_file}")
+                except Exception as e:
+                    print(f"Error decoding: {e}")
             
             print("Done")
+            ser.close()
             return
         
         if args.snap:
+            # 创建一个共享buffer用于接收数据
+            buffer = bytearray()
+            
+            # 在后台启动一个线程来接收数据
+            import threading
+            def receive_all():
+                while True:
+                    try:
+                        if ser.in_waiting > 0:
+                            data = ser.read(ser.in_waiting)
+                            buffer.extend(data)
+                    except Exception as e:
+                        print(f"Receive error: {e}")
+                        break
+                    time.sleep(0.01)
+            
+            receive_thread = threading.Thread(target=receive_all)
+            receive_thread.daemon = True
+            receive_thread.start()
+            
+            # 等待一小段时间确保线程开始接收
+            time.sleep(0.5)
+            
             # 发送SNAP命令
             print("Sending SNAP command...")
             send_command(ser, "SNAP")
-            time.sleep(10)
             
-            # 发送截图请求
-            print("Sending snapshot request...")
-            snapshot_frame = pack_frame(SNAPSHOT_CMD_SNAPSHOT_REQ)
-            ser.write(snapshot_frame)
+            # 接收截图数据
+            print("Waiting for screenshot...")
             
-            # 等待响应
-            print("Waiting for response (30s timeout)...")
-            time.sleep(30)
+            # 等待最多30秒
+            start_time = time.time()
+            while time.time() - start_time < 30:
+                buffer_str = buffer.decode('utf-8', errors='replace')
+                if '===SCREENSHOT_END===' in buffer_str:
+                    break
+                time.sleep(0.1)
+            
+            # 解析数据
+            buffer_str = buffer.decode('utf-8', errors='replace')
+            
+            start_marker = '===SCREENSHOT_START==='
+            end_marker = '===SCREENSHOT_END==='
+            
+            if start_marker not in buffer_str or end_marker not in buffer_str:
+                print("Screenshot markers not found")
+                ser.close()
+                return
+            
+            # 提取Base64数据
+            start_idx = buffer_str.find(start_marker) + len(start_marker)
+            end_idx = buffer_str.find(end_marker)
+            b64_data = buffer_str[start_idx:end_idx].strip()
+            
+            print(f"Screenshot data extracted: {len(b64_data)} chars")
+            
+            if b64_data:
+                try:
+                    jpeg_data = b64.b64decode(b64_data)
+                    output_file = 'screenshots/screenshot_latest.jpg'
+                    with open(output_file, 'wb') as f:
+                        f.write(jpeg_data)
+                    print(f"Snapshot saved to {output_file}")
+                except Exception as e:
+                    print(f"Error decoding: {e}")
             
             print("Done")
+            ser.close()
             return
         
-        # 发送PING测试连接
-        print("Sending PING...")
-        ping_frame = pack_frame(SNAPSHOT_CMD_PING)
-        ser.write(ping_frame)
-
-        time.sleep(2)
-
-        # 连续发送截图请求，直到达到最大次数
+        # 默认行为：连续截图
+        print("Starting continuous screenshot mode...")
+        
+        # 创建一个共享buffer用于接收数据
+        buffer = bytearray()
+        
+        # 在后台启动一个线程来接收数据
+        import threading
+        def receive_all():
+            while True:
+                try:
+                    if ser.in_waiting > 0:
+                        data = ser.read(ser.in_waiting)
+                        buffer.extend(data)
+                except Exception as e:
+                    print(f"Receive error: {e}")
+                    break
+                time.sleep(0.01)
+        
+        receive_thread = threading.Thread(target=receive_all)
+        receive_thread.daemon = True
+        receive_thread.start()
+        
+        # 先发送一个空行确保设备就绪
+        send_command(ser, "")
+        time.sleep(1)
+        
         screenshot_count = 0
         while screenshot_count < max_screenshots:
             print(f"Sending snapshot request #{screenshot_count + 1}...")
-            snapshot_frame = pack_frame(SNAPSHOT_CMD_SNAPSHOT_REQ)
-            ser.write(snapshot_frame)
             
-            # 等待响应（5秒间隔）
-            time.sleep(5)
+            # 清空buffer
+            buffer.clear()
+            
+            # 发送空命令触发截图
+            send_command(ser, "")
+            
+            # 等待最多15秒
+            start_time = time.time()
+            while time.time() - start_time < 15:
+                buffer_str = buffer.decode('utf-8', errors='replace')
+                if '===SCREENSHOT_END===' in buffer_str:
+                    break
+                time.sleep(0.1)
+            
+            # 解析数据
+            buffer_str = buffer.decode('utf-8', errors='replace')
+            
+            start_marker = '===SCREENSHOT_START==='
+            end_marker = '===SCREENSHOT_END==='
+            
+            if start_marker in buffer_str and end_marker in buffer_str:
+                # 提取Base64数据
+                start_idx = buffer_str.find(start_marker) + len(start_marker)
+                end_idx = buffer_str.find(end_marker)
+                b64_data = buffer_str[start_idx:end_idx].strip()
+                
+                if b64_data:
+                    try:
+                        jpeg_data = b64.b64decode(b64_data)
+                        output_file = f'screenshots/history/screenshot_{timestamp}_{screenshot_count:03d}.jpg'
+                        with open(output_file, 'wb') as f:
+                            f.write(jpeg_data)
+                        print(f"Screenshot #{screenshot_count + 1} saved to {output_file}")
+                    except Exception as e:
+                        print(f"Error decoding screenshot #{screenshot_count + 1}: {e}")
+                else:
+                    print(f"Screenshot #{screenshot_count + 1} timeout or no data")
+            else:
+                print(f"Screenshot #{screenshot_count + 1} markers not found")
             
             screenshot_count += 1
-            print(f"Screenshot #{screenshot_count} completed")
+            time.sleep(2)
 
         print(f"Done. Total screenshots: {screenshot_count}")
 

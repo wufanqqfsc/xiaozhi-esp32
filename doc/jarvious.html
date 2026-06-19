@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>荧光青绿超高亮反应堆</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;min-height:100vh;display:flex;align-items:center;justify-content:center}
+canvas{background:#000}
+</style>
+</head>
+<body>
+<canvas width="420" height="420" id="canvas"></canvas>
+<script>
+const c = document.getElementById("canvas");
+const ctx = c.getContext("2d");
+const w = c.width, h = c.height;
+const cx = w / 2, cy = h / 2;
+let rot = 0, t = 0;
+function draw(){
+  t += 0.016;
+  rot += 0.005;
+  const breath = Math.sin(t * 1.9) * 0.32 + 1;
+  ctx.clearRect(0,0,w,h);
+
+  // 金属外环
+  ctx.beginPath();
+  ctx.arc(cx, cy, 182, 0, Math.PI*2);
+  ctx.lineWidth = 15;
+  ctx.strokeStyle="#111";
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, 166, 0, Math.PI*2);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle=`rgba(40,255,180,${breath})`;
+  ctx.stroke();
+
+  // 细密旋转能量条
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(rot);
+  ctx.translate(-cx,-cy);
+  ctx.lineWidth = 2.5;
+  for(let i=0;i<24;i++){
+    const a = Math.PI*2 / 24 * i;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(a)*144, cy+Math.sin(a)*144);
+    ctx.lineTo(cx+Math.cos(a)*94, cy+Math.sin(a)*94);
+    ctx.strokeStyle=`rgba(30,240,170,${breath})`;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 外圈大范围荧光溢散
+  const outerGlow = ctx.createRadialGradient(cx,cy,92,cx,cy,180);
+  outerGlow.addColorStop(0,`rgba(30,240,160,${breath*0.42})`);
+  outerGlow.addColorStop(1,"rgba(0,90,60,0)");
+  ctx.beginPath();
+  ctx.arc(cx,cy,180,0,Math.PI*2);
+  ctx.fillStyle = outerGlow;
+  ctx.fill();
+
+  // 中层强光
+  const midGrad = ctx.createRadialGradient(cx,cy,46,cx,cy,94);
+  midGrad.addColorStop(0,`rgba(50,255,190,${breath*0.9})`);
+  midGrad.addColorStop(1,"rgba(0,120,80,0)");
+  ctx.beginPath();
+  ctx.arc(cx,cy,94,0,Math.PI*2);
+  ctx.fillStyle = midGrad;
+  ctx.fill();
+
+  // 纯白高亮中心
+  const coreGrad = ctx.createRadialGradient(cx,cy,0,cx,cy,50);
+  coreGrad.addColorStop(0,`rgba(255,255,255,${breath*1.3})`);
+  coreGrad.addColorStop(0.5,`rgba(40,245,180,${breath})`);
+  coreGrad.addColorStop(1,"rgba(0,100,70,0)");
+  ctx.beginPath();
+  ctx.arc(cx,cy,50,0,Math.PI*2);
+  ctx.fillStyle = coreGrad;
+  ctx.fill();
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

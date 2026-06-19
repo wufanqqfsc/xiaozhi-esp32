@@ -1,7 +1,6 @@
 #include "snapshot_service.h"
 #include "display.h"
 #include "board.h"
-#include "attitude_display.h"
 #include "jpg/image_to_jpeg.h"
 #include <esp_log.h>
 #include <esp_lvgl_port.h>
@@ -108,8 +107,8 @@ void SnapshotService::UARTTask(void* arg) {
     // 设置TX引脚（不需要RX，因为console已经配置）
     ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
     
-    // 安装UART驱动（不使用缓冲区，因为我们手动读取）
-    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 1024, 0, 0, NULL, 0));
+    // 安装UART驱动（使用较大的接收缓冲区）
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 8192, 0, 0, NULL, 0));
     
     ESP_LOGI(TAG, "UART command receiver started");
     
@@ -342,27 +341,7 @@ void SnapshotService::SendPONG() {
 
 esp_err_t SnapshotService::TriggerButtonClick(int index) {
     ESP_LOGI(TAG, "[TriggerButtonClick] index=%d", index);
-    
-    // 获取AttitudeDisplay实例
-    auto* attitude = dynamic_cast<AttitudeDisplay*>(Board::GetInstance().GetDisplay());
-    
-    if (!attitude) {
-        ESP_LOGE(TAG, "AttitudeDisplay not available");
-        return ESP_FAIL;
-    }
-    
-    // 将index转换为FortuneMenuType
-    FortuneMenuType type = static_cast<FortuneMenuType>(index);
-    
-    // 在LVGL线程中执行按钮点击
-    if (lvgl_port_lock(1000)) {
-        // 使用公共方法ShowFortuneFromMenu来显示运势
-        attitude->ShowFortuneFromMenu(type);
-        lvgl_port_unlock();
-        ESP_LOGI(TAG, "[TriggerButtonClick] Success, triggered index=%d", index);
-        return ESP_OK;
-    } else {
-        ESP_LOGE(TAG, "Failed to acquire LVGL lock");
-        return ESP_ERR_TIMEOUT;
-    }
+
+    // 功能区提示卡触发事件已全部移除：CLI CLICK 入口仅落日志，不弹任何卡片
+    return ESP_OK;
 }

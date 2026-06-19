@@ -172,17 +172,22 @@ build_firmware() {
     # 清理旧配置
     print_progress "清理旧配置..."
     echo "----------------------------------------"
-    python3 "$IDF_PATH/tools/idf.py" fullclean 2>&1
+    if [ -d "build" ]; then
+        python3 "$IDF_PATH/tools/idf.py" fullclean 2>&1 | sed 's/\r$//' || true
+    else
+        echo "(build 目录不存在，跳过清理)"
+    fi
     echo "----------------------------------------"
     print_success "清理完成"
     echo ""
     
     # 设置开发板类型 - 使用 CMake 参数强制选择正确的开发板
-    print_progress "开始编译 (显示完整输出)..."
+    print_progress "开始编译固件..."
     echo "----------------------------------------"
     
-    # 编译并显示完整输出
-    python3 "$IDF_PATH/tools/idf.py" -DBOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_85B=y build
+    # 编译固件 (去除回车符避免格式混乱)
+    python3 "$IDF_PATH/tools/idf.py" -DBOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_85B=y build 2>&1 | sed 's/\r$//'
+    BUILD_RESULT=${PIPESTATUS[0]}
     
     echo "----------------------------------------"
     print_success "编译完成"
@@ -191,7 +196,7 @@ build_firmware() {
     # 合并固件
     print_progress "合并固件..."
     echo "----------------------------------------"
-    python3 "$IDF_PATH/tools/idf.py" merge-bin 2>&1
+    python3 "$IDF_PATH/tools/idf.py" merge-bin 2>&1 | sed 's/\r$//'
     echo "----------------------------------------"
     print_success "固件合并完成"
     echo ""
@@ -240,8 +245,9 @@ flash_firmware() {
     print_progress "正在烧录..."
     echo "----------------------------------------"
     
-    # 烧录固件并显示完整输出
-    python3 "$IDF_PATH/tools/idf.py" -p "$PORT" flash
+    # 烧录固件 (去除回车符避免格式混乱)
+    python3 "$IDF_PATH/tools/idf.py" -p "$PORT" flash 2>&1 | sed 's/\r$//'
+    BUILD_RESULT=${PIPESTATUS[0]}
     
     echo "----------------------------------------"
     echo ""

@@ -811,9 +811,9 @@ bool Application::HandleFortuneBootLongPress() {
     return false;
 }
 
-bool Application::HandleStudyPowerKey() {
+bool Application::HandlePowerKey() {
     if (auto* attitude = GetAttitudeDisplay()) {
-        return attitude->HandleStudyPowerKey();
+        return attitude->HandlePowerKey();
     }
     return false;
 }

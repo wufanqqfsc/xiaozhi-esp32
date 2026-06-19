@@ -19,6 +19,9 @@
 #include <lvgl.h>
 #include "esp_io_expander_tca9554.h"
 #include <vector>
+#include <esp_vfs_fat.h>
+#include <sdmmc_cmd.h>
+#include <driver/sdmmc_host.h>
 
 #define TAG "waveshare_lcd_1_85"
 
@@ -404,14 +407,104 @@ private:
     }
  
     void InitializeButtonsCustom() {
-        gpio_reset_pin(BOOT_BUTTON_GPIO);                                     
-        gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);   
-        gpio_reset_pin(PWR_BUTTON_GPIO);                                     
-        gpio_set_direction(PWR_BUTTON_GPIO, GPIO_MODE_INPUT);   
-        gpio_reset_pin(PWR_Control_PIN);                                     
-        gpio_set_direction(PWR_Control_PIN, GPIO_MODE_OUTPUT);    
+        gpio_reset_pin(BOOT_BUTTON_GPIO);
+        gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);
+        gpio_reset_pin(PWR_BUTTON_GPIO);
+        gpio_set_direction(PWR_BUTTON_GPIO, GPIO_MODE_INPUT);
+        gpio_reset_pin(PWR_Control_PIN);
+        gpio_set_direction(PWR_Control_PIN, GPIO_MODE_OUTPUT);
         // gpio_set_level(PWR_Control_PIN, false);
-        gpio_set_level(PWR_Control_PIN, true); 
+        gpio_set_level(PWR_Control_PIN, true);
+    }
+
+    void InitializeSdCard() {
+        ESP_LOGI(TAG, "Initializing SD card (SDMMC %d-bit)...", SD_MMC_BUS_WIDTH);
+
+        sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+        host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+        host.flags &= ~SDMMC_HOST_FLAG_DDR;
+
+        sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+        slot_config.clk = SD_MMC_CLK_PIN;
+        slot_config.cmd = SD_MMC_CMD_PIN;
+        slot_config.d0  = SD_MMC_D0_PIN;
+#if SD_MMC_BUS_WIDTH == 4
+        slot_config.d1  = SD_MMC_D1_PIN;
+        slot_config.d2  = SD_MMC_D2_PIN;
+        slot_config.d3  = SD_MMC_D3_PIN;
+        slot_config.width = 4;
+#else
+        slot_config.width = 1;
+#endif
+        slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+        esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+            .format_if_mount_failed = false,
+            .max_files = 5,
+            .allocation_unit_size = 16 * 1024,
+            .disk_status_check_enable = false,
+        };
+
+        sdmmc_card_t* card = nullptr;
+        esp_err_t ret = esp_vfs_fat_sdmmc_mount(SD_MMC_MOUNT_POINT, &host, &slot_config, &mount_config, &card);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "SD卡挂载失败: %s (0x%x)", esp_err_to_name(ret), ret);
+            return;
+        }
+
+        ESP_LOGI(TAG, "SD卡挂载成功, 容量: %llu MB",
+                 ((uint64_t)card->csd.capacity) * card->csd.sector_size / (1024 * 1024));
+        sdmmc_card_print_info(stdout, card);
+    }
+
+    // 延迟到显示 UI 就绪后再播报 SD 卡状态(避免 ShowNotification 被丢弃)
+    static void SdCardReportTask(void* param) {
+        CustomBoard* self = static_cast<CustomBoard*>(param);
+        vTaskDelay(pdMS_TO_TICKS(2500));
+
+        sdmmc_card_t* card = nullptr;
+        esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+            .format_if_mount_failed = false,
+            .max_files = 5,
+            .allocation_unit_size = 16 * 1024,
+            .disk_status_check_enable = false,
+        };
+
+        sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+        host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+        host.flags &= ~SDMMC_HOST_FLAG_DDR;
+
+        sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+        slot_config.clk = SD_MMC_CLK_PIN;
+        slot_config.cmd = SD_MMC_CMD_PIN;
+        slot_config.d0  = SD_MMC_D0_PIN;
+#if SD_MMC_BUS_WIDTH == 4
+        slot_config.d1  = SD_MMC_D1_PIN;
+        slot_config.d2  = SD_MMC_D2_PIN;
+        slot_config.d3  = SD_MMC_D3_PIN;
+        slot_config.width = 4;
+#else
+        slot_config.width = 1;
+#endif
+        slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+        esp_err_t ret = esp_vfs_fat_sdmmc_mount(SD_MMC_MOUNT_POINT, &host, &slot_config, &mount_config, &card);
+        if (ret == ESP_OK && card != nullptr) {
+            char msg[64];
+            double gb = (double)card->csd.capacity * card->csd.sector_size / (1024.0 * 1024.0 * 1024.0);
+            snprintf(msg, sizeof(msg), "SD已挂载 %.2f GB", gb);
+            ESP_LOGI(TAG, "%s", msg);
+            if (self->display_ != nullptr) {
+                self->display_->ShowNotification(msg, 4000);
+            }
+        } else {
+            ESP_LOGE(TAG, "SD卡最终未挂载: %s (0x%x)", esp_err_to_name(ret), ret);
+            if (self->display_ != nullptr) {
+                self->display_->ShowNotification("SD卡未检测到", 4000);
+            }
+        }
+        vTaskDelete(nullptr);
     }
     void InitializeButtons() {
         instance_ = this;
@@ -468,7 +561,7 @@ private:
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 return;
             }
-            if (app.HandleStudyPowerKey()) {
+            if (app.HandlePowerKey()) {
                 return;
             }
         }, this);
@@ -486,7 +579,7 @@ private:
     }
 
 public:
-    CustomBoard() {   
+    CustomBoard() {
         InitializeI2c();
         InitializeTca9554();
         InitializeSpi();
@@ -494,6 +587,8 @@ public:
         InitializeTouch();
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
+        // SD 卡: 在后台任务中延迟挂载并通过 ShowNotification 反馈结果
+        xTaskCreate(&SdCardReportTask, "sdcard_report", 4096, this, 5, nullptr);
     }
 
     virtual AudioCodec* GetAudioCodec() override {

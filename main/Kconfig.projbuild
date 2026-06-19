@@ -1,10 +1,38 @@
 menu "Xiaozhi Assistant"
 
-config OTA_URL
-    string "Default OTA URL"
-    default "https://api.tenclass.net/xiaozhi/ota/"
+choice SERVER_MODE
+    prompt "Server Mode"
+    default SERVER_MODE_LOCAL
     help
-        The application will access this URL to check for new firmwares and server address.
+        Select server mode: Local development server or Official production server
+
+    config SERVER_MODE_LOCAL
+        bool "Local Server (本地服务器)"
+    config SERVER_MODE_OFFICIAL
+        bool "Official Server (官方服务器)"
+endchoice
+
+if SERVER_MODE_LOCAL
+    config OTA_URL
+        string "Local OTA URL"
+        default "http://192.168.3.24:8003/xiaozhi/ota/"
+        help
+            Local development server OTA URL.
+
+    config LOCAL_WEBSOCKET_URL
+        string "Local WebSocket URL"
+        default "ws://192.168.3.24:8000/xiaozhi/v1/"
+        help
+            Local development server WebSocket URL.
+endif
+
+if SERVER_MODE_OFFICIAL
+    config OTA_URL
+        string "Default OTA URL"
+        default "https://api.tenclass.net/xiaozhi/ota/"
+        help
+            The application will access this URL to check for new firmwares and server address.
+endif
 
 choice
     prompt "Flash Assets"

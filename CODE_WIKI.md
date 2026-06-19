@@ -1,802 +1,1112 @@
-# 小智 AI 聊天机器人 Code Wiki
+# 小智 ESP32 AI 罗盘 Code Wiki
+
+> 本文档基于仓库当前快照生成，覆盖项目架构、模块职责、关键类/函数、依赖关系与运行方法。
+> 项目根版本：`PROJECT_VER "2.2.6"`（见 [CMakeLists.txt](CMakeLists.txt)）
+
+---
+
+## 目录
+
+1. [项目概述](#1-项目概述)
+2. [项目架构](#2-项目架构)
+3. [目录结构](#3-目录结构)
+4. [应用层核心模块](#4-应用层核心模块)
+5. [音频子系统](#5-音频子系统)
+6. [通信协议层](#6-通信协议层)
+7. [显示子系统（含 AI 罗盘 AttitudeDisplay）](#7-显示子系统含-ai-罗盘-attitudedisplay)
+8. [MCP 工具服务](#8-mcp-工具服务)
+9. [板级抽象层（Board）](#9-板级抽象层board)
+10. [OTA / 资源 / 设置 / 系统信息](#10-ota--资源--设置--系统信息)
+11. [BLE 与架子鼓子系统](#11-ble-与架子鼓子系统)
+12. [串口截图验证服务](#12-串口截图验证服务)
+13. [依赖关系](#13-依赖关系)
+14. [构建与运行](#14-构建与运行)
+15. [关键数据流与状态机](#15-关键数据流与状态机)
+16. [配置选项（Kconfig）](#16-配置选项kconfig)
+17. [附录：板型一览](#17-附录板型一览)
+
+---
 
 ## 1. 项目概述
 
 ### 1.1 项目简介
-小智 AI 聊天机器人是一个基于 ESP32 平台的语音交互项目，利用 Qwen/DeepSeek 等大模型的 AI 能力，通过 MCP（Model Context Protocol）协议实现多端控制。项目支持 Wi-Fi 和 4G（ML307 Cat.1）网络连接，具备离线语音唤醒、OPUS 音频编解码、流式 ASR + LLM + TTS 语音交互等功能。
 
-### 1.2 项目版本
-- **当前版本**: 2.2.6
-- **v1 稳定版本**: 1.9.2（通过 `git checkout v1` 切换）
+小智 ESP32（Xiaozhi AI Compass / 78/xiaozhi-esp32）是一个基于 ESP32 系列芯片的**语音交互 + 视觉罗盘**开源固件。本仓库是在 78/xiaozhi-esp32 上游基础上的二次开发衍生版（见 `.trae/rules/rule_xiaozhi.md`），核心目标包括：
 
-### 1.3 支持的平台
-- ESP32
+- **AI 语音入口**：通过 Qwen / DeepSeek 等大模型实现流式 ASR + LLM + TTS 语音交互（`docs/websocket.md`、`docs/mqtt-udp.md`）。
+- **MCP 多端控制**：通过 [Model Context Protocol](docs/mcp-protocol.md) 把本地硬件能力（扬声器、LED、舵机、相机等）暴露给云端大模型。
+- **AI 罗盘（AttitudeDisplay）**：在 360×360 圆形 LCD 上以**太极阴阳鱼**为核心，提供 12 类运势交互（今日/财运/事业/爱情/心情卦/黄历/节气/自定义/健康/学业/出行/贵人）。
+- **多网络接入**：Wi-Fi、ML307 Cat.1 4G、NT26 4G、双网备份、RNDIS 多种接入方式。
+- **支持 70+ 开发板**：见 [docs/](docs/) 与 [main/boards/](main/boards/)。
+
+### 1.2 关键版本
+
+| 版本 | 说明 |
+|------|------|
+| v2.2.6（当前） | 本仓库主线；v2 分区表与 v1 不兼容，需手动烧录升级 |
+| v1.9.2 | 上游稳定版本；通过 `git checkout v1` 切换，v1 分支维护至 2026 年 2 月 |
+
+### 1.3 支持的芯片平台
+
+- ESP32（经典款）
 - ESP32-S3
-- ESP32-C3
-- ESP32-C5
+- ESP32-C3 / ESP32-C5
 - ESP32-P4
+
+ESP-IDF 要求：`>=5.5.2`（见 [main/idf_component.yml](main/idf_component.yml)）。
+
+### 1.4 本仓库相对上游的关键增量
+
+| 增量模块 | 文件 | 说明 |
+|---------|------|------|
+| AI 罗盘（AttitudeDisplay） | [main/display/attitude_display.cc](main/display/attitude_display.cc) | 360×360 太极阴阳鱼 UI；12 运势菜单环；动效/结果卡 |
+| 太极图组件 | [main/display/compass_taiji.cc](main/display/compass_taiji.cc) | LVGL 实现的旋转太极，自动旋转、AA 描边 |
+| 主题 | [main/display/attitude_theme.cc](main/display/attitude_theme.cc) | 鎏金/玄黑配色 + 五级状态色 |
+| 串口截图服务 | [main/display/snapshot/snapshot_service.cc](main/display/snapshot/snapshot_service.cc) | 通过 UART 输出 JPEG 截图与按钮触发 |
+| BLE 鱼眼指示 | [main/ble/ble_server.cc](main/ble/ble_server.cc) | NimBLE 外设，广播 / 连接 / 关闭状态 |
+| 架子鼓合成器 | [main/drum/drum_synth.cc](main/drum/drum_synth.cc) | 8 扇区 + 中心 Kick 触摸触发 OGG 鼓声 |
+| 启动自动截图 | [main/main.cc](main/main.cc) | `XIAOZHI_ENABLE_BOOT_SCREENSHOT` 宏控制 |
+| 自定义编译烧录脚本 | [build_and_flash.sh](build_and_flash.sh) / [build_and_flash.bat](build_and_flash.bat) | 一键编译烧录 |
 
 ---
 
 ## 2. 项目架构
 
-### 2.1 整体架构图
+### 2.1 分层架构图
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Application                              │
-│                  (应用层 - 状态机管理)                            │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │   Audio     │  │   Display   │  │    LED      │             │
-│  │   Service   │  │   Service   │  │   Service   │             │
-│  └─────────────┘  └─────────────┘  └─────────────┘             │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────┐  ┌─────────────────────┐              │
-│  │  WebsocketProtocol  │  │   MqttProtocol       │              │
-│  │     (通信协议)       │  │     (通信协议)        │              │
-│  └─────────────────────┘  └─────────────────────┘              │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │    Board    │  │    OTA     │  │  McpServer  │             │
-│  │  (硬件抽象)  │  │  (升级)    │  │ (MCP工具)   │             │
-│  └─────────────┘  └─────────────┘  └─────────────┘             │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│  app_main()   [main/main.cc]                                               │
+│   ├─ NVS 初始化                                                          │
+│   ├─ SnapshotService::Initialize()/Start()  (XIAOZHI_ENABLE_BOOT_SCREENSHOT)│
+│   └─ Application::GetInstance()                                           │
+│         ├─ Initialize()   ──► Board::GetInstance()  ◄── create_board()    │
+│         │                       ├─ Display / AudioCodec / Network         │
+│         │                       ├─ Buttons / Knobs / Backlight / Camera   │
+│         │                       └─ Power / Battery / AXP / SY6970         │
+│         ├─ SetCallbacks(AudioService, Network, OTA, MCP)                 │
+│         └─ Run() ──► FreeRTOS EventGroup 主循环                          │
+└────────────┬──────────────────────────────────────────────────────────────┘
+             │
+   ┌─────────▼───────────┐   状态机：DeviceStateMachine   事件：MAIN_EVENT_*
+   │ Application (单例)  │   ─► Protocol (WebSocket | MQTT)
+   │  · 调度 main_tasks  │   ─► AudioService (麦克风↔扬声器↔Opus)
+   │  · 网络事件回调     │   ─► McpServer (云端工具调用)
+   │  · 设备状态机       │   ─► Ota (升级 + 激活)
+   │  · UI 反馈 (Alert)  │   ─► Settings (NVS 持久化)
+   └─────────┬───────────┘   ─► Assets (字体/图标下载)
+             │
+   ┌─────────▼───────────┐   平台抽象
+   │ Board (单例)        │   ─► WifiBoard / Ml307Board / DualNetworkBoard ...
+   │  · AudioCodec       │   ─► 摄像头 / 屏幕 / 背光 / 电源 IC
+   │  · Display          │
+   │  · NetworkInterface │
+   └─────────────────────┘
 ```
 
-### 2.2 目录结构
+### 2.2 数据流概览
+
+- **上行（用户→服务器）**：麦克风 PCM → AFE 处理器（VAD/AEC/NS）→ Opus 编码 → 通过 Protocol（WebSocket 或 MQTT+UDP）→ 服务器。
+- **下行（服务器→用户）**：服务器 JSON/Opus → Protocol → Opus 解码 → 播放队列 → I2S → 扬声器。
+- **控制平面**：JSON 消息（`hello`、`listen`/`stop`/`abort`、`mcp` 工具调用、激活、资产更新）走 WebSocket 或 MQTT。
+- **本地 UI**：Display 接收状态/表情/字幕；AttitudeDisplay 增加运势状态机与触摸交互；SnapshotService 周期性导出 JPEG 至串口。
+
+---
+
+## 3. 目录结构
 
 ```
 xiaozhi-esp32/
-├── main/                          # 主源代码目录
-│   ├── main.cc                    # 应用入口
-│   ├── application.cc/.h          # 核心应用类（状态机管理）
-│   ├── audio/                     # 音频模块
-│   │   ├── audio_service.cc/.h    # 音频服务（编解码、队列管理）
-│   │   ├── audio_codec.cc/.h      # 音频编解码器接口
-│   │   ├── codecs/                # 具体编解码器实现
-│   │   ├── processors/             # 音频处理器（AFE）
-│   │   ├── wake_words/            # 唤醒词检测
-│   │   └── demuxer/               # OGG解封装
-│   ├── display/                   # 显示模块
-│   │   ├── display.cc/.h          # 显示接口
-│   │   ├── lcd_display.cc/.h     # LCD显示
-│   │   ├── oled_display.cc/.h     # OLED显示
-│   │   ├── emote_display.cc/.h    # 表情显示
-│   │   └── lvgl_display/          # LVGL显示驱动
-│   ├── led/                       # LED控制模块
-│   │   ├── led.h                  # LED接口
-│   │   ├── single_led.cc/.h       # 单LED
-│   │   ├── circular_strip.cc/.h   # 环形灯带
-│   │   └── gpio_led.cc/.h         # GPIO LED
-│   ├── protocols/                 # 通信协议模块
-│   │   ├── protocol.cc/.h        # 协议基类
-│   │   ├── websocket_protocol.cc/.h  # WebSocket协议
-│   │   └── mqtt_protocol.cc/.h    # MQTT协议
-│   ├── boards/                    # 板级支持包
-│   │   ├── common/                # 公共板级代码
-│   │   │   ├── board.cc/.h       # 板级抽象
-│   │   │   ├── wifi_board.cc/.h  # WiFi板级支持
-│   │   │   ├── ml307_board.cc/.h # 4G模块板级支持
-│   │   │   └── ...               # 其他公共组件
-│   │   └── <board_name>/          # 各具体开发板适配
-│   ├── mcp_server.cc/.h          # MCP服务器实现
-│   ├── device_state_machine.cc/.h # 设备状态机
-│   ├── device_state.h            # 设备状态枚举
-│   ├── ota.cc/.h                 # OTA升级
-│   ├── settings.cc/.h            # 设置管理（NVS）
-│   ├── system_info.cc/.h         # 系统信息
-│   ├── assets.cc/.h              # 资源管理
-│   └── assets/                   # 多语言语音资源
-├── CMakeLists.txt                # 项目构建配置
-├── docs/                         # 文档目录
-└── partitions/                   # 分区表配置
+├── CMakeLists.txt                 # 项目级 CMake（项目名 xiaozhi，PROJECT_VER=2.2.6）
+├── build_and_flash.sh / .bat / .ps1
+├── CODE_WIKI.md                   # 本文档
+├── README.md / README_zh.md / README_ja.md
+├── partitions/                    # v2 / v1 分区表
+├── docs/                          # 上游文档（custom-board、mcp-protocol、websocket...）
+├── doc/                           # 本仓库增量文档（AI 罗盘功能扩展、协议汇总、SNAPSHOT_USAGE）
+├── scripts/                       # gen_lang.py、build_default_assets.py 等
+├── tools/                         # screenshot_with_log.py 等验证工具
+├── .trae/rules/                   # 项目级 AI 助手规则
+└── main/
+    ├── CMakeLists.txt             # 源文件列表 + BOARD_TYPE 分发 + 语言/资产打包
+    ├── Kconfig.projbuild          # menuconfig 选项（板型/语言/OTA URL 等）
+    ├── idf_component.yml          # 组件依赖清单
+    ├── main.cc                    # app_main() 入口
+    ├── application.{cc,h}         # 核心应用类（状态机、事件循环）
+    ├── device_state.h             # DeviceState 枚举
+    ├── device_state_machine.{cc,h}
+    ├── assets.{cc,h}              # 资源管理
+    ├── ota.{cc,h}                 # OTA 升级 + 设备激活
+    ├── settings.{cc,h}            # NVS 包装
+    ├── system_info.{cc,h}         # 系统信息收集
+    ├── mcp_server.{cc,h}          # MCP 协议解析与工具注册
+    │
+    ├── audio/
+    │   ├── audio_codec.{cc,h}     # 编解码器基类
+    │   ├── audio_service.{cc,h}   # 音频流服务（双队列 + 编解码任务）
+    │   ├── audio_processor.h      # AFE 处理器接口
+    │   ├── wake_word.h            # 唤醒词接口
+    │   ├── codecs/                # 多种 ES8311/ES8374/ES8388/Box/No/Dummy 实现
+    │   ├── processors/            # Afe / No / Debugger
+    │   ├── wake_words/            # Afe / Esp / Custom
+    │   └── demuxer/               # OGG 解封装
+    │
+    ├── protocols/
+    │   ├── protocol.{cc,h}        # 协议基类 + 回调 + 消息类型
+    │   ├── websocket_protocol.{cc,h}
+    │   └── mqtt_protocol.{cc,h}   # MQTT 控制 + UDP 加密音频
+    │
+    ├── display/
+    │   ├── display.{cc,h}         # Display 基类 + Theme
+    │   ├── lcd_display.{cc,h}     # SpiLcd / RgbLcd / MipiLcd
+    │   ├── oled_display.{cc,h}
+    │   ├── emote_display.{cc,h}
+    │   ├── attitude_display.{cc,h}    # ★ AI 罗盘
+    │   ├── attitude_theme.{cc,h}      # ★ AI 罗盘主题
+    │   ├── compass_taiji.{cc,h}       # ★ 太极图
+    │   ├── lvgl_display/              # LVGL 适配层 + 主题/字体/GIF/JPG
+    │   └── snapshot/                  # ★ 串口截图服务
+    │
+    ├── boards/
+    │   ├── common/                 # Board 基类、WiFi/ML307 板卡、背光、电池、按键...
+    │   └── <board_name>/           # 各开发板专属配置和实现（70+ 种）
+    │
+    ├── led/                        # LED 抽象 + single/circular/gpio
+    ├── ble/ble_server.{cc,h}       # ★ BLE 鱼眼指示
+    └── drum/drum_synth.{cc,h}      # ★ 架子鼓合成器
 ```
 
 ---
 
-## 3. 核心模块详解
+## 4. 应用层核心模块
 
-### 3.1 应用层（Application）
+### 4.1 入口 `app_main()` — [main/main.cc](main/main.cc)
 
-**文件**: `main/application.cc`, `main/application.h`
-
-**职责**: 核心应用类，负责整体状态机管理、事件调度、网络连接管理和协议初始化。
-
-**主要功能**:
-- 设备状态管理（启动→激活→空闲→对话→说话）
-- 事件驱动架构（FreeRTOS EventGroup）
-- 协议生命周期管理
-- 音频服务与协议的协调
-
-**关键类**:
-
-```cpp
-class Application {
-public:
-    static Application& GetInstance();  // 单例模式
-    
-    void Initialize();    // 初始化（显示、音频、网络回调）
-    void Run();          // 主事件循环
-    
-    // 状态管理
-    DeviceState GetDeviceState() const;
-    bool SetDeviceState(DeviceState state);
-    
-    // 事件调度
-    void Schedule(std::function<void()>&& callback);
-    
-    // 音频控制
-    void ToggleChatState();
-    void StartListening();
-    void StopListening();
-    void AbortSpeaking(AbortReason reason);
-    
-    // 网络与协议
-    void ResetProtocol();
-    void SendMcpMessage(const std::string& payload);
-    
-    // AEC模式
-    void SetAecMode(AecMode mode);
-    AecMode GetAecMode() const;
-};
+```text
+app_main()
+  ├── nvs_flash_init() → 必要时擦除重建
+  ├── SnapshotService::GetInstance().Initialize()/.Start()   // 启动截图后台服务
+  ├── Application::GetInstance().Initialize()
+  │      ├─ Board::GetInstance()（create_board() 工厂注入）
+  │      ├─ 设置 Display/AudioCodec/Buttons/Knobs 回调
+  │      ├─ 初始化 AudioService / Protocol / Ota / McpServer
+  │      └─ 启动网络（异步）
+  ├── xTaskCreate(screenshot_task, ...)        // 每 2 秒截图（调试/验证）
+  └── Application::GetInstance().Run()         // 主事件循环（永不返回）
 ```
 
-**设备状态枚举** (`device_state.h`):
-```cpp
-enum DeviceState {
-    kDeviceStateUnknown,         // 未知
-    kDeviceStateStarting,        // 启动中
-    kDeviceStateWifiConfiguring, // WiFi配置模式
-    kDeviceStateIdle,            // 空闲
-    kDeviceStateConnecting,      // 连接中
-    kDeviceStateListening,      // 监听中
-    kDeviceStateSpeaking,       // 说话中
-    kDeviceStateUpgrading,      // 升级中
-    kDeviceStateActivating,     // 激活中
-    kDeviceStateAudioTesting,   // 音频测试
-    kDeviceStateFatalError       // 致命错误
-};
+`XIAOZHI_ENABLE_BOOT_SCREENSHOT`（默认 1）控制截图任务是否启动；`fortune_demo_task` 已注释保留。
+
+### 4.2 `Application` 单例 — [main/application.{cc,h}](main/application.h)
+
+设备唯一的「指挥中枢」，采用 FreeRTOS EventGroup + 主循环模式。
+
+| 事件位 | 含义 |
+|--------|------|
+| `MAIN_EVENT_SCHEDULE` (1<<0) | 调度一个 `main_tasks_` 回调 |
+| `MAIN_EVENT_SEND_AUDIO` (1<<1) | 通知 `Run()` 取一个 Opus 包发送 |
+| `MAIN_EVENT_WAKE_WORD_DETECTED` (1<<2) | 唤醒词命中 |
+| `MAIN_EVENT_VAD_CHANGE` (1<<3) | VAD 状态变化 |
+| `MAIN_EVENT_ERROR` (1<<4) | 协议错误 |
+| `MAIN_EVENT_ACTIVATION_DONE` (1<<5) | 激活流程完成 |
+| `MAIN_EVENT_CLOCK_TICK` (1<<6) | 时钟滴答 |
+| `MAIN_EVENT_NETWORK_CONNECTED` / `_DISCONNECTED` | 网络事件 |
+| `MAIN_EVENT_TOGGLE_CHAT` / `_START_LISTENING` / `_STOP_LISTENING` | 对话控制 |
+| `MAIN_EVENT_STATE_CHANGED` (1<<12) | 状态机变化 |
+
+**关键方法**：
+
+| 方法 | 作用 |
+|------|------|
+| `Initialize()` | 初始化所有子系统（详见 4.1） |
+| `Run()` | 主事件循环，处理上述事件 |
+| `GetInstance()` | Meyers 单例 |
+| `GetDeviceState() / SetDeviceState()` | 状态访问 |
+| `Schedule(std::function<void()>&&)` | 将回调投递到主循环 |
+| `ToggleChatState() / StartListening() / StopListening()` | 对话状态切换（事件驱动，线程安全） |
+| `Alert() / DismissAlert()` | 状态条 / 通知 UI |
+| `PlaySound() / PlayUiSound()` | 播放 OGG 音效（主循环，避免 LVGL 任务直播） |
+| `AbortSpeaking(reason)` | 中断 TTS 播报 |
+| `WakeWordInvoke(text)` | 程序化触发唤醒 |
+| `UpgradeFirmware(url, version)` | 启动 OTA |
+| `Reboot()` | 软重启 |
+| `SendMcpMessage(payload)` | 向服务器发送 MCP 消息 |
+| `RegisterMcpBroadcastCallback(cb)` | 注册 MCP 广播接收 |
+| `SetAecMode() / GetAecMode()` | 切换 AEC 模式（关闭 / 设备侧 / 服务器侧） |
+| `RequestDebugTts(text)` | 调试 TTS：仅在 Idle+WiFi 已连接时真正生效 |
+| `ResetProtocol()` | 释放连接后分配的协议资源（线程安全） |
+| `HandleFortuneBootKey()` / `HandleFortuneBootLongPress()` / `HandlePowerKey()` | ★ 罗盘按键入口（与 AttitudeDisplay 协作） |
+
+### 4.3 设备状态机 `DeviceStateMachine` — [main/device_state_machine.{cc,h}](main/device_state_machine.h)
+
+- **状态枚举**（[main/device_state.h](main/device_state.h)）：
+  ```cpp
+  enum DeviceState {
+      kDeviceStateUnknown, kDeviceStateStarting, kDeviceStateWifiConfiguring,
+      kDeviceStateIdle,    kDeviceStateConnecting, kDeviceStateListening,
+      kDeviceStateSpeaking, kDeviceStateUpgrading, kDeviceStateActivating,
+      kDeviceStateAudioTesting, kDeviceStateFatalError
+  };
+  ```
+- **能力**：
+  - `TransitionTo(new)`：原子切换，校验合法性，返回 bool。
+  - `CanTransitionTo(target)`：仅查询。
+  - `AddStateChangeListener(cb)` / `RemoveStateChangeListener(id)`：观察者模式。
+  - 内部使用 `std::atomic<DeviceState>` + `std::mutex`（监听者列表）。
+  - `GetStateName(state)`：调试日志用。
+
+### 4.4 设置 `Settings` — [main/settings.{cc,h}](main/settings.h)
+
+`NVS` 包装：
+- 构造 `Settings(ns, read_write=false)` 默认只读。
+- `GetString/SetString/GetInt/SetInt/GetBool/SetBool/EraseKey/EraseAll`。
+
+### 4.5 系统信息 `SystemInfo` — [main/system_info.h](main/system_info.h)
+
+收集 `BoardJson` / `DeviceStatusJson` 等，详见 [application.cc](main/application.cc) 中如何序列化为 JSON 上报。
+
+---
+
+## 5. 音频子系统
+
+### 5.1 数据通道
+
+```
+  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+  │ AudioCodec   │ ─► │ AudioProcessor│ ─► │ AudioService │ ─► │ Protocol     │
+  │ (I2S 麦克风) │    │ (AFE: VAD/   │    │  Encode Queue│    │  (WS/MQTT)   │
+  └──────────────┘    │  AEC/NS)     │    │  Opus Encode │    └──────┬───────┘
+                      └──────────────┘    │  Send Queue  │           │
+                                        └──────────────┘           │
+                                                                   ▼
+                                                          ┌──────────────┐
+  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐│   Server     │
+  │   Speaker    │ ◄──│ AudioService │ ◄──│ Protocol     ││  (LLM/TTS)   │
+  │   (I2S)      │    │  Opus Decode │    │  Decode Queue│└──────────────┘
+  └──────────────┘    │  Playback Q  │    └──────────────┘
+                      └──────────────┘
 ```
 
-**事件定义**:
-```cpp
-#define MAIN_EVENT_SCHEDULE             (1 << 0)
-#define MAIN_EVENT_SEND_AUDIO           (1 << 1)
-#define MAIN_EVENT_WAKE_WORD_DETECTED   (1 << 2)
-#define MAIN_EVENT_VAD_CHANGE           (1 << 3)
-#define MAIN_EVENT_ERROR                (1 << 4)
-#define MAIN_EVENT_ACTIVATION_DONE      (1 << 5)
-#define MAIN_EVENT_CLOCK_TICK           (1 << 6)
-#define MAIN_EVENT_NETWORK_CONNECTED    (1 << 7)
-#define MAIN_EVENT_NETWORK_DISCONNECTED (1 << 8)
-#define MAIN_EVENT_TOGGLE_CHAT         (1 << 9)
-#define MAIN_EVENT_START_LISTENING       (1 << 10)
-#define MAIN_EVENT_STOP_LISTENING        (1 << 11)
-#define MAIN_EVENT_STATE_CHANGED        (1 << 12)
-```
+参见 [audio_service.h](main/audio/audio_service.h#L28-L43) 顶部注释。
 
-### 3.2 设备状态机（DeviceStateMachine）
+### 5.2 `AudioService` — [main/audio/audio_service.{cc,h}](main/audio/audio_service.h)
 
-**文件**: `main/device_state_machine.cc`, `main/device_state_machine.h`
+| 类别 | 接口 | 说明 |
+|------|------|------|
+| 生命周期 | `Initialize(codec)` / `Start()` / `Stop()` | 启动/停止 I/O 任务 |
+| 唤醒 | `EnableWakeWordDetection(bool)` / `EncodeWakeWord()` / `PopWakeWordPacket()` / `GetLastWakeWord()` | AFE/ESP 唤醒词 |
+| 语音 | `EnableVoiceProcessing(bool)` / `EnableDeviceAec(bool)` | AFE 启用 + 设备侧 AEC |
+| 测试 | `EnableAudioTesting(bool)` | 回环测试（最长 10s） |
+| 数据入/出 | `PushPacketToDecodeQueue(pkt, wait)` / `PopPacketFromSendQueue()` / `ReadAudioData(...)` / `ResetDecoder()` | 与 Protocol 对接 |
+| 音效 | `PlaySound(std::string_view)` | 短音效 |
+| 回调 | `SetCallbacks({on_send_queue_available, on_wake_word_detected, on_vad_change, on_audio_testing_queue_full, on_playback_finished})` | |
 
-**职责**: 管理设备状态转换，确保状态转换的合法性和线程安全。
+**常量**：
+- `OPUS_FRAME_DURATION_MS = 60`
+- `MAX_DECODE_PACKETS_IN_QUEUE = MAX_SEND_PACKETS_IN_QUEUE = 2400 / 60 = 40`
+- `MAX_ENCODE_TASKS_IN_QUEUE = MAX_PLAYBACK_TASKS_IN_QUEUE = 2`
+- `MAX_TIMESTAMPS_IN_QUEUE = 3`（用于服务器侧 AEC 对齐）
 
-**关键方法**:
-```cpp
-class DeviceStateMachine {
-    DeviceState GetState() const;                    // 获取当前状态
-    bool TransitionTo(DeviceState new_state);        // 状态转换
-    bool CanTransitionTo(DeviceState target) const; // 检查转换合法性
-    
-    // 状态变化监听器（观察者模式）
-    int AddStateChangeListener(StateCallback callback);
-    void RemoveStateChangeListener(int listener_id);
-};
-```
+**实现要点**：
+- 三个 FreeRTOS 任务：`AudioInputTask`、`AudioOutputTask`、`OpusCodecTask`。
+- `event_group_` 用于唤醒 / AFE / 测试 / 播放非空 等状态位。
+- `audio_power_timer_` 周期性检查 I/O 是否长时间空闲以节电（15s 超时）。
 
-### 3.3 音频服务（AudioService）
+### 5.3 `AudioCodec` — [main/audio/audio_codec.{cc,h}](main/audio/audio_codec.h)
 
-**文件**: `main/audio/audio_service.cc`, `main/audio/audio_service.h`
+抽象基类，依赖 ESP-IDF 的 `i2s_std` 驱动，DMA 配置 `AUDIO_CODEC_DMA_DESC_NUM=6` / `AUDIO_CODEC_DMA_FRAME_NUM=240`。
 
-**职责**: 核心音频管理，处理麦克风输入、扬声器输出、Opus编解码、VAD检测。
+子类实现：
+- `BoxAudioCodec` — ESP-BOX 系列
+- `Es8311AudioCodec` / `Es8374AudioCodec` / `Es8388AudioCodec` / `Es8389AudioCodec` — 各家 CODEC 芯片
+- `NoAudioCodec` / `DummyAudioCodec` — 占位/空实现
 
-**音频数据流**:
-```
-MIC → [Processors] → {Encode Queue} → [Opus Encoder] → {Send Queue} → Server
-Server → {Decode Queue} → [Opus Decoder] → {Playback Queue} → Speaker
-```
+### 5.4 `AudioProcessor` — [main/audio/audio_processor.h](main/audio/audio_processor.h) + [main/audio/processors/](main/audio/processors/)
 
-**关键类**:
-```cpp
-class AudioService {
-    // 初始化与生命周期
-    void Initialize(AudioCodec* codec);
-    void Start();
-    void Stop();
-    
-    // 唤醒词
-    void EncodeWakeWord();
-    std::unique_ptr<AudioStreamPacket> PopWakeWordPacket();
-    void EnableWakeWordDetection(bool enable);
-    
-    // 音频处理
-    void EnableVoiceProcessing(bool enable);
-    void EnableAudioTesting(bool enable);
-    void EnableDeviceAec(bool enable);
-    
-    // 编解码
-    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet);
-    std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
-    
-    // 播放
-    void PlaySound(const std::string_view& sound);
-    void ResetDecoder();
-    
-    // 状态查询
-    bool IsVoiceDetected() const;
-    bool IsIdle();
-    bool IsWakeWordRunning() const;
-    bool IsAudioProcessorRunning() const;
-};
-```
+- `AfeAudioProcessor`：基于 ESP-SR AFE 接口（[esp_afe_sr_models.h](https://github.com/espressif/esp-sr)），提供 VAD/AEC/降噪。默认要求 `frame_duration_ms`。
+- `NoAudioProcessor`：透传。
+- `AudioDebugger`：调试数据回调。
 
-**关键配置**:
-```cpp
-#define OPUS_FRAME_DURATION_MS 60      // Opus帧时长
-#define MAX_ENCODE_TASKS_IN_QUEUE 2
-#define MAX_PLAYBACK_TASKS_IN_QUEUE 2
-#define MAX_DECODE_PACKETS_IN_QUEUE 40   // 2400ms / 60ms
-#define MAX_SEND_PACKETS_IN_QUEUE 40
-```
+### 5.5 `WakeWord` — [main/audio/wake_word.h](main/audio/wake_word.h) + [main/audio/wake_words/](main/audio/wake_words/)
 
-### 3.4 音频编解码器
+- `AfeWakeWord`（ESP32-S3/P4）：使用 `esp_afe_sr` 唤醒模型，支持多唤醒词，可向服务器回传唤醒词 Opus 流以辅助 ASR。
+- `EspWakeWord`（ESP32/C3）：使用 `esp-sr` 简化路径。
+- `CustomWakeWord`：用户自定义。
 
-**文件**: `main/audio/audio_codec.h`, `main/audio/codecs/*.cc`
+CMake 中按目标芯片自动选择（见 [main/CMakeLists.txt#L875-L880](main/CMakeLists.txt#L875-L880)）。
 
-**职责**: 硬件音频编解码器的抽象接口和实现。
+### 5.6 OGG 解封装
 
-**接口定义**:
-```cpp
-class AudioCodec {
-public:
-    virtual ~AudioCodec() = default;
-    
-    virtual bool Initialize() = 0;
-    virtual void Configure(int sample_rate, int bits, int channels) = 0;
-    virtual int GetInputSampleRate() const = 0;
-    virtual int output_sample_rate() const = 0;
-    
-    virtual size_t Read(void* buffer, size_t size) = 0;  // 麦克风输入
-    virtual size_t Write(const void* buffer, size_t size) = 0;  // 扬声器输出
-    
-    virtual void SetVolume(int volume) = 0;  // 0-100
-    virtual int GetVolume() const = 0;
-    
-    virtual void SetInputGain(float gain) = 0;
-    virtual float GetInputGain() const = 0;
-};
-```
+`audio/demuxer/ogg_demuxer.{cc,h}` — 用于播放 `application.cc::PlaySound()` 引用的 OGG 资源（位于 `main/assets/common/` 与 `main/assets/locales/<lang>/`）。
 
-**支持的编解码器**:
-- `DummyAudioCodec` - 空实现
-- `NoAudioCodec` - 无编解码
-- `BoxAudioCodec` - ESP-BOX系列
-- `Es8311AudioCodec` - ES8311芯片
-- `Es8374AudioCodec` - ES8374芯片
-- `Es8388AudioCodec` - ES8388芯片
-- `Es8389AudioCodec` - ES8389芯片
+---
 
-### 3.5 音频处理器
+## 6. 通信协议层
 
-**文件**: `main/audio/processors/afe_audio_processor.cc`, `main/audio/processors/audio_debugger.h`
+### 6.1 协议基类 `Protocol` — [main/protocols/protocol.h](main/protocols/protocol.h)
 
-**职责**: 音频信号处理，包括回声消除（AEC）、降噪、语音活动检测（VAD）。
-
-**类型**:
-- `AfeAudioProcessor` - 使用ESP-SR的AFE处理
-- `NoAudioProcessor` - 无处理
-- `AudioDebugger` - 调试用
-
-### 3.6 唤醒词检测
-
-**文件**: `main/audio/wake_words/*.h`
-
-**类型**:
-- `AfeWakeWord` - AFE唤醒词（ESP32-S3/P4）
-- `EspWakeWord` - ESP唤醒词（ESP32-C3）
-- `CustomWakeWord` - 自定义唤醒词
-
-### 3.7 通信协议（Protocol）
-
-**文件**: `main/protocols/protocol.h`, `main/protocols/websocket_protocol.h`, `main/protocols/mqtt_protocol.h`
-
-#### 3.7.1 协议基类
+抽象协议（WebSocket / MQTT+UDP）通用行为。
 
 ```cpp
 class Protocol {
 public:
     virtual ~Protocol() = default;
-    
-    // 生命周期
     virtual bool Start() = 0;
     virtual bool OpenAudioChannel() = 0;
     virtual void CloseAudioChannel(bool send_goodbye = true) = 0;
     virtual bool IsAudioChannelOpened() const = 0;
-    
-    // 数据传输
-    virtual bool SendAudio(std::unique_ptr<AudioStreamPacket> packet) = 0;
-    virtual void SendWakeWordDetected(const std::string& wake_word);
-    virtual void SendStartListening(ListeningMode mode);
-    virtual void SendStopListening();
-    virtual void SendAbortSpeaking(AbortReason reason);
-    virtual void SendMcpMessage(const std::string& message);
-    
-    // 回调设置
-    void OnIncomingAudio(std::function<void(...)> callback);
-    void OnIncomingJson(std::function<void(const cJSON*)> callback);
-    void OnAudioChannelOpened(std::function<void()> callback);
-    void OnAudioChannelClosed(std::function<void()> callback);
-    void OnNetworkError(std::function<void(const string&)> callback);
-    void OnConnected(std::function<void()> callback);
-    void OnDisconnected(std::function<void()> callback);
+    virtual bool SendAudio(std::unique_ptr<AudioStreamPacket>) = 0;
+
+    void SendWakeWordDetected(const std::string&);
+    void SendStartListening(ListeningMode);
+    void SendStopListening();
+    void SendAbortSpeaking(AbortReason);
+    void SendMcpMessage(const std::string&);
+    virtual void SendUserPrompt(const std::string&);   // ★ 调试 TTS
+
+    // 回调注册
+    void OnIncomingAudio(cb);
+    void OnIncomingJson(cb);
+    void OnAudioChannelOpened(cb);
+    void OnAudioChannelClosed(cb);
+    void OnNetworkError(cb);
+    void OnConnected(cb);
+    void OnDisconnected(cb);
+protected:
+    int  server_sample_rate_   = 24000;
+    int  server_frame_duration_= 60;
+    bool error_occurred_       = false;
+    virtual bool SendText(const std::string&) = 0;
 };
 ```
 
-#### 3.7.2 WebSocket协议
-
-```cpp
-class WebsocketProtocol : public Protocol {
-    bool Start() override;
-    bool SendAudio(...) override;
-    bool OpenAudioChannel() override;
-    void CloseAudioChannel(...) override;
-    bool IsAudioChannelOpened() const override;
-};
-```
-
-#### 3.7.3 MQTT协议
-
-MQTT+UDP混合协议:
-- MQTT: 控制消息、状态同步、JSON数据
-- UDP: 实时音频数据传输（加密）
-
-#### 3.7.4 音频数据包格式
+**音频包与二进制协议**：
 
 ```cpp
 struct AudioStreamPacket {
     int sample_rate = 0;
     int frame_duration = 0;
     uint32_t timestamp = 0;
-    std::vector<uint8_t> payload;  // Opus编码数据
+    std::vector<uint8_t> payload;       // Opus 数据
 };
 
-struct BinaryProtocol2 {
-    uint16_t version;
-    uint16_t type;       // 0: OPUS, 1: JSON
-    uint32_t reserved;
-    uint32_t timestamp;  // 用于服务端AEC
-    uint32_t payload_size;
+struct BinaryProtocol2 {                // 历史版本（带 timestamp）
+    uint16_t version; uint16_t type;     // 0:OPUS, 1:JSON
+    uint32_t reserved; uint32_t timestamp; uint32_t payload_size;
     uint8_t payload[];
-};
+} __attribute__((packed));
+
+struct BinaryProtocol3 {                // 新版本
+    uint8_t type; uint8_t reserved; uint16_t payload_size; uint8_t payload[];
+} __attribute__((packed));
 ```
 
-### 3.8 显示模块
+**枚举**：
 
-**文件**: `main/display/display.h`, `main/display/lcd_display.h`, `main/display/oled_display.h`, `main/display/lvgl_display/`
-
-**职责**: 设备屏幕显示，支持LCD、OLED、LVGL等多种显示方案。
-
-**接口**:
 ```cpp
-class Display {
+enum AbortReason { kAbortReasonNone, kAbortReasonWakeWordDetected };
+enum ListeningMode { kListeningModeAutoStop, kListeningModeManualStop, kListeningModeRealtime };
+```
+
+### 6.2 WebSocket 实现 — [main/protocols/websocket_protocol.{cc,h}](main/protocols/websocket_protocol.h)
+
+- `Start()`：建立到 OTA 配置中的 WebSocket URL，发送 `hello` 消息。
+- `OpenAudioChannel()`：协商 SR/帧长；进入 `audio` 通道。
+- `SendAudio()`：使用 `BinaryProtocol2/3` 封装 Opus 帧发送。
+- `ParseServerHello(root)`：从 JSON 解析采样率、帧长、UDP 配置等。
+
+### 6.3 MQTT+UDP 实现 — [main/protocols/mqtt_protocol.{cc,h}](main/protocols/mqtt_protocol.h)
+
+- 控制消息走 MQTT（`Mqtt` 客户端）。
+- 实时音频走 UDP（AES-CTR 加密，本地维护 `local_sequence_` / `remote_sequence_`）。
+- `MQTT_PING_INTERVAL_SECONDS = 90`、`MQTT_RECONNECT_INTERVAL_MS = 60000`。
+- `mbedtls_aes_context` + `aes_nonce_` 实现 UDP 加密。
+
+---
+
+## 7. 显示子系统（含 AI 罗盘 AttitudeDisplay）
+
+### 7.1 类层次
+
+```
+Display (基类, display.h)
+ ├── NoDisplay
+ ├── LcdDisplay (lcd_display.h)
+ │    ├── SpiLcdDisplay
+ │    ├── RgbLcdDisplay
+ │    └── MipiLcdDisplay
+ ├── OledDisplay (oled_display.h)
+ └── EmoteDisplay (emote_display.h)
+        └── ★ AttitudeDisplay (attitude_display.h)  // AI 罗盘
+```
+
+### 7.2 `Display` 接口（精简）
+
+| 方法 | 说明 |
+|------|------|
+| `SetStatus(const char*)` | 状态栏文本 |
+| `ShowNotification(text, duration_ms=3000)` | 短暂通知 |
+| `SetEmotion(const char*)` | 表情（emoji / image） |
+| `SetChatMessage(role, content)` / `ClearChatMessages()` | 对话字幕 |
+| `SetTheme(Theme*)` / `GetTheme()` | 主题 |
+| `UpdateStatusBar(bool all=false)` | 电量/网络/时间等 |
+| `SetPowerSaveMode(bool)` | 节能 |
+| `SetupUI()` | 一次性 UI 构建 |
+| `Lock(timeout_ms)` / `Unlock()` | 多线程安全（`DisplayLockGuard` 封装） |
+
+### 7.3 LVGL 适配 — [main/display/lvgl_display/](main/display/lvgl_display/)
+
+- `lvgl_display.{cc,h}`：把 ESP-LCD 面板接入 LVGL 9.x。
+- `lvgl_theme.{cc,h}` / `lvgl_font.{cc,h}` / `lvgl_image.{cc,h}` / `emoji_collection.{cc,h}`。
+- `gif/`、`jpg/`：GIF 解码（`gifdec`）与 JPEG 编解码。
+
+### 7.4 ★ AI 罗盘 `AttitudeDisplay` — [main/display/attitude_display.{cc,h}](main/display/attitude_display.h)
+
+> 本仓库对上游最重要的差异化模块。屏幕规格 **360×360 圆形 LCD**，主元素为**阴阳鱼太极图**。
+
+#### 7.4.1 视觉分层（设计规范）
+
+| 层 | 内容 | 关键常量 |
+|----|------|---------|
+| L0 | 太极阴阳鱼 + 鎏金外圈 | `TAIJI_RADIUS=86`、`TAIJI_CANVAS_SIZE=172`、`TAIJI_GOLD_RING_WIDTH=3` |
+| L0·鱼眼 | 阴中阳（WiFi）/ 阳中阴（BLE） | `FISHEYE_ICON_SIZE=26`、`FISHEYE_PULSE_MS=300`、`FISHEYE_BORDER_WIDTH=2` |
+| L1 | 状态 / 提示核心 | `LAYER1_CORE_RADIUS=49` |
+| L2 | 预留 | - |
+| L3 | 进度弧（学业计时/运势 Animating） | `LAYER3_PROGRESS_RADIUS=130`、`LAYER3_BG_ARC_RADIUS=117`、`LAYER3_PROGRESS_ARC_RADIUS=126` |
+| L4 | 外边界（与屏幕圆边贴齐） | `LAYER4_BOUNDARY_RADIUS = SCREEN_W/2 - GOLD_RING_ARC_WIDTH/2` |
+
+> 静态断言保证尺寸：`static_assert(TAIJI_RADIUS == 86, ...)`。
+
+#### 7.4.2 12 运势菜单环
+
+`FORTUNE_MENU_COUNT = 12`，从 12 点钟起顺时针排列：
+
+| Idx | 类型 | 名称 |
+|-----|------|------|
+| 0 | `FortuneMenuType::Today` | 今日运势 |
+| 1 | `FortuneMenuType::Wealth` | 财运 |
+| 2 | `FortuneMenuType::Career` | 事业 |
+| 3 | `FortuneMenuType::Love` | 爱情 |
+| 4 | `FortuneMenuType::MoodGua` | 心情卦 |
+| 5 | `FortuneMenuType::Huangli` | 黄历 |
+| 6 | `FortuneMenuType::SolarTerm` | 节气 |
+| 7 | `FortuneMenuType::Custom` | 自定义 |
+| 8 | `FortuneMenuType::Health` | 健康 |
+| 9 | `FortuneMenuType::Study` | 学业 |
+| 10 | `FortuneMenuType::Travel` | 出行 |
+| 11 | `FortuneMenuType::Noble` | 贵人 |
+
+- 环触摸区：`FORTUNE_MENU_TOUCH_INNER_R = TAIJI_RADIUS - 4` ~ `LAYER4_BOUNDARY_RADIUS`。
+- 选中态图标放大 10%（`FORTUNE_MENU_ICON_SCALE_SELECTED`），未选中 `FORTUNE_MENU_ICON_SCALE`。
+- 环心相对中点外偏 3px：`FORTUNE_MENU_RING_OUTWARD_PX = 3`。
+
+#### 7.4.3 运势状态机（已简化）
+
+> **重要变更（v2.2.7+）**：完整运势结果卡（Plan A）已**彻底删除**。原本的 `Idle / Animating / Result` 三态状态机已简化为**仅 Idle**：
+> - 删除 `FortuneState::Animating` / `FortuneState::Result` 两个状态
+> - 删除 `EnterAnimatingState` / `EnterResultState` / `DismissFortune` / `ShowFortune` / `ShowFortuneFromMenu` / `CreateFortuneCard` / `DestroyFortuneCard` / `HighlightDirection` / `HighlightGua` / `StopFortuneAnimatingEffects` / `StartFortuneTaijiPhasedRotation` 全部方法
+> - 删除相关定时器、widget、静态回调（`OnFortuneAnimTimer` / `OnFortuneFisheyePulseTimer` / `OnFortuneProgressStepTimer` / `OnFortuneResultDelayTimer` / `OnFortuneResultTimer` / `OnFortuneTaijiRampTimer`）
+> - 删除 MCP 工具 `self.attitude.dismiss_fortune`
+> - 长按 Boot 仅落日志，不再触发动画或结果卡
+> - 短按 Boot 仍可循环选中菜单项（`ShowFortuneMenuFeatureCard` / `ShowFortuneMenuFeatureCardUnlocked`）
+
+#### 7.4.4 结果卡数据结构与接口（已删除）
+
+> 完整结果卡（Plan A）已彻底删除。`ShowFortune` / `ShowFortuneFromMenu` / `HighlightDirection` / `HighlightGua` / `CreateFortuneCard` / `DismissFortune` / `GetFortuneState` 已从公开 API 中移除。
+> 短按/长按 Boot 仍使用 `ShowFortuneMenuFeatureCard(int index)` 弹出 12 类运势的**功能区提示卡**（圆形黑底金边+对应 Yi/Ji 文本），并在 5s 后自动消失。
+
+#### 7.4.5 按键/触摸入口
+
+| 方法 | 行为 |
+|------|------|
+| `HandleBootKey()` | Idle 循环选中运势 / Result 关闭卡 |
+| `HandleFortuneBootLongPress()` | Idle 触发当前选中运势（确定） |
+| `HandlePowerKey()` | 返回/取消 |
+
+> 对应 [application.h](main/application.h#L99-L102) 的 `HandleFortuneBootKey/HandleFortuneBootLongPress/HandlePowerKey`，由板卡按键回调触发。
+
+#### 7.4.6 调试信息卡
+
+```cpp
+void ShowDebugInfo(title, detail, hold_ms = 3000);
+void HideDebugInfo();
+```
+
+- 用于显示与后台的关键交互事件（如「激活成功」「WiFi 已连接」「MCP 收到工具调用」）。
+- 调试 TTS（`Application::RequestDebugTts`）期间叠加播放。
+
+#### 7.4.7 子功能区
+
+通过 `STUDY_SUB_FEATURES_ENABLED` 开关（CMake 选项 `XIAOZHI_STUDY_SUB_FEATURES`，默认 OFF）：
+- **学业子态** `StudySubState { Hidden, Menu, FocusRunning, CompleteBgm, DrumPad }`
+  - 60s 专注计时 + 5s 完成 BGM。
+  - 8 扇区架子鼓触摸 + 中心 Kick（依赖 `drum/drum_synth`）。
+- **心情卦子态** `MoodGuaSubState { Hidden, MazePlaying }`（`MOOD_GUA_SUB_FEATURES_ENABLED=1`）
+  - 9×9 迷宫（`MAZE_GRID_SIZE`），起点 (0,0)，终点右下角；触摸移动。
+
+#### 7.4.8 颜色系统
+
+见 [main/display/attitude_theme.h](main/display/attitude_theme.h)：
+
+```
+COLOR_BG_OUTER  = 0x0A0A0A   // 外层黑底
+COLOR_BG_CENTER = 0x121212   // 中心暗灰
+COLOR_TEXT_MAIN = 0xD4AF37   // 鎏金（主文）
+COLOR_TEXT_SUB  = 0xC0C0C0   // 银灰（副文）
+COLOR_TEXT_HIGH = 0xFFFFFF   // 亮白（高亮）
+COLOR_BORDER_LINE = 0xD4AF37 // 鎏金描边
+COLOR_STATE_HEAVY  = 0xE67E22 // 橙色（heavy）
+COLOR_STATE_DANGER = 0xB82601 // 暗红（danger）
+```
+
+### 7.5 ★ 太极图组件 `CompassTaiji` — [main/display/compass_taiji.{cc,h}](main/display/compass_taiji.h)
+
+```cpp
+class CompassTaiji {
 public:
-    virtual ~Display() = default;
-    
-    virtual void SetupUI() = 0;
-    virtual void SetStatus(const char* status) = 0;
-    virtual void SetEmotion(const char* emotion) = 0;
-    virtual void SetChatMessage(const char* role, const char* message) = 0;
-    virtual void ClearChatMessages() = 0;
-    virtual void ShowNotification(const char* message, int duration_ms = 30000) = 0;
-    virtual void UpdateStatusBar(bool force = false) = 0;
+    static void   Create(lv_obj_t* parent, int cx, int cy, int radius);
+    static void   Rotate(int delta_angle);          // 0.1° 单位
+    static void   SetRotation(int angle);           // 0~3600
+    static int    GetRotation();
+    static void   ResetRotation();
+
+    static void   StartAutoRotation(int period_ms = 60000); // 默认 60s/圈
+    static void   SetAutoRotationPeriod(int period_ms);
+    static int    GetAutoRotationPeriod();
+    static void   StopAutoRotation();
+    static bool   IsAutoRotating();
+
+    static void   SetAutoRotationPaused(bool paused);
+    static void   TickAutoRotationStep();           // Animating 时由 LVGL 定时器驱动
+    static void   SetStudyRingMode(bool ring_only); // 学业态：仅保留鎏金圈
+    static lv_obj_t* GetContainer();                // 鱼眼须作为其子对象共旋转
+    static lv_obj_t* GetCanvas();
+    static int    GetRadius();
+
+    static void   PaintFisheyeDisc(canvas, size, fill, ring, bg, ring_width);
 };
 ```
 
-**显示类型**:
-- `LcdDisplay` - LCD显示驱动
-- `OledDisplay` - OLED显示驱动
-- `LvglDisplay` - LVGL图形库显示
-- `EmoteDisplay` - 表情显示
+- 内部使用预渲染的两份 canvas 快照（`canvas_snapshots_ready_`）在普通/学业模式间 `memcpy` 切换，零开销。
+- 描边抗锯齿：方形 canvas 外缘向 `bg` 色混合以避免透明叠底产生杂色。
+- `OnAutoRotationTimer` 是 LVGL 定时器回调，按 `auto_rotation_interval_ms_` 节拍推进 `auto_rotation_step_`。
 
-### 3.9 LED控制模块
+---
 
-**文件**: `main/led/led.h`, `main/led/single_led.h`, `main/led/circular_strip.h`
+## 8. MCP 工具服务
 
-**职责**: LED灯控制，支持单LED、环形灯带、GPIO LED等。
+### 8.1 协议对象
+
+- `ImageContent`（[mcp_server.h#L16-L47](main/mcp_server.h#L16-L47)）：base64 编码图片 + MIME。
+- `ReturnValue = std::variant<bool, int, std::string, cJSON*, ImageContent*>`（[L50](main/mcp_server.h#L50)）。
+- `PropertyType { kPropertyTypeBoolean, kPropertyTypeInteger, kPropertyTypeString }`。
+- `Property`（[L58-L156](main/mcp_server.h#L58-L156)）：必填/可选参数，整数支持 `[min,max]` 范围。
+- `PropertyList`（[L158-L206](main/mcp_server.h#L158-L206)）：参数集合。
+- `McpTool`（[L208-L312](main/mcp_server.h#L208-L312)）：
+  - `name / description / properties / callback`
+  - `user_only`：是否对 AI 隐藏（`annotations.audience=["user"]`）。
+  - `Call(PropertyList)` 返回 `{content:[{type:"text"|"image",...}], isError:false}`。
+
+### 8.2 `McpServer` — [mcp_server.h#L314-L342](main/mcp_server.h#L314-L342)
 
 ```cpp
-class Led {
-public:
-    virtual ~Led() = default;
-    virtual void OnStateChanged() = 0;  // 根据设备状态改变LED效果
-    virtual void SetBrightness(int brightness) = 0;
-};
-```
-
-### 3.10 MCP服务器
-
-**文件**: `main/mcp_server.h`
-
-**职责**: 实现MCP（Model Context Protocol）协议，处理来自服务器的工具调用。
-
-**核心类**:
-```cpp
-class McpTool {
-    std::string name_;                    // 工具名称
-    std::string description_;             // 工具描述
-    PropertyList properties_;            // 参数定义
-    std::function<ReturnValue(const PropertyList&)> callback_;  // 回调
-};
-
 class McpServer {
 public:
     static McpServer& GetInstance();
-    
-    void AddTool(McpTool* tool);
-    void AddCommonTools();    // 添加通用工具
-    void AddUserOnlyTools();  // 添加用户专用工具
-    void ParseMessage(const cJSON* json);  // 解析MCP消息
+
+    void AddCommonTools();      // AI 可调
+    void AddUserOnlyTools();    // 仅用户可见（不在 AI 工具列表）
+    void AddTool(McpTool*);
+    void AddTool(name, desc, properties, callback);
+    void AddUserOnlyTool(name, desc, properties, callback);
+
+    void ParseMessage(const cJSON* json);
+    void ParseMessage(const std::string& message);
+private:
+    void ParseCapabilities(const cJSON*);
+    void ReplyResult(int id, const std::string&);
+    void ReplyError(int id, const std::string&);
+    void GetToolsList(int id, const std::string& cursor, bool list_user_only_tools);
+    void DoToolCall(int id, const std::string& tool_name, const cJSON* tool_arguments);
+    std::vector<McpTool*> tools_;
 };
 ```
 
-### 3.11 OTA升级
+### 8.3 工具注册典型（来自 [main/application.cc](main/application.cc)）
 
-**文件**: `main/ota.h`
+通过 `McpServer::GetInstance().AddCommonTools()` / `AddUserOnlyTools()` 注册本地工具，例如 `self.set_volume`、`self.screen.set_emotion`、`self.led.set_brightness`、摄像头拍照 `self.camera.take_photo` 等，详见代码与 [docs/mcp-usage_zh.md](docs/mcp-usage_zh.md)。
 
-**职责**: 固件版本检查和OTA升级。
+---
 
-```cpp
-class Ota {
-public:
-    Ota();
-    
-    esp_err_t CheckVersion();           // 检查新版本
-    esp_err_t Activate();               // 激活设备
-    bool HasNewVersion();               // 是否有新版本
-    bool StartUpgrade(callback);        // 开始升级
-    static bool Upgrade(url, callback); // 静态升级方法
-    
-    bool HasMqttConfig();               // 是否有MQTT配置
-    bool HasWebsocketConfig();          // 是否有WebSocket配置
-    bool HasActivationCode();            // 是否有激活码
-};
-```
+## 9. 板级抽象层（Board）
 
-### 3.12 设置管理
-
-**文件**: `main/settings.h`
-
-**职责**: 基于NVS的键值存储管理。
-
-```cpp
-class Settings {
-public:
-    Settings(const std::string& ns, bool read_write = false);
-    
-    std::string GetString(const std::string& key, const std::string& default_value = "");
-    void SetString(const std::string& key, const std::string& value);
-    
-    int32_t GetInt(const std::string& key, int32_t default_value = 0);
-    void SetInt(const std::string& key, int32_t value);
-    
-    bool GetBool(const std::string& key, bool default_value = false);
-    void SetBool(const std::string& key, bool value);
-    
-    void EraseKey(const std::string& key);
-    void EraseAll();
-};
-```
-
-### 3.13 Board抽象层
-
-**文件**: `main/boards/common/board.h`
-
-**职责**: 硬件抽象层，统一管理各开发板的特定配置。
+### 9.1 `Board` 单例 — [main/boards/common/board.h](main/boards/common/board.h)
 
 ```cpp
 class Board {
 public:
-    static Board& GetInstance();
-    
+    static Board& GetInstance();    // 通过 create_board() 工厂注入
+
     virtual std::string GetBoardType() = 0;
-    virtual std::string GetUuid();
-    
-    virtual Backlight* GetBacklight();
-    virtual Led* GetLed();
+    virtual std::string GetUuid() { return uuid_; }      // 软件生成 UUID
+    virtual Backlight*  GetBacklight();
+    virtual Led*        GetLed();
     virtual AudioCodec* GetAudioCodec() = 0;
-    virtual Display* GetDisplay();
-    virtual Camera* GetCamera();
-    
+    virtual bool        GetTemperature(float& esp32temp);
+    virtual Display*    GetDisplay();
+    virtual Camera*     GetCamera();
     virtual NetworkInterface* GetNetwork() = 0;
-    virtual void StartNetwork() = 0;
-    virtual void SetNetworkEventCallback(NetworkEventCallback callback);
-    
-    virtual bool GetBatteryLevel(int &level, bool& charging, bool& discharging);
-    virtual void SetPowerSaveLevel(PowerSaveLevel level) = 0;
+    virtual void        StartNetwork() = 0;               // 异步
+    virtual void        SetNetworkEventCallback(NetworkEventCallback);
+    virtual const char* GetNetworkStateIcon() = 0;
+    virtual bool        GetBatteryLevel(int& level, bool& charging, bool& discharging);
+    virtual std::string GetSystemInfoJson();
+    virtual void        SetPowerSaveLevel(PowerSaveLevel) = 0;
+    virtual std::string GetBoardJson() = 0;
+    virtual std::string GetDeviceStatusJson() = 0;
+protected:
+    Board();
+    std::string GenerateUuid();
 };
 ```
 
-### 3.14 资源管理
-
-**文件**: `main/assets.h`
-
-**职责**: 管理固件资源（字体、图标、语音模型）的下载和应用。
+**事件**：
 
 ```cpp
-class Assets {
-public:
-    static Assets& GetInstance();
-    
-    bool Download(std::string url, progress_callback);
-    bool Apply(bool refresh_display_theme = true);
-    bool GetAssetData(const std::string& name, void*& ptr, size_t& size);
-    
-    bool partition_valid() const;
+enum class NetworkEvent {
+    Scanning, Connecting, Connected, Disconnected,
+    WifiConfigModeEnter, WifiConfigModeExit,
+    ModemDetecting, ModemErrorNoSim, ModemErrorRegDenied,
+    ModemErrorInitFailed, ModemErrorTimeout
 };
+enum class PowerSaveLevel { LOW_POWER, BALANCED, PERFORMANCE };
+using NetworkEventCallback = std::function<void(NetworkEvent, const std::string& data)>;
 ```
 
----
+**派生类**（位于 [main/boards/common/](main/boards/common/) 与各板卡目录）：
 
-## 4. 板级支持
-
-### 4.1 支持的开发板
-
-项目支持70+种开发板，部分示例：
-
-**乐鑫官方开发板**:
-- ESP32-S3-BOX3
-- ESP32-S3-BOX
-- ESP32-S3-Korvo2 V3
-- ESP-Spot
-- ESP-HI
-- ESP-VoCat
-- ESP-P4-Function-EV-Board
-
-**M5Stack系列**:
-- M5Stack CoreS3
-- M5Stack AtomS3R + Echo Base
-- M5Stack Cardputer Adv
-
-**其他**:
-- 立创·实战派 ESP32-S3
-- 微雪电子 多款LCD/AMOLED模块
-- LilyGO T-Circle-S3
-- Seeed Studio SenseCAP Watcher
-- 虾哥 Mini C3
-- 各种自定义开发板
-
-### 4.2 公共板级组件
-
-位于 `main/boards/common/`:
-
-| 文件 | 功能 |
+| 类别 | 类 |
 |------|------|
-| `board.cc/.h` | Board基类 |
-| `wifi_board.cc/.h` | WiFi网络支持 |
-| `ml307_board.cc/.h` | 4G Cat.1模块支持 |
-| `nt26_board.cc/.h` | NT26 4G模块支持 |
-| `dual_network_board.cc/.h` | 双网络支持 |
-| `button.cc/.h` | 按钮输入 |
-| `knob.cc/.h` | 旋钮输入 |
-| `backlight.cc/.h` | 屏幕背光控制 |
-| `adc_battery_monitor.cc/.h` | 电池电量监测 |
-| `axp2101.cc/.h` | AXP2101电源管理 |
-| `sy6970.cc/.h` | SY6970充电管理 |
-| `esp32_camera.cc/.h` | 摄像头支持 |
-| `esp_video.cc/.h` | 视频处理 |
-| `sleep_timer.cc/.h` | 睡眠定时器 |
-| `power_save_timer.cc/.h` | 功耗管理 |
+| 通用 | `Board`、`I2cDevice`、`Camera` |
+| 输入 | `Button`、`Knob`、`PowerSaveTimer`、`SleepTimer`、`SystemReset` |
+| 网络 | `WifiBoard`、`Ml307Board`、`Nt26Board`、`DualNetworkBoard`、`RndisBoard` |
+| 电源 | `AdcBatteryMonitor`、`Axp2101`、`Sy6970` |
+| 音视频 | 板卡专属 `*_audio_codec.cc` |
+| 配网 | `Blufi`（`USE_ESP_BLUFI_WIFI_PROVISIONING` 时启用） |
+| 机器人 | `OttoRobot`、`ElectronBot`、`EdaRobotPro`、`EdaSuperBear` 等 |
 
----
-
-## 5. 依赖关系
-
-### 5.1 ESP-IDF组件
-
-```
-esp_pm                - 电源管理
-esp_psram            - PSRAM支持
-esp_netif            - 网络接口
-esp_driver_gpio      - GPIO驱动
-esp_driver_uart      - UART驱动
-esp_driver_spi       - SPI驱动
-esp_driver_i2c       - I2C驱动
-esp_driver_i2s       - I2S驱动
-esp_driver_jpeg      - JPEG驱动
-esp_driver_ppa       - PPA驱动
-esp_app_format       - 固件格式
-app_update           - APP升级
-spi_flash            - SPI闪存
-console              - 控制台
-efuse                - eFuse
-bt                   - 蓝牙
-fatfs                - FAT文件系统
-```
-
-### 5.2 外部组件
-
-- **esp-sr**: 乐鑫语音识别框架（唤醒词、VAD、ASR）
-- **esp-adf**: 乐鑫音频开发框架
-- **lvgl**: 轻量级图形库
-- **cJSON**: JSON解析库
-
----
-
-## 6. 构建与运行
-
-### 6.1 开发环境要求
-
-- Cursor 或 VSCode
-- ESP-IDF 插件（SDK版本 5.4 或以上）
-- Linux/macOS/Windows
-
-### 6.2 构建步骤
-
-1. **克隆项目并初始化子模块**:
-```bash
-git clone https://github.com/78/xiaozhi-esp32.git
-cd xiaozhi-esp32
-git submodule update --init --recursive
-```
-
-2. **配置项目**:
-```bash
-idf.py menuconfig
-```
-在 menuconfig 中选择:
-- `Xiaozhi Assistant` → `Board Type` → 选择开发板
-- `Xiaozhi Assistant` → `Default Language` → 选择语言
-
-3. **编译项目**:
-```bash
-idf.py build
-```
-
-4. **烧录固件**:
-```bash
-idf.py flash monitor
-```
-
-### 6.3 固件烧录
-
-新手建议使用预编译固件:
-- 默认接入 xiaozhi.me 官方服务器
-- 注册账号可免费使用 Qwen 实时模型
-
----
-
-## 7. 通信协议
-
-### 7.1 WebSocket协议
-
-设备通过WebSocket与服务器建立持久连接，用于:
-- 设备认证
-- 音频数据传输
-- JSON消息交换（MCP、控制命令等）
-
-### 7.2 MQTT+UDP混合协议
-
-- **MQTT**: 控制消息、状态同步
-- **UDP**: 实时音频数据传输（使用AES-CTR加密）
-
-### 7.3 MCP协议
-
-用于后台API与设备之间的工具调用:
-- `initialize`: 初始化MCP会话
-- `tools/list`: 获取可用工具列表
-- `tools/call`: 调用指定工具
-
----
-
-## 8. 关键数据流
-
-### 8.1 语音交互流程
-
-```
-1. 用户说"小智你好"
-   ↓
-2. 唤醒词检测识别到唤醒
-   ↓
-3. 打开音频通道 → 服务器
-   ↓
-4. 用户语音 → 麦克风 → AFE处理 → Opus编码 → 发送
-   ↓
-5. 服务器 → ASR → LLM → TTS
-   ↓
-6. 服务器返回Opus音频
-   ↓
-7. Opus解码 → 扬声器播放
-```
-
-### 8.2 MCP工具调用流程
-
-```
-1. 服务器发送JSON-RPC请求
-   {
-     "jsonrpc": "2.0",
-     "method": "tools/call",
-     "params": { "name": "set_led", "arguments": {...} },
-     "id": 1
-   }
-   ↓
-2. McpServer::ParseMessage() 解析
-   ↓
-3. 调用对应的McpTool::Call()
-   ↓
-4. 返回结果给服务器
-```
-
----
-
-## 9. 配置选项
-
-### 9.1 Kconfig主要配置项
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `OTA_URL` | OTA服务器地址 | https://api.tenclass.net/xiaozhi/ota/ |
-| `BOARD_TYPE` | 开发板类型 | BREAD_COMPACT_WIFI |
-| `LANGUAGE_*` | 默认语言 | ZH_CN |
-| `FLASH_DEFAULT_ASSETS` | 闪存默认资源 | - |
-| `USE_ESP_BLUFI_WIFI_PROVISIONING` | 使用BluFi配网 | - |
-| `CONFIG_USE_AUDIO_PROCESSOR` | 使用音频处理器 | - |
-| `CONFIG_SEND_WAKE_WORD_DATA` | 发送唤醒词数据 | - |
-
-### 9.2 ListeningMode模式
+### 9.2 板卡工厂 — [main/boards/common/board.h#L87-L90](main/boards/common/board.h#L87-L90)
 
 ```cpp
-enum ListeningMode {
-    kListeningModeAutoStop,    // 自动停止（语音结束后自动停止录音）
-    kListeningModeManualStop,  // 手动停止（需用户操作停止）
-    kListeningModeRealtime     // 实时模式（需要AEC支持）
+#define DECLARE_BOARD(BOARD_CLASS_NAME) \
+void* create_board() { return new BOARD_CLASS_NAME(); }
+```
+
+每个板卡目录的 `*.cc` 在末尾写 `DECLARE_BOARD(XxxBoard)`，由 [main/CMakeLists.txt](main/CMakeLists.txt) 在选择 `BOARD_TYPE` 后把该目录全部 `.cc/.c` 链接进固件。
+
+### 9.3 WiFi 板基类 `WifiBoard` — [main/boards/common/wifi_board.h](main/boards/common/wifi_board.h)
+
+- `StartNetwork()`：异步连接已保存 SSID；超时则进入配网模式。
+- `EnterWifiConfigMode()`：线程安全，可从任意任务调用。
+- `OnNetworkEvent(event, data)`：把内部 WiFi 事件翻译成统一 `NetworkEvent`，并转发给 Application。
+- 配网走 `esp-wifi-connect` 组件或 BluFi（Kconfig 切换）。
+
+---
+
+## 10. OTA / 资源 / 设置 / 系统信息
+
+### 10.1 OTA — [main/ota.{cc,h}](main/ota.h)
+
+```cpp
+class Ota {
+public:
+    esp_err_t CheckVersion();        // 查询新版本
+    esp_err_t Activate();            // 完成设备激活
+    bool HasActivationChallenge();
+    bool HasNewVersion();
+    bool HasMqttConfig();
+    bool HasWebsocketConfig();
+    bool HasActivationCode();
+    bool HasServerTime();
+    bool StartUpgrade(std::function<void(int progress, size_t speed)>);
+    static bool Upgrade(const std::string& url, std::function<void(int, size_t)>);
+    void MarkCurrentVersionValid();
+    // ... 字段省略
+private:
+    std::vector<int> ParseVersion(const std::string&);
+    bool IsNewVersionAvailable(const std::string& cur, const std::string& new_);
+    std::string GetActivationPayload();
+    std::unique_ptr<Http> SetupHttp();
 };
 ```
 
-### 9.3 AEC模式
+OTA URL 通过 Kconfig `OTA_URL` 配置（默认 `https://api.tenclass.net/xiaozhi/ota/`）。
+
+### 10.2 资源管理 `Assets` — [main/assets.h](main/assets.h)
+
+- `Download(url, progress_cb)` 下载新资源；
+- `Apply(refresh_display_theme=true)` 切换到新资源分区；
+- `GetAssetData(name, ptr, size)` 按名取数据；
+- `partition_valid()` 判断 OTA assets 分区是否合法。
+
+构建期通过 [scripts/build_default_assets.py](scripts/build_default_assets.py) 把字体、emoji、表情等打成 `assets.bin`，按 `CONFIG_FLASH_DEFAULT_ASSETS / _CUSTOM_ASSETS / _EXPRESSION_ASSETS / _NONE_ASSETS` 选择烧录策略（见 [main/CMakeLists.txt#L1252-L1276](main/CMakeLists.txt#L1252-L1276)）。
+
+### 10.3 设置 `Settings` — [main/settings.h](main/settings.h)
+
+参见 4.4 节。
+
+### 10.4 系统信息 `SystemInfo` — [main/system_info.h](main/system_info.h)
+
+- 收集 `BoardJson`、`DeviceStatusJson`，被 MCP 工具调用或协议 JSON 消息使用。
+- 通常包含：芯片型号、固件版本、内存、SD 卡、电量等。
+
+---
+
+## 11. BLE 与架子鼓子系统
+
+### 11.1 ★ `BleServer` — [main/ble/ble_server.{cc,h}](main/ble/ble_server.h)
+
+轻量 NimBLE 外设，仅用于把 BLE 状态广播给罗盘「阳中阴」鱼眼。
 
 ```cpp
-enum AecMode {
-    kAecOff,            // 关闭AEC
-    kAecOnDeviceSide,   // 设备端AEC
-    kAecOnServerSide    // 服务端AEC
+class BleServer {
+public:
+    using StatusCallback = std::function<void(BleStatus status)>;
+    static BleServer& GetInstance();
+
+    esp_err_t Start();            // 启动广播
+    esp_err_t Stop();             // BluFi 配网前须 Stop()
+    void SetStatusCallback(cb);
+    BleStatus GetStatus() const;
+    bool IsRunning() const;
+
+    void NotifyStatus(BleStatus);  // NimBLE GAP 回调使用
+private:
+    StatusCallback status_callback_;
+    BleStatus status_ = BleStatus::DISABLED;
+    bool running_ = false;
 };
 ```
 
+Kconfig `XIAOZHI_ENABLE_BLE_FISHEYE` 开启（CMake 才会把 `ble/ble_server.cc` 编入）。
+
+### 11.2 ★ `DrumSynth` — [main/drum/drum_synth.{cc,h}](main/drum/drum_synth.h)
+
+> 「单设备多音色」方案的核心——触摸 → OGG 解码 → 入播放队列 → 喇叭发声。
+
+```cpp
+namespace drum {
+enum class Piece : uint8_t {
+    KICK = 0, SNARE, HIHAT_CLOSED, HIHAT_OPEN,
+    TOM_HI, TOM_MID, CRASH, RIDE, COUNT = 8
+};
+using TriggerCallback = std::function<void(Piece)>;
+
+class DrumSynth {
+public:
+    static DrumSynth& GetInstance();
+    void Init();
+    bool Trigger(Piece, uint8_t velocity = 100);
+    void StopAll();
+    void SetActive(bool);
+    bool IsActive() const;
+    void SetTriggerCallback(TriggerCallback);
+};
+}
+```
+
+- 设计目标：首次触发延迟 < 30 ms，命中缓存后 < 5 ms。
+- 与语音系统共用 Idle 态：架子鼓模式下暂停 AFE/VAD 避免误唤醒。
+- 资源来自 `main/assets/drum/*.ogg`（kick / snare / hihat_* / tom_* / crash / ride）。
+- 由 CMake `XIAOZHI_STUDY_SUB_FEATURES=ON` 打开；UI 由 `AttitudeDisplay` 在 `DrumPad` 子态下渲染 8 扇区 + 中心 Kick。
+
 ---
 
-## 10. 注意事项
+## 12. 串口截图验证服务
 
-1. **内存管理**: 项目大量使用动态内存分配，需注意堆内存使用
-2. **线程安全**: 事件处理和协议回调在不同的FreeRTOS任务中
-3. **功耗管理**: 根据设备状态调整功耗等级
-4. **资源分区**: v2版本分区表与v1不兼容，无法OTA升级
-5. **代码风格**: 使用Google C++代码风格
+### 12.1 `SnapshotService` — [main/display/snapshot/snapshot_service.{cc,h}](main/display/snapshot/snapshot_service.h)
+
+调试 / 自动化验证用：通过 USB-Serial/JTAG 串口输出 JPEG 截图与按钮触发命令。
+
+```cpp
+class SnapshotService {
+public:
+    static SnapshotService& GetInstance();
+    esp_err_t Initialize();          // 注册协议 + 创建 UART 任务
+    esp_err_t Start();               // 启动 UART 接收任务
+    esp_err_t Stop();
+    esp_err_t TakeSnapshot();        // 主动截图一次
+    esp_err_t TriggerButtonClick(int index); // 触发罗盘 4 个调试按钮之一
+    bool IsRunning() const;
+private:
+    static void UARTTask(void*);     // 接收 SNAP/CLICK/PING 等命令
+    esp_err_t ExecuteSnapshot();
+    bool CaptureAndEncode(uint8_t** jpeg_data, size_t* jpeg_len); // LVGL→JPEG
+    esp_err_t SendData(const uint8_t*, size_t);    // Base64 后按行输出
+    size_t Base64Encode(const uint8_t*, size_t, uint8_t*);
+    size_t Base64EncodeLength(size_t);
+    void SendACK(snapshot_error_t);
+    void SendPONG();
+};
+```
+
+### 12.2 命令协议 — [main/display/snapshot/snapshot_protocol.h](main/display/snapshot/snapshot_protocol.h)
+
+二进制/ASCII 协议：
+- `SNAP`：单帧截图
+- `CLICK <idx>`：触发 0..3 索引的罗盘功能按钮（默认 0=今日运势 / 1=财运 / 2=健康 / 3=求财）
+- `PING`：回 `PONG` 用于存活探测
+
+详见 [doc/SNAPSHOT_USAGE.md](doc/SNAPSHOT_USAGE.md) 与 [tools/screenshot_with_log.py](tools/screenshot_with_log.py)。
+
+### 12.3 启动截图任务 — [main/main.cc#L29-L67](main/main.cc#L29-L67)
+
+```cpp
+static void screenshot_task(void* arg) {
+    auto& svc = SnapshotService::GetInstance();
+    vTaskDelay(pdMS_TO_TICKS(3000));   // 等待屏幕初始化
+    while (true) {
+        svc.TakeSnapshot();
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+```
+
+由 `XIAOZHI_ENABLE_BOOT_SCREENSHOT`（默认 1）控制是否创建。
 
 ---
 
-## 附录
+## 13. 依赖关系
 
-### A. 相关文档链接
+### 13.1 CMake 模块汇总（[main/CMakeLists.txt](main/CMakeLists.txt#L1034-L1057)）
 
-- [自定义开发板指南](docs/custom-board_zh.md)
-- [MCP协议物联网控制用法说明](docs/mcp-usage_zh.md)
-- [MCP协议交互流程](docs/mcp-protocol_zh.md)
-- [MQTT+UDP混合通信协议文档](docs/mqtt-udp_zh.md)
-- [WebSocket通信协议文档](docs/websocket_zh.md)
+```
+esp_pm, esp_psram, esp_netif,
+esp_driver_gpio, esp_driver_uart, esp_driver_spi,
+esp_driver_i2c, esp_driver_i2s, esp_driver_jpeg, esp_driver_ppa,
+esp_app_format, app_update, spi_flash, console, efuse, bt, fatfs
+```
 
-### B. 相关开源项目
+### 13.2 组件依赖（[main/idf_component.yml](main/idf_component.yml)）
 
-- [xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) - Python服务器
-- [joey-zhou/xiaozhi-esp32-server-java](https://github.com/joey-zhou/xiaozhi-esp32-server-java) - Java服务器
-- [78/xiaozhi-assets-generator](https://github.com/78/xiaozhi-assets-generator) - 自定义资源生成器
+| 类别 | 组件 |
+|------|------|
+| LCD 面板 | `waveshare/esp_lcd_sh8601`, `espressif/esp_lcd_co5300`, `esp_lcd_ili9341`, `esp_lcd_gc9a01`, `esp_lcd_st77916`, `esp_lcd_axs15231b`, `esp_lcd_st7701`, `esp_lcd_st7796`, `esp_lcd_spd2010`, `78/esp_lcd_nv3023`, `espressif/esp_lcd_jd9365`, `waveshare/esp_lcd_st7703`, `espressif/esp_lcd_ili9881c`, `espressif/esp_lcd_ek79007` |
+| IO Expander / Touch | `esp_io_expander_tca9554`, `waveshare/custom_io_expander_ch32v003`, `esp_io_expander_tca95xx_16bit`, `esp_lcd_touch_ft5x06`, `esp_lcd_touch_gt911`, `esp_lcd_touch_gt1151`, `waveshare/esp_lcd_touch_cst9217`, `esp_lcd_touch_cst816s`, `esp_lcd_touch_st7123`, `tny-robotics/sh1106-esp-idf` |
+| 网络 / 4G | `78/esp-wifi-connect`, `78/esp-ml307`, `78/uart-eth-modem`, `espressif/esp_hosted`, `espressif/esp_wifi_remote`, `espressif/iot_usbh_rndis` |
+| 音频 | `espressif/esp_audio_effects`, `espressif/esp_audio_codec`, `espressif/esp_codec_dev` |
+| AI / 语音 | `espressif/esp-sr`, `espressif/esp_image_effects`, `espressif/adc_battery_estimation`, `espressif/esp_new_jpeg`, `espressif2022/image_player`, `espressif2022/esp_emote_expression` |
+| 显示 | `lvgl/lvgl`, `esp_lvgl_port`, `espressif/esp_mmap_assets`, `78/xiaozhi-fonts`, `txp666/otto-emoji-gif-component` |
+| 输入 | `espressif/button`, `espressif/knob`, `espressif/bmi270_sensor`, `espressif/touch_slider_sensor`, `espressif/touch_button_sensor` |
+| LED | `espressif/led_strip`, `esphome/esp-hub75` |
+| 视觉/相机 | `espressif/esp32-camera`, `espressif/esp_video`, `espressif/esp32_p4_function_ev_board` |
+| 机器人 | `espfriends/servo_dog_ctrl`, `llgok/cpp_bus_driver` |
+| SenseCAP | `wvirgil123/sscma_client` |
+
+### 13.3 上游/三方服务（参考性，不参与编译）
+
+- 官方服务端：[xiaozhi.me](https://xiaozhi.me)
+- 自部署服务端（[README.md](README.md)）：
+  - [xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server)（Python）
+  - [joey-zhou/xiaozhi-esp32-server-java](https://github.com/joey-zhou/xiaozhi-esp32-server-java)（Java）
+  - [AnimeAIChat/xiaozhi-server-go](https://github.com/AnimeAIChat/xiaozhi-server-go)、[hackers365/xiaozhi-esp32-server-golang](https://github.com/hackers365/xiaozhi-esp32-server-golang)（Go）
+- 其他客户端：[huangjunsen0406/py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi)、[TOM88812/xiaozhi-android-client](https://github.com/TOM88812/xiaozhi-android-client)、[100askTeam/xiaozhi-linux](http://github.com/100askTeam/xiaozhi-linux)、[78/xiaozhi-sf32](https://github.com/78/xiaozhi-sf32)、[QuecPython/solution-xiaozhiAI](https://github.com/QuecPython/solution-xiaozhiAI)
+- 资源生成：[78/xiaozhi-assets-generator](https://github.com/78/xiaozhi-assets-generator)
+
+---
+
+## 14. 构建与运行
+
+### 14.1 通用步骤
+
+1. **克隆并初始化子模块**（重要 — 见 [`.tools/submod.log`](.tools/)）
+   ```bash
+   git clone https://github.com/78/xiaozhi-esp32.git
+   cd xiaozhi-esp32
+   git submodule update --init --recursive
+   ```
+2. **ESP-IDF 环境**
+   - 安装 ESP-IDF ≥ 5.5.2（见 [main/idf_component.yml](main/idf_component.yml)）。
+   - 推荐 Linux 编译速度更快。
+3. **配置**
+   ```bash
+   idf.py set-target esp32s3        # 或 esp32 / esp32c3 / esp32p4 ...
+   idf.py menuconfig
+   ```
+   关键项：`Xiaozhi Assistant → Board Type / Default Language / OTA URL`、
+   `Audio → Use Audio Processor / Send Wake Word Data`、
+   `Application → Enable BLE Fisheye`（可选）。
+4. **编译烧录**
+   ```bash
+   ./build_and_flash.sh             # 一键（推荐，见 .trae/rules/rule_xiaozhi.md）
+   # 或
+   idf.py build flash monitor
+   ```
+5. **首次启动**：默认连接 `xiaozhi.me` 官方服务器；未激活设备显示 6 位激活码，到 [xiaozhi.me 控制台](https://xiaozhi.me) 完成绑定。
+
+### 14.2 本仓库的一键烧录脚本 — [build_and_flash.sh](build_and_flash.sh)
+
+依据 `.trae/rules/rule_xiaozhi.md` 规范：
+
+- 必须使用项目根目录的 `build_and_flash.sh`，**不要**使用 `2>&1` 重定向以保留完整错误信息。
+- 也提供 Windows 版本 [build_and_flash.bat](build_and_flash.bat) / [build_and_flash.ps1](build_and_flash.ps1)。
+
+### 14.3 板型选择（节选 — 完整列表见 [main/CMakeLists.txt#L101-L854](main/CMakeLists.txt#L101-L854)）
+
+| 板型 Kconfig | 目录 | 备注 |
+|--------------|------|------|
+| `BREAD_COMPACT_WIFI` | `bread-compact-wifi` | 默认面包板（带屏/无屏等变体） |
+| `ESP_BOX_3` | `esp-box-3` | 乐鑫 ESP-BOX-3 |
+| `M5STACK_CORE_S3` | `m5stack-core-s3` | M5Stack CoreS3 |
+| `M5STACK_ATOM_S3R_ECHO_BASE` | `atoms3r-echo-base` | M5Stack AtomS3R + Echo Base |
+| `LILYGO_T_CIRCLE_S3` | `lilygo-t-circle-s3` | LILYGO T-Circle-S3（圆形屏，AI 罗盘备选板） |
+| `LICHUANG_DEV_S3` | `lichuang-dev` | 立创实战派 ESP32-S3 |
+| `XINGZHI_CUBE_1_54TFT_WIFI` | `xingzhi-cube-1.54tft-wifi` | 醒目 1.54 TFT |
+| `ESP_P4_FUNCTION_EV_BOARD` | `esp-p4-function-ev-board` | ESP32-P4 评估板 |
+| `WAVESHARE_ESP32_S3_TOUCH_AMOLED_*` | `esp32-s3-touch-amoled-*` | 微雪多款 AMOLED |
+| `SEEED_STUDIO_SENSECAP_WATCHER` | `sensecap-watcher` | SenseCAP Watcher |
+| `OTTO_ROBOT` / `ELECTRON_BOT` | `otto-robot` / `electron-bot` | 机器人 Otto / Electron Bot |
+| ... | ... | 共 70+ |
+
+### 14.4 自动化验证闭环（来自 `.trae/rules/rule_xiaozhi.md` §4、§5）
+
+烧录后必须进入验证闭环：
+
+```bash
+# 1. 启动后台截图脚本（默认每 5s 一张）
+# 2. 单次截图
+python3 tools/screenshot_with_log.py --snap
+# 3. 触发按钮索引 0..3（见 §CLICK 按钮索引）
+python3 tools/screenshot_with_log.py --click 0
+python3 tools/screenshot_with_log.py --click 1
+python3 tools/screenshot_with_log.py --click 2
+```
+
+- 输出路径：`screenshots/screenshot_latest.jpg`、`screenshots/history/screenshot_<ts>_<idx>.jpg`、`screenshots/logs/run_<ts>.log`。
+- 串口占用时：`lsof /dev/cu.usbmodem1101`，`kill -9 <PID>` 释放。
+- CLICK 无响应时：检查 UART 接收缓冲区（建议 ≥ 8192 字节）。
+
+---
+
+## 15. 关键数据流与状态机
+
+### 15.1 语音交互流程
+
+```
+  1) 用户："你好小智"
+       ↓
+  2) AudioCodec → AFE (VAD/AEC/NS) → WakeWord 命中 → MAIN_EVENT_WAKE_WORD_DETECTED
+       ↓
+  3) Application::ContinueWakeWordInvoke() → Protocol::OpenAudioChannel()
+       ↓
+  4) ServerHello → 协商 sample_rate=24000 / frame_duration=60
+       ↓
+  5) ListeningMode=AutoStop → SendStartListening
+       ↓
+  6) AudioInputTask → AudioService → OpusCodecTask → Protocol::SendAudio (BinaryProtocol2/3)
+       ↓
+  7) 服务器：ASR → LLM (Qwen/...) → TTS → Opus 流回传
+       ↓
+  8) Protocol::OnIncomingAudio → DecodeQueue → OpusCodecTask 解码 → PlaybackQueue
+       ↓
+  9) AudioOutputTask → AudioCodec (I2S) → 扬声器
+      期间 on_playback_finished → UI 反馈（如调试信息卡隐藏）
+```
+
+### 15.2 MCP 工具调用流程
+
+```
+  服务器 ──► JSON-RPC { method:"tools/call", params:{name, arguments} }
+        ↓
+  Application::OnIncomingJson()
+        ↓
+  McpServer::ParseMessage(json)
+        ↓
+  DoToolCall(id, name, arguments)
+        ↓
+  McpTool::Call(PropertyList) → 同步执行本地回调
+        ↓
+  ReplyResult(id, json_text)   ──► 服务器
+```
+
+### 15.3 AI 罗盘交互流程（姿态显示板）
+
+> **v2.2.7+ 变更**：完整 Animating→Result 流程已删除（Plan A）。现仅保留菜单选中/取消 + 功能区提示卡 + 调试信息卡。
+
+```
+  Idle (Boot 短按)  ─►  CycleFortuneMenuSelectionUnlocked()      // 选中项移动
+                       └─► ShowFortuneMenuFeatureCardUnlocked(index)  // 显示功能区提示卡（5s 后自动消失）
+  Idle (Boot 长按)  ─►  HandleFortuneBootLongPress() → 仅落日志（不再触发结果卡）
+  调试信息卡
+    - ShowDebugInfo(title, detail, hold_ms)
+    - 与 Application::RequestDebugTts() 联动：仅 Idle + WiFi 已连接时真正发声
+```
+
+### 15.4 状态切换合法性（DeviceStateMachine 内部）
+
+```
+  Unknown ─► Starting ─► Activating ─► Idle ◄───► Listening ◄───► Speaking
+                 │                       │                               
+                 ▼                       ▼                               
+              WifiConfiguring       Connecting (Mqtt/WS 重连)            
+                 │                       │                               
+                 └──────── Upgrading ────┘                               
+                                 │                                       
+                                 ▼                                       
+                            FatalError                                   
+```
+
+非法转换将被 `TransitionTo()` 拒绝并记录日志。
+
+---
+
+## 16. 配置选项（Kconfig）
+
+来自 [main/Kconfig.projbuild](main/Kconfig.projbuild)（节选）：
+
+| 选项 | 说明 |
+|------|------|
+| `BOARD_TYPE_*` | 70+ 板型之一 |
+| `OTA_URL` | OTA 校验 / 升级服务地址 |
+| `LANGUAGE_*` | 32 种语言之一（决定打包的 OGG 资源子集，缺失文件回退到 en-US） |
+| `FLASH_DEFAULT_ASSETS` / `FLASH_CUSTOM_ASSETS` / `FLASH_EXPRESSION_ASSETS` / `FLASH_NONE_ASSETS` | 资产烧录策略 |
+| `USE_ESP_BLUFI_WIFI_PROVISIONING` | BluFi 配网 |
+| `CONFIG_USE_AUDIO_PROCESSOR` | 启用 AFE（VAD/AEC/NS） |
+| `CONFIG_SEND_WAKE_WORD_DATA` | 把唤醒词片段发给服务器辅助 ASR |
+| `XIAOZHI_ENABLE_BLE_FISHEYE` | 启用 BLE 鱼眼指示（编译 `ble/ble_server.cc`） |
+| `XIAOZHI_STUDY_SUB_FEATURES`（CMake） | 编译架子鼓 / 学业计时（默认 OFF） |
+| `XIAOZHI_ENABLE_BOOT_SCREENSHOT`（编译宏） | 启动截图后台任务（默认 1） |
+
+> 额外的「罗盘专属」逻辑（菜单定义 `kFortuneMenuDefs[]`、状态机、`TaijiAutoRotation`）由代码常量 + `attitude_display.cc` 实现，不依赖 Kconfig。
+
+---
+
+## 17. 附录：板型一览
+
+> 完整 70+ 列表见 [main/CMakeLists.txt](main/CMakeLists.txt#L101-L854) 与 [README.md](README.md)。下表为代表性节选：
+
+| 制造商 | 板型示例 | 屏 / 特性 |
+|--------|---------|---------|
+| 乐鑫官方 | esp-box / esp-box-3 / esp-box-lite | 触摸屏 |
+| 乐鑫官方 | esp-spot / esp-sparkbot / esp-hi / esp-vocat | 摄像头/机器人 |
+| 乐鑫官方 | esp-s3-lcd-ev-board / esp-p4-function-ev-board | 评估板 |
+| 乐鑫官方 | esp32-cgc / esp32-cgc-144 | CGC 系列 |
+| 乐鑫官方 | esp32s3-korvo2-v3 | 语音开发板 |
+| M5Stack | atoms3-echo-base / atoms3r-echo-base / atom-echos3r / atommatrix-echo-base | Echo Base 麦克风 |
+| M5Stack | m5stack-core-s3 / m5stack-cardputer-adv / m5stack-tab5 | Core/Cardputer/Tab5 |
+| 立创 | lichuang-dev / lichuang-c3-dev | 实战派 |
+| LilyGO | t-circle-s3 / t-cameraplus-s3 / t-display-s3-pro-mvsrlora / t-display-p4 | 圆形 / 摄像头 / 4 寸 |
+| 微雪 | esp32-s3-touch-amoled-* / esp32-s3-touch-lcd-* / esp32-p4-wifi6-touch-lcd-* | 多款 AMOLED/LCD |
+| SenseCAP | sensecap-watcher | AI 监控 |
+| 见闻识物 | esp-hi（机器人） | 4 足 |
+| 移柯 | movecall-cuican-esp32s3 / movecall-moji-esp32s3 | 挂坠/手环 |
+| Otto | otto-robot / electron-bot | 双足机器人 |
+| 立创训练营 | eda-robot-pro / eda-super-bear / eda-tv-pro | 教具 |
+| 中科蓝讯 | aipi-lite | 入门 |
+| 矽诺微 | df-k10 / df-s3-ai-cam | AI 摄像头 |
+| 河洛 | hu-087 | 教育 |
+| 其他 | atk-dnesp32s3* / du-chatx / jiuchuan-s3 / kevin-box-2 / kevin-c3 / magiclick-* / mpython-v3 / surfer-c3 / xmini-c3 / yunliao-s3 / zaoque-ai ... | — |
+
+---
+
+*文档基于仓库当前快照自动生成；如需更新模块说明，请优先以源码注释与 `.trae/rules/rule_xiaozhi.md` 为准。*

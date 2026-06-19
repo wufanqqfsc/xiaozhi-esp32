@@ -1,7 +1,7 @@
 # 小智 AI 与后台服务器交互协议汇总
 
-> **文档版本**: v1.0
-> **更新日期**: 2026-06-16
+> **文档版本**: v1.1
+> **更新日期**: 2026-06-19
 > **项目路径**: `xiaozhi-esp32`
 
 ---
@@ -13,6 +13,7 @@
 | 配置项 | 地址 | 用途 |
 |-------|------|------|
 | **OTA 检查版本 URL** | `https://api.tenclass.net/xiaozhi/ota/` | 设备激活、获取 WebSocket 配置、检查固件版本 |
+| **本地 OTA 服务器** | `http://192.168.3.24:8003` | 本地部署时使用 |
 | 代码定义 | [main/Kconfig.projbuild#L3](file:///Users/sfan/Desktop/cv/github/OpenMAIC/xiaozhi-esp32/main/Kconfig.projbuild#L3) | `CONFIG_OTA_URL` |
 | 运行时读取 | [main/ota.cc#L46-52](file:///Users/sfan/Desktop/cv/github/OpenMAIC/xiaozhi-esp32/main/ota.cc#L46-L52) | `Ota::GetCheckVersionUrl()` |
 
@@ -21,6 +22,8 @@
 | 配置项 | 地址 | 用途 |
 |-------|------|------|
 | **默认服务器** | `xiaozhi.me` 官方服务器 | 语音唤醒、语音识别、LLM 对话、TTS 合成 |
+| **本地服务器** | `ws://192.168.3.24:8000/xiaozhi/v1/` | 本地部署时使用 |
+| **智控台** | `http://192.168.3.24:8002` | 设备管理、参数配置 |
 | **运行时获取** | 从 OTA 激活响应中获取 | 存储在 NVS `websocket` namespace |
 | URL 读取 | [main/protocols/websocket_protocol.cc#L84-85](file:///Users/sfan/Desktop/cv/github/OpenMAIC/xiaozhi-esp32/main/protocols/websocket_protocol.cc#L84-L85) | `Settings settings("websocket", false);` |
 
@@ -617,5 +620,35 @@ python3 -m esptool --port /dev/cu.usbmodem1101 monitor
 
 ---
 
+## 十、API 地址汇总
+
+### 10.1 正式版服务器
+
+| API 用途 | 正式版 URL | 请求方式 |
+|---------|-----------|---------|
+| OTA 激活与配置 | `https://api.tenclass.net/xiaozhi/ota/` | GET/POST |
+| OTA 固件下载 | `https://api.tenclass.net/xiaozhi/ota/firmware/<version>` | GET |
+| WebSocket 服务 | `wss://xxx.xiaozhi.me/xiaozhi/v1/` | WebSocket |
+
+### 10.2 本地服务器
+
+| API 用途 | 本地 URL | 请求方式 | 状态 |
+|---------|---------|---------|------|
+| OTA 激活与配置 | `http://192.168.3.24:8003/xiaozhi/ota/` | GET/POST | ✅ 服务正常 |
+| OTA 固件下载 | `http://192.168.3.24:8003/xiaozhi/ota/download/<filename>` | GET | ✅ 服务正常 |
+| 视觉分析接口 | `http://192.168.3.24:8003/mcp/vision/explain` | POST | ✅ 服务正常 |
+| WebSocket 服务 | `ws://192.168.3.24:8000/xiaozhi/v1/` | WebSocket | ⚠️ 未验证 |
+| 智控台管理 | `http://192.168.3.24:8002/` | HTTP | ✅ 服务正常 |
+
+### 10.3 激活响应对照
+
+| 响应字段 | 正式版示例 | 本地版配置 |
+|---------|----------|----------|
+| websocket.url | `wss://xxx.xiaozhi.me/...` | `ws://192.168.3.24:8000/xiaozhi/v1/` |
+| websocket.token | `Bearer xxx` | 智控台注册设备后获取 |
+| firmware.url | `https://api.tenclass.net/xiaozhi/ota/firmware/...` | `http://192.168.3.24:8003/xiaozhi/ota/download/<filename>` |
+
+---
+
 *本文档由 AI 助手根据代码分析整理生成*
-*文档版本：v1.2 (2026-06-16 更新)*
+*文档版本：v1.2 (2026-06-19 更新)*

@@ -10,9 +10,9 @@
 #include <cstring>
 #include <cstdio>
 
-// 启动时自动截图功能
+// 启动时自动截图功能（默认关闭；启用方法：在 menuconfig / idf.py build -DXIAOZHI_ENABLE_BOOT_SCREENSHOT=1 显式打开）
 #ifndef XIAOZHI_ENABLE_BOOT_SCREENSHOT
-#define XIAOZHI_ENABLE_BOOT_SCREENSHOT 1
+#define XIAOZHI_ENABLE_BOOT_SCREENSHOT 0
 #endif
 
 #include "application.h"
@@ -66,34 +66,6 @@ static void screenshot_task(void* arg) {
 }
 #endif
 
-// 自动触发 fortune 演示任务（仅用于截图验证）
-#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
-static void fortune_demo_task(void* arg) {
-    ESP_LOGI(TAG, "[fortune_demo_task] waiting 25s for UI to stabilize...");
-    vTaskDelay(pdMS_TO_TICKS(25000));
-
-    auto* display = Board::GetInstance().GetDisplay();
-    if (display == nullptr) {
-        ESP_LOGE(TAG, "[fortune_demo_task] display is null");
-        vTaskDelete(NULL);
-        return;
-    }
-
-    auto* attitude = dynamic_cast<AttitudeDisplay*>(display);
-    if (attitude == nullptr) {
-        ESP_LOGE(TAG, "[fortune_demo_task] display is not AttitudeDisplay");
-        vTaskDelete(NULL);
-        return;
-    }
-
-    ESP_LOGI(TAG, "[fortune_demo_task] triggering fortune demo...");
-    attitude->ShowFortune(
-        "今日运势 ☀", "乾为天", "今日宜进取，顺势而行。",
-        "宜：签约、出行", "忌：熬夜、口舌", 63, 0);
-    vTaskDelete(NULL);
-}
-#endif
-
 extern "C" void app_main(void)
 {
     // Initialize NVS flash for WiFi configuration
@@ -126,14 +98,6 @@ extern "C" void app_main(void)
         ESP_LOGE(TAG, "Failed to create screenshot task");
     } else {
         ESP_LOGI(TAG, "Screenshot task created successfully");
-    }
-
-    // 启动自动 fortune 演示任务，方便截图验证布局
-    BaseType_t fortune_ret = xTaskCreate(&fortune_demo_task, "fortune_demo_task", 4096, NULL, 4, NULL);
-    if (fortune_ret != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create fortune demo task");
-    } else {
-        ESP_LOGI(TAG, "Fortune demo task created successfully");
     }
 #endif
 

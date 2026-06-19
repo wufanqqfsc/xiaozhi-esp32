@@ -59,6 +59,16 @@
 #define DISPLAY_BACKLIGHT_PIN           QSPI_PIN_NUM_LCD_BL
 #define DISPLAY_BACKLIGHT_OUTPUT_INVERT false
 
+// Micro SD (SDMMC 4-bit) - 见 doc/WAVESHARE_ESP32_S3_TOUCH_LCD_1_85B.md
+#define SD_MMC_CLK_PIN       GPIO_NUM_15
+#define SD_MMC_CMD_PIN       GPIO_NUM_14
+#define SD_MMC_D0_PIN        GPIO_NUM_16
+#define SD_MMC_D1_PIN        GPIO_NUM_17
+#define SD_MMC_D2_PIN        GPIO_NUM_12
+#define SD_MMC_D3_PIN        GPIO_NUM_13
+#define SD_MMC_BUS_WIDTH     4
+#define SD_MMC_MOUNT_POINT   "/sdcard"
+
 #define TAIJIPI_ST77916_PANEL_BUS_QSPI_CONFIG(sclk, d0, d1, d2, d3, max_trans_sz) \
     {                                                                             \
         .data0_io_num = d0,                                                       \

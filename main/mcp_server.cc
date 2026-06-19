@@ -178,26 +178,7 @@ void McpServer::AddCommonTools() {
                 return true;
             });
 
-        // 迭代 2: 运势三态演示（示例数据，迭代 4 接入服务端 JSON）
-        AddTool("self.attitude.show_fortune",
-            "Trigger AI fortune flow with sample data: Animating(10s, taiji ramp) -> Result card(30s) -> Idle.",
-            PropertyList(),
-            [attitude_display](const PropertyList& properties) -> ReturnValue {
-                (void)properties;
-                attitude_display->ShowFortune(
-                    "今日运势 ☀", "乾为天", "今日宜进取，顺势而行。",
-                    "宜：签约、出行", "忌：熬夜、口舌", 63, 0);
-                return true;
-            });
-
-        AddTool("self.attitude.dismiss_fortune",
-            "Dismiss fortune result card and return to Idle.",
-            PropertyList(),
-            [attitude_display](const PropertyList& properties) -> ReturnValue {
-                (void)properties;
-                attitude_display->DismissFortune();
-                return true;
-            });
+        // 运势结果卡（Plan A）已彻底删除：show_fortune / dismiss_fortune 工具同步下线
     }
 
     auto camera = board.GetCamera();

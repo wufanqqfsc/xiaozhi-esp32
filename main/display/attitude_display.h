@@ -34,21 +34,16 @@
 // 太极 + 鱼眼（外径 R=86，直径 172px，与规格/验收一致）
 #define TAIJI_RADIUS          86
 #define TAIJI_CANVAS_SIZE     (TAIJI_RADIUS * 2)
-#define FISHEYE_ICON_SIZE     (TAIJI_RADIUS / 3)   // eye_r = R/6
+// 鱼眼：32px（较原 26px 整体放大约 23%，图标字体 20px，整体视觉 +20%）
+#define FISHEYE_ICON_SIZE     32
 static_assert(TAIJI_RADIUS == 86, "TAIJI_RADIUS must be 86 (172px canvas, per product spec)");
-static_assert(FISHEYE_ICON_SIZE == 28, "FISHEYE_ICON_SIZE must be 28px at R=86");
+static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of Taiji radius, +20% from 26px)");
 #define FISHEYE_PULSE_MS      300
 #define TAIJI_GOLD_RING_WIDTH 3
 #define FISHEYE_BORDER_WIDTH  2
 
-// 结果卡（长按完整运势卡）扩展到外部圆环边界 LAYER4_BOUNDARY_RADIUS
-#define FORTUNE_CARD_SIZE       LAYER4_OUTER_SIZE
-#define FORTUNE_CARD_X          (ATTITUDE_CENTER_X - FORTUNE_CARD_SIZE / 2)
-#define FORTUNE_CARD_Y          (ATTITUDE_CENTER_Y - FORTUNE_CARD_SIZE / 2)
-#define FORTUNE_CARD_RADIUS     LAYER4_BOUNDARY_RADIUS
-
-// 功能显示区（短按功能图标后的提示卡）：356px 直径（与FORTUNE_CARD_SIZE一致），覆盖外部圆环边界
-#define DEBUG_INFO_CARD_SIZE     FORTUNE_CARD_SIZE
+// 功能显示区（短按功能图标后的提示卡）：356px 直径，覆盖外部圆环边界
+#define DEBUG_INFO_CARD_SIZE     LAYER4_OUTER_SIZE
 #define DEBUG_INFO_CARD_W        DEBUG_INFO_CARD_SIZE
 #define DEBUG_INFO_CARD_H        DEBUG_INFO_CARD_SIZE
 #define DEBUG_INFO_CARD_X        (ATTITUDE_CENTER_X - DEBUG_INFO_CARD_W / 2)
@@ -84,10 +79,12 @@ enum class FortuneMenuType : int {
 };
 
 // 鱼眼在 taiji_container_ 内的局部坐标（上眼=阴中阳/WiFi，下眼=阳中阴/BLE）
-#define FISHEYE_WIFI_LOCAL_X  (TAIJI_RADIUS - (FISHEYE_ICON_SIZE / 2))
-#define FISHEYE_WIFI_LOCAL_Y  (TAIJI_RADIUS / 2 - (FISHEYE_ICON_SIZE / 2))
+// 阴鱼圆心 (TAIJI_RADIUS, TAIJI_RADIUS/2) = (86, 43)，20px 鱼眼居中放置
+#define FISHEYE_WIFI_LOCAL_X  (TAIJI_RADIUS - FISHEYE_ICON_SIZE / 2)
+#define FISHEYE_WIFI_LOCAL_Y  (TAIJI_RADIUS / 2 - FISHEYE_ICON_SIZE / 2)
+// 阳鱼圆心 (TAIJI_RADIUS, TAIJI_RADIUS * 3 / 2) = (86, 129)
 #define FISHEYE_BLE_LOCAL_X   FISHEYE_WIFI_LOCAL_X
-#define FISHEYE_BLE_LOCAL_Y   (TAIJI_RADIUS + TAIJI_RADIUS / 2 - (FISHEYE_ICON_SIZE / 2))
+#define FISHEYE_BLE_LOCAL_Y   (TAIJI_RADIUS + TAIJI_RADIUS / 2 - FISHEYE_ICON_SIZE / 2)
 
 enum class WifiStatus {
     DISCONNECTED = 0,
@@ -101,12 +98,7 @@ enum class BleStatus {
     CONNECTED = 2,
 };
 
-// 迭代 2: AI 运势三态状态机
-enum class FortuneState {
-    Idle = 0,
-    Animating = 1,
-    Result = 2,
-};
+// 运势菜单状态已彻底简化为：始终为 Idle（Plan A 结果卡与 Animating/Result 状态机已删除）
 
 #ifndef STUDY_SUB_FEATURES_ENABLED
 #define STUDY_SUB_FEATURES_ENABLED 0
@@ -149,6 +141,25 @@ enum class StudySubState {
 #define STUDY_AREA_ROTATION_OFFSET_TENTH_DEG 900  // 学业功能区整体顺时针旋转 90°
 #endif  // STUDY_SUB_FEATURES_ENABLED
 
+// 心情卦：迷宫游戏子功能
+#ifndef MOOD_GUA_SUB_FEATURES_ENABLED
+#define MOOD_GUA_SUB_FEATURES_ENABLED 1
+#endif
+
+#if MOOD_GUA_SUB_FEATURES_ENABLED
+/** 心情卦（序号 4）L0 子态 */
+enum class MoodGuaSubState {
+    Hidden = 0,      // 显示太极鱼
+    MazePlaying = 1, // 迷宫游戏模式
+};
+
+#define MAZE_GRID_SIZE       9        // 9x9 网格
+#define MAZE_CANVAS_SIZE     (TAIJI_CANVAS_SIZE - 20) // 留出边缘
+#define MAZE_CELL_SIZE       (MAZE_CANVAS_SIZE / MAZE_GRID_SIZE)
+#define MAZE_WALL_WIDTH      2        // 墙壁线宽
+#define MAZE_PLAYER_SIZE     (MAZE_CELL_SIZE - 4)
+#endif  // MOOD_GUA_SUB_FEATURES_ENABLED
+
 class AttitudeDisplay : public SpiLcdDisplay {
 public:
     AttitudeDisplay(esp_lcd_panel_io_handle_t panel_io,
@@ -181,31 +192,19 @@ public:
     WifiStatus GetWifiFisheyeStatus() const { return wifi_status_; }
     BleStatus GetBleFisheyeStatus() const { return ble_status_; }
 
-    // 迭代 2: 运势三态 + 结果卡（dir_index: 0=N 1=E 2=S 3=W；gua_index: 0~63）
-    void ShowFortune(const std::string& func_label, const std::string& gua_name,
-                     const std::string& core_text, const std::string& yi, const std::string& ji,
-                     int gua_index, int dir_index);
-    /** 按服务端 8 类运势入口触发（菜单环 / MCP） */
-    void ShowFortuneFromMenu(FortuneMenuType type);
-    void EnterAnimatingState();
-    void EnterResultState();
+    // 运势菜单（短按选中、长按确认；结果卡 Plan A 已彻底删除）
     void EnterIdleState();
-    void HighlightDirection(int dir);
-    void HighlightGua(int gua_idx);
-    void CreateFortuneCard();
-    void DismissFortune();
-    FortuneState GetFortuneState() const { return fortune_state_; }
 
     // 调试信息卡：把与后台交互的关键事件短时显示在太极圈内
     // hold_ms: 显示持续时间；调用方若同步播放音频，应传入音频可覆盖的时长
     void ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms = 3000);
     void HideDebugInfo();
-    /** Boot 短按：Idle 循环选中运势入口；Result 关闭卡片 */
+    /** Boot 短按：Idle 循环选中运势入口 */
     bool HandleBootKey();
-    /** Boot 长按：Idle 触发当前选中运势 */
+    /** Boot 长按：Idle 触发当前选中运势（确定） */
     bool HandleFortuneBootLongPress();
-    /** 电源键短按：学业区内任意子态退出并恢复完整太极圈 */
-    bool HandleStudyPowerKey();
+    /** 电源键短按：返回/取消 - 取消选中、隐藏功能区 */
+    bool HandlePowerKey();
 
 private:
     lv_obj_t* attitude_container_ = nullptr;
@@ -220,17 +219,10 @@ private:
     lv_obj_t* circle_mid_ = nullptr;
     lv_obj_t* circle_inner_ = nullptr;
 
-    lv_obj_t* dir_n_label_ = nullptr;
-    lv_obj_t* dir_e_label_ = nullptr;
-    lv_obj_t* dir_s_label_ = nullptr;
-    lv_obj_t* dir_w_label_ = nullptr;
-
     lv_obj_t* layer1_container_ = nullptr;
-    lv_obj_t* fortune_prompt_title_ = nullptr;
     lv_obj_t* layer3_bg_arc_ = nullptr;
     lv_obj_t* layer3_progress_arc_ = nullptr;
     lv_obj_t* layer4_outer_ring_ = nullptr;
-    lv_obj_t* taiji_gold_pulse_arc_ = nullptr;  // 运势 Animating 时太极金边脉冲（随 taiji_container_ 旋转）
 
     lv_obj_t* fortune_menu_ring_touch_ = nullptr;
     lv_obj_t* fortune_menu_labels_[FORTUNE_MENU_COUNT] = {};
@@ -246,36 +238,37 @@ private:
     int current_state_level_ = 0;
 
     lv_obj_t* wifi_fisheye_ = nullptr;
-    lv_obj_t* wifi_fisheye_canvas_ = nullptr;
     lv_obj_t* wifi_fisheye_icon_ = nullptr;
+    lv_obj_t* wifi_fisheye_canvas_ = nullptr;
     lv_obj_t* ble_fisheye_ = nullptr;
-    lv_obj_t* ble_fisheye_canvas_ = nullptr;
     lv_obj_t* ble_fisheye_icon_ = nullptr;
+    lv_obj_t* ble_fisheye_canvas_ = nullptr;
     WifiStatus wifi_status_ = WifiStatus::DISCONNECTED;
     BleStatus ble_status_ = BleStatus::DISABLED;
 
     void CreateWifiFisheye();
     void CreateBleFisheye();
+    void RedrawWifiFisheyeCanvas();
+    void RedrawBleFisheyeCanvas();
     void StartFisheyePulse(lv_obj_t* obj);
     void StartFisheyeBorderPulse(lv_obj_t* obj, uint32_t c1, uint32_t c2);
     void StopFisheyePulse(lv_obj_t* obj);
     void ApplyWifiFisheyeStyle(WifiStatus status);
     void ApplyBleFisheyeStyle(BleStatus status);
-    void RedrawWifiFisheyeCanvas();
-    void RedrawBleFisheyeCanvas();
+    void UpdateWifiFisheyeBorderColor(WifiStatus status);
+    void UpdateBleFisheyeBorderColor(BleStatus status);
 
     void CreateBackground();
     void CreateLayer0Taiji();
-    void CreateTaijiGoldPulseArc();
     void CreateLayer1CoreInfo();
     void CreateLayer3StatusProgress();
     void CreateLayer4Boundary();
     void CreateFortuneMenuRing();
     void CreateFortuneMenuRingTouch();
-    int FortuneMenuIndexFromPoint(int x, int y) const;
     void SetFortuneMenuVisible(bool visible);
     void SelectFortuneMenuItem(int index);
     void SelectFortuneMenuItemUnlocked(int index);
+    void DeselectFortuneMenuItemUnlocked();
     void UpdateFortuneMenuSelection();
     void UpdateFortuneMenuItemVisual(int index, bool selected);
     void CycleFortuneMenuSelection();
@@ -285,8 +278,7 @@ private:
     void CreateStudyArea();
 #endif
     void SyncStudyAreaWithMenu();
-    void ShowFortuneMenuFeatureCard(int index);
-    void ShowFortuneMenuFeatureCardUnlocked(int index);
+    void SetTaijiCoreVisible(bool visible);
 #if STUDY_SUB_FEATURES_ENABLED
     void EnterStudyMenu();
     void ExitStudyArea();
@@ -304,7 +296,6 @@ private:
     void StopStudyFocusTimer();
     void CancelStudyFocusToMenu();
     void StopStudyCompleteBgm();
-    void SetTaijiCoreVisible(bool visible);
     void ApplyStudyAreaOrientation(bool study_active);
     void UpdateStudyFocusDisplay(int remaining_ms);
     void OnStudyFocusComplete();
@@ -312,66 +303,38 @@ private:
 #else
     void ExitStudyArea() {}
 #endif
-    void CreateCompassPoints();
+#if MOOD_GUA_SUB_FEATURES_ENABLED
+    void CreateMoodGuaArea();
+    void EnterMaze();
+    void ExitMoodGuaArea();
+    void SyncMoodGuaAreaWithMenu();
+    void GenerateMaze();
+    void DrawMazeOnCanvas();
+    void MoveMazePlayer(int drow, int dcol);
+    void RedrawMazePlayer();
+    void OnMazeTouched(lv_event_t* e);
+    static void OnMazeTouchedStatic(lv_event_t* e);
+    void OnMazeWon();
+#endif
     void UpdateStateColor(int level);
 
-    FortuneState fortune_state_ = FortuneState::Idle;
-    lv_timer_t* fortune_anim_timer_ = nullptr;
-    lv_timer_t* fortune_result_timer_ = nullptr;
-    lv_timer_t* fortune_fisheye_pulse_timer_ = nullptr;
-    lv_timer_t* fortune_progress_timer_ = nullptr;
-    int fortune_progress_step_ = 0;
-
-    lv_obj_t* fortune_card_ = nullptr;
-    lv_obj_t* fortune_func_label_ = nullptr;
-    lv_obj_t* fortune_gua_widget_ = nullptr;
-    lv_obj_t* fortune_gua_name_label_ = nullptr;
-    lv_obj_t* fortune_core_label_ = nullptr;
-    lv_obj_t* fortune_yi_label_ = nullptr;
-    lv_obj_t* fortune_ji_label_ = nullptr;
-    lv_obj_t* fortune_close_label_ = nullptr;
-
-    std::string fortune_func_label_text_;
-    std::string fortune_gua_name_text_;
-    std::string fortune_core_text_;
-    std::string fortune_yi_text_;
-    std::string fortune_ji_text_;
-    int fortune_gua_index_ = 0;
-    int fortune_highlight_dir_ = 0;
-    int fortune_fisheye_pulse_count_ = 0;
-    bool fortune_fisheye_pulse_gold_ = true;
-    lv_timer_t* fortune_taiji_ramp_timer_ = nullptr;
-    lv_timer_t* fortune_result_delay_timer_ = nullptr;
-    uint32_t fortune_taiji_ramp_start_tick_ = 0;
-
-    // 调试信息卡（与后台交互的关键事件）：短时显示在太极圈内
-    lv_obj_t* debug_info_card_ = nullptr;
+    // 调试信息卡（短时显示在太极圈内）：title + detail 两行
+    lv_obj_t* function_area_card_ = nullptr;
     lv_obj_t* debug_info_title_ = nullptr;
     lv_obj_t* debug_info_detail_ = nullptr;
-    lv_obj_t* debug_info_gua_label_ = nullptr;
-    lv_obj_t* debug_info_core_label_ = nullptr;
-    lv_obj_t* debug_info_yi_label_ = nullptr;
-    lv_obj_t* debug_info_ji_label_ = nullptr;
     lv_timer_t* debug_info_hide_timer_ = nullptr;
     uint32_t debug_info_last_show_ms_ = 0;
     std::string debug_info_last_title_;
-    std::string debug_info_fortune_title_;
     void CreateDebugInfoCard();
     void DestroyDebugInfoCard();
     void ApplyDebugInfoCardLayout();
-    void EnsureFortunePromptTitle();
-    void HideFortunePromptTitle();
-    void HideDebugInfoCardLabels();
     struct DebugInfoPresentOpts {
         bool persistent = false;
-        /** 运势 L0 短提示：文字画在 screen 顶层，卡片仅作半透明底 */
-        bool screen_title_overlay = false;
     };
     void PresentDebugInfoCardUnlocked(const std::string& title, const std::string& detail,
                                       uint32_t hold_ms, const DebugInfoPresentOpts& opts);
     void HideDebugInfoUnlocked();
     static void OnDebugInfoHideTimer(lv_timer_t* timer);
-    bool debug_info_is_fortune_feature_ = false;
 
 #if STUDY_SUB_FEATURES_ENABLED
     StudySubState study_sub_state_ = StudySubState::Hidden;
@@ -396,26 +359,29 @@ private:
     int study_saved_taiji_rotation_ = 0;
     bool study_orientation_applied_ = false;
 #endif
-    /** 电源键关闭功能提示卡后抑制重显，直至切换到其他运势项 */
-    bool fortune_feature_card_suppressed_ = false;
+#if MOOD_GUA_SUB_FEATURES_ENABLED
+    MoodGuaSubState mood_gua_sub_state_ = MoodGuaSubState::Hidden;
+    lv_obj_t* mood_gua_panel_ = nullptr;
+    lv_obj_t* maze_canvas_ = nullptr;
+    lv_obj_t* maze_player_obj_ = nullptr;
+    lv_obj_t* maze_title_label_ = nullptr;
+    lv_obj_t* maze_end_label_ = nullptr;
+    bool maze_walls_[MAZE_GRID_SIZE][MAZE_GRID_SIZE][4] = {}; // [row][col] = {top, right, bottom, left}
+    int maze_player_row_ = 0;
+    int maze_player_col_ = 0;
+    int maze_end_row_ = MAZE_GRID_SIZE - 1;
+    int maze_end_col_ = MAZE_GRID_SIZE - 1;
+    bool mood_gua_had_auto_rotation_ = false;
+    int mood_gua_saved_rotation_period_ms_ = 60000;
+#endif
 
-    void DestroyFortuneCard();
-    void StopFortuneAnimatingEffects(bool restore_taiji_rotation = true);
-    void StartFortuneTaijiPhasedRotation();
-    void EnsureDirectionDot(int dir);
-    void HideDirectionDots();
-    lv_obj_t* GetDirectionDot(int dir);
-    static void OnFortuneAnimTimer(lv_timer_t* timer);
-    static void OnFortuneResultDelayTimer(lv_timer_t* timer);
-    static void OnFortuneResultTimer(lv_timer_t* timer);
-    static void OnFortuneFisheyePulseTimer(lv_timer_t* timer);
-    static void OnFortuneProgressStepTimer(lv_timer_t* timer);
-    static void OnFortuneTaijiRampTimer(lv_timer_t* timer);
-    static void OnFortuneMenuRingTouched(lv_event_t* e);
 #if STUDY_SUB_FEATURES_ENABLED
     static void OnStudyFocusTimer(lv_timer_t* timer);
     static void OnStudyCompleteBgmTimer(lv_timer_t* timer);
     static void OnStudyMenuIconClicked(lv_event_t* e);
+#endif
+#if MOOD_GUA_SUB_FEATURES_ENABLED
+    // 迷宫游戏的回调在上面已声明
 #endif
 };
 

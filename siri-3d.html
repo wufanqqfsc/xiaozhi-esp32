@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Siri 3D Interactive - Inside the Sphere</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; }
+        
+        .ui-overlay {
+            position: fixed;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            z-index: 100;
+        }
+        
+        .mic-button {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+            border: 2px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+        
+        .mic-button:hover { transform: scale(1.1); border-color: #666; }
+        
+        .mic-button.active {
+            background: linear-gradient(145deg, #ff6b6b, #ee5a5a);
+            border-color: #ff8888;
+            box-shadow: 0 0 30px rgba(255, 107, 107, 0.6), 0 0 60px rgba(255, 107, 107, 0.3);
+            animation: pulse-glow 1s ease-in-out infinite;
+        }
+        
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 30px rgba(255, 107, 107, 0.6), 0 0 60px rgba(255, 107, 107, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(255, 150, 150, 0.8), 0 0 80px rgba(255, 107, 107, 0.5); }
+        }
+        
+        .mic-button svg { width: 28px; height: 28px; fill: #888; transition: fill 0.3s; }
+        .mic-button.active svg { fill: #fff; }
+        
+        .hint-text {
+            position: fixed;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,0.5);
+            font-size: 14px;
+            font-weight: 300;
+            letter-spacing: 1px;
+            opacity: 0;
+            transition: opacity 0.5s;
+            text-align: center;
+        }
+        .hint-text.visible { opacity: 1; }
+        
+        .status-bar {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,0.8);
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 3px;
+            opacity: 0;
+            transition: opacity 0.5s;
+            text-shadow: 0 0 20px currentColor;
+        }
+        .status-bar.visible { opacity: 1; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    
+    <div class="hint-text" id="hint">点击麦克风开始对话</div>
+    <div class="status-bar" id="status">LISTENING</div>
+    
+    <div class="ui-overlay">
+        <div class="mic-button" id="micBtn">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        // ============ 内部球体（从内部看） ============
+        const innerSphereRadius = 50;
+        
+        // 内部球面纹理
+        const sphereCanvas = document.createElement('canvas');
+        sphereCanvas.width = 2048;
+        sphereCanvas.height = 1024;
+        const ctx = sphereCanvas.getContext('2d');
+        
+        // 创建渐变背景
+        const gradient = ctx.createLinearGradient(0, 0, 0, sphereCanvas.height);
+        gradient.addColorStop(0, '#0a0015');
+        gradient.addColorStop(0.3, '#1a0a2e');
+        gradient.addColorStop(0.5, '#16213e');
+        gradient.addColorStop(0.7, '#1a1a3e');
+        gradient.addColorStop(1, '#0a0a1a');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, sphereCanvas.width, sphereCanvas.height);
+        
+        // 添加星点
+        for (let i = 0; i < 500; i++) {
+            const x = Math.random() * sphereCanvas.width;
+            const y = Math.random() * sphereCanvas.height;
+            const size = Math.random() * 2 + 0.5;
+            const alpha = Math.random() * 0.8 + 0.2;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.fill();
+        }
+        
+        const sphereTexture = new THREE.CanvasTexture(sphereCanvas);
+        const innerSphereGeometry = new THREE.SphereGeometry(innerSphereRadius, 64, 64);
+        const innerSphereMaterial = new THREE.MeshBasicMaterial({
+            map: sphereTexture,
+            side: THREE.BackSide
+        });
+        const innerSphere = new THREE.Mesh(innerSphereGeometry, innerSphereMaterial);
+        scene.add(innerSphere);
+
+        // ============ 极光/光幕效果 ============
+        const auroraCount = 8;
+        const auroraGroup = new THREE.Group();
+        scene.add(auroraGroup);
+        
+        for (let i = 0; i < auroraCount; i++) {
+            const geometry = new THREE.PlaneGeometry(30, 40, 32, 32);
+            const hue = (i / auroraCount + Math.random() * 0.1) % 1;
+            const material = new THREE.MeshBasicMaterial({
+                color: new THREE.Color().setHSL(hue, 0.8, 0.5),
+                transparent: true,
+                opacity: 0.15 + Math.random() * 0.1,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+            const aurora = new THREE.Mesh(geometry, material);
+            aurora.position.set(
+                (Math.random() - 0.5) * 20,
+                (Math.random() - 0.5) * 15,
+                (Math.random() - 0.5) * 20 - 15
+            );
+            aurora.rotation.set(
+                Math.random() * Math.PI,
+                Math.random() * Math.PI,
+                Math.random() * Math.PI
+            );
+            aurora.userData = {
+                baseOpacity: material.opacity,
+                speed: 0.5 + Math.random() * 0.5,
+                phase: Math.random() * Math.PI * 2,
+                rotSpeed: (Math.random() - 0.5) * 0.01
+            };
+            auroraGroup.add(aurora);
+        }
+
+        // ============ 彩色粒子系统 ============
+        const particleCount = 3000;
+        const particleGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+        const sizes = new Float32Array(particleCount);
+        
+        for (let i = 0; i < particleCount; i++) {
+            // 在球体内分布
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            const r = Math.pow(Math.random(), 0.5) * innerSphereRadius * 0.95;
+            
+            positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+            positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+            positions[i * 3 + 2] = r * Math.cos(phi);
+            
+            // 彩虹色相
+            const hue = Math.random();
+            const saturation = 0.7 + Math.random() * 0.3;
+            const lightness = 0.5 + Math.random() * 0.3;
+            const color = new THREE.Color().setHSL(hue, saturation, lightness);
+            
+            colors[i * 3] = color.r;
+            colors[i * 3 + 1] = color.g;
+            colors[i * 3 + 2] = color.b;
+            
+            sizes[i] = 2 + Math.random() * 4;
+        }
+        
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        
+        const particleMaterial = new THREE.PointsMaterial({
+            size: 0.3,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending,
+            sizeAttenuation: false
+        });
+        
+        const particles = new THREE.Points(particleGeometry, particleMaterial);
+        scene.add(particles);
+
+        // ============ 能量波纹 ============
+        const rippleCount = 5;
+        const ripples = [];
+        
+        for (let i = 0; i < rippleCount; i++) {
+            const geometry = new THREE.RingGeometry(0.1, 0.15, 64);
+            const hue = (i / rippleCount) % 1;
+            const material = new THREE.MeshBasicMaterial({
+                color: new THREE.Color().setHSL(hue, 0.9, 0.6),
+                transparent: true,
+                opacity: 0,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+            const ripple = new THREE.Mesh(geometry, material);
+            ripple.userData = {
+                scale: 0,
+                maxScale: 30 + i * 10,
+                speed: 0.3 + Math.random() * 0.2,
+                hue: hue
+            };
+            scene.add(ripple);
+            ripples.push(ripple);
+        }
+
+        // ============ 能量核心球 ============
+        const coreGeometry = new THREE.SphereGeometry(2, 32, 32);
+        const coreMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.8
+        });
+        const core = new THREE.Mesh(coreGeometry, coreMaterial);
+        scene.add(core);
+
+        // 核心光晕
+        const coreGlowGeometry = new THREE.SphereGeometry(2.5, 32, 32);
+        const coreGlowMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff6b6b,
+            transparent: true,
+            opacity: 0.3,
+            blending: THREE.AdditiveBlending
+        });
+        const coreGlow = new THREE.Mesh(coreGlowGeometry, coreGlowMaterial);
+        scene.add(coreGlow);
+
+        camera.position.z = 0;
+
+        // ============ 状态 ============
+        let isListening = false;
+        let audioIntensity = 0;
+        let time = 0;
+        let mouseX = 0, mouseY = 0;
+        let rippleIndex = 0;
+        let lastRippleTime = 0;
+        
+        const statusEl = document.getElementById('status');
+        const hintEl = document.getElementById('hint');
+        const micBtn = document.getElementById('micBtn');
+        const statusColors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#9b59b6', '#ff8c42'];
+        let colorIndex = 0;
+
+        // ============ 音频处理 ============
+        let audioContext, analyser, dataArray;
+        
+        micBtn.addEventListener('click', toggleListening);
+        
+        async function toggleListening() {
+            isListening = !isListening;
+            micBtn.classList.toggle('active', isListening);
+            hintEl.classList.toggle('visible', !isListening);
+            statusEl.classList.toggle('visible', isListening);
+            
+            if (isListening) {
+                colorIndex = 0;
+                statusEl.style.color = statusColors[colorIndex];
+                statusEl.textContent = '● LISTENING';
+                
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    const source = audioContext.createMediaStreamSource(stream);
+                    source.connect(analyser);
+                    analyser.fftSize = 256;
+                    dataArray = new Uint8Array(analyser.frequencyBinCount);
+                } catch (e) {
+                    console.log('Microphone access denied, using simulation mode');
+                }
+            } else {
+                if (audioContext) audioContext.close();
+                audioIntensity = 0;
+                statusEl.textContent = '● READY';
+            }
+        }
+
+        // ============ 输入 ============
+        document.addEventListener('mousemove', (e) => {
+            mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+            mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            const touch = e.touches[0];
+            mouseX = (touch.clientX / window.innerWidth - 0.5) * 2;
+            mouseY = (touch.clientY / window.innerHeight - 0.5) * 2;
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ============ 动画 ============
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.016;
+            
+            // 音频处理
+            if (isListening && analyser) {
+                analyser.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                audioIntensity = average / 255;
+            } else if (isListening) {
+                audioIntensity = 0.4 + Math.sin(time * 2) * 0.2 + Math.sin(time * 5) * 0.1;
+            } else {
+                audioIntensity *= 0.95;
+            }
+            
+            // 核心球脉动
+            const pulse = 1 + audioIntensity * 0.5;
+            core.scale.setScalar(pulse);
+            coreGlow.scale.setScalar(pulse * 1.2);
+            
+            // 核心颜色变化
+            if (isListening) {
+                colorIndex = (colorIndex + 0.005) % statusColors.length;
+                const hue = colorIndex;
+                const color = new THREE.Color().setHSL(hue, 0.8, 0.6);
+                core.material.color = color;
+                coreGlow.material.color = color;
+                statusEl.style.color = statusColors[Math.floor(colorIndex * statusColors.length) % statusColors.length];
+            }
+            
+            // 极光动画
+            auroraGroup.children.forEach((aurora, i) => {
+                const data = aurora.userData;
+                aurora.material.opacity = data.baseOpacity * (0.5 + audioIntensity * 1.5);
+                aurora.rotation.z += data.rotSpeed;
+                aurora.position.y += Math.sin(time * data.speed + data.phase) * 0.02;
+                
+                // 顶点扰动
+                const positions = aurora.geometry.attributes.position;
+                for (let j = 0; j < positions.count; j++) {
+                    const x = positions.getX(j);
+                    const wave = Math.sin(time * 2 + x * 0.5 + i) * audioIntensity * 2;
+                    positions.setY(j, aurora.geometry.parameters.height / 2 * (wave / 5 + 1));
+                }
+                positions.needsUpdate = true;
+            });
+            
+            // 粒子动画
+            const particlePositions = particles.geometry.attributes.position;
+            const particleColors = particles.geometry.attributes.color;
+            
+            for (let i = 0; i < particleCount; i++) {
+                let x = particlePositions.getX(i);
+                let y = particlePositions.getY(i);
+                let z = particlePositions.getZ(i);
+                
+                // 螺旋运动
+                const angle = Math.atan2(y, x);
+                const radius = Math.sqrt(x*x + y*y);
+                const newAngle = angle + 0.002 * (1 + audioIntensity * 3);
+                
+                x = radius * Math.cos(newAngle);
+                y = radius * Math.sin(newAngle);
+                z += Math.sin(time + i * 0.01) * 0.02 * (1 + audioIntensity * 2);
+                
+                // 靠近/远离中心
+                const dist = Math.sqrt(x*x + y*y + z*z);
+                if (dist > innerSphereRadius * 0.9) {
+                    z -= 0.1;
+                } else if (dist < 3) {
+                    z += 0.1;
+                }
+                
+                particlePositions.setXYZ(i, x, y, z);
+                
+                // 颜色呼吸
+                const hue = (time * 0.05 + i / particleCount) % 1;
+                const color = new THREE.Color().setHSL(hue, 0.8, 0.6 + audioIntensity * 0.2);
+                particleColors.setXYZ(i, color.r, color.g, color.b);
+            }
+            particlePositions.needsUpdate = true;
+            particleColors.needsUpdate = true;
+            
+            // 波纹生成
+            if (isListening && time - lastRippleTime > 0.5 - audioIntensity * 0.3) {
+                const ripple = ripples[rippleIndex];
+                ripple.position.set(
+                    (Math.random() - 0.5) * 10,
+                    (Math.random() - 0.5) * 10,
+                    (Math.random() - 0.5) * 10
+                );
+                ripple.userData.scale = 0.1;
+                ripple.material.opacity = 0.8;
+                ripple.material.color.setHSL(Math.random(), 0.9, 0.6);
+                rippleIndex = (rippleIndex + 1) % ripples.length;
+                lastRippleTime = time;
+            }
+            
+            // 波纹扩散
+            ripples.forEach(ripple => {
+                if (ripple.userData.scale > 0) {
+                    ripple.userData.scale += ripple.userData.speed;
+                    ripple.scale.setScalar(ripple.userData.scale);
+                    ripple.material.opacity *= 0.98;
+                    
+                    if (ripple.userData.scale > ripple.userData.maxScale) {
+                        ripple.userData.scale = 0;
+                    }
+                }
+            });
+            
+            // 相机旋转（缓慢）
+            const rotX = mouseY * 0.3;
+            const rotY = mouseX * 0.3;
+            innerSphere.rotation.x += (rotX - innerSphere.rotation.x) * 0.05;
+            innerSphere.rotation.y += (rotY - innerSphere.rotation.y) * 0.05;
+            
+            // 内部球体脉动
+            innerSphere.scale.setScalar(1 + Math.sin(time * 2) * 0.01 + audioIntensity * 0.05);
+            
+            renderer.render(scene, camera);
+        }
+
+        setTimeout(() => hintEl.classList.add('visible'), 1000);
+        animate();
+    </script>
+</body>
+</html>
