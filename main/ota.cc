@@ -84,6 +84,9 @@ esp_err_t Ota::CheckVersion() {
 
     std::string url = GetCheckVersionUrl();
     if (url.length() < 10) {
+        last_error_message_ = "URL_INVALID";
+        last_socket_error_ = 0;
+        last_http_status_ = 0;
         ESP_LOGE(TAG, "Check version URL is not properly set");
         return ESP_ERR_INVALID_ARG;
     }
@@ -96,12 +99,32 @@ esp_err_t Ota::CheckVersion() {
 
     if (!http->Open(method, url)) {
         int last_error = http->GetLastError();
-        ESP_LOGE(TAG, "Failed to open HTTP connection, code=0x%x", last_error);
+        // 翻译 ESP-ml307 TCP 错误：底层是 POSIX errno（如 0x71=113=EHOSTUNREACH）
+        // 完整 errno 表见 /usr/include/sys/errno.h
+        const char* err_name = "?";
+        if (last_error == 113) err_name = "EHOSTUNREACH";
+        else if (last_error == 110) err_name = "ETIMEDOUT";
+        else if (last_error == 111) err_name = "ECONNREFUSED";
+        else if (last_error == 101) err_name = "ENETUNREACH";
+        else if (last_error == 112) err_name = "ENETRESET";
+        else if (last_error == 104) err_name = "ECONNRESET";
+        else if (last_error == 0) err_name = "NO_ERROR";
+        char buf[96];
+        snprintf(buf, sizeof(buf), "HTTP_OPEN_FAIL 0x%x %s", last_error, err_name);
+        last_error_message_ = buf;
+        last_socket_error_ = last_error;
+        last_http_status_ = 0;
+        ESP_LOGE(TAG, "Failed to open HTTP connection to %s, code=0x%x (%s)", url.c_str(), last_error, err_name);
         return last_error;
     }
 
     auto status_code = http->GetStatusCode();
     if (status_code != 200) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "STATUS %d", status_code);
+        last_error_message_ = buf;
+        last_socket_error_ = 0;
+        last_http_status_ = status_code;
         ESP_LOGE(TAG, "Failed to check version, status code: %d", status_code);
         return status_code;
     }
@@ -112,12 +135,19 @@ esp_err_t Ota::CheckVersion() {
     // Response: { "firmware": { "version": "1.0.0", "url": "http://" } }
     // Parse the JSON response and check if the version is newer
     // If it is, set has_new_version_ to true and store the new version and URL
-    
+
     cJSON *root = cJSON_Parse(data.c_str());
     if (root == NULL) {
+        last_error_message_ = "JSON_PARSE_FAIL";
+        last_socket_error_ = 0;
+        last_http_status_ = status_code;
         ESP_LOGE(TAG, "Failed to parse JSON response");
         return ESP_ERR_INVALID_RESPONSE;
     }
+    // 成功时清空旧错误
+    last_error_message_.clear();
+    last_socket_error_ = 0;
+    last_http_status_ = 0;
 
     has_activation_code_ = false;
     has_activation_challenge_ = false;

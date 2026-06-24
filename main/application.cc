@@ -10,6 +10,7 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "sdcard_log_http.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -174,6 +175,8 @@ void Application::Initialize() {
                 break;
             }
             case NetworkEvent::Connected: {
+                // 配网成功（WiFi 拿到 IP）：提示卡仅在每次断线→重连后显示一次
+                internet_failed_shown_ = false;
                 std::string msg = Lang::Strings::CONNECTED_TO;
                 msg += data;
                 display->ShowNotification(msg.c_str(), 30000);
@@ -197,6 +200,7 @@ void Application::Initialize() {
             }
             case NetworkEvent::Disconnected:
                 wifi_connected_debug_shown_ = false;
+                internet_failed_shown_ = false;
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::WifiConfigModeEnter:
@@ -352,6 +356,15 @@ void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
     auto state = GetDeviceState();
 
+    // SD 卡已挂载时启动 HTTP 服务，便于 host 端下载日志和截图
+    // 端口固定 8080，访问地址: http://<device_ip>:8080/
+    struct stat st;
+    if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
+        if (!SdCardLogHttpIsRunning()) {
+            SdCardLogHttpStart("/sdcard", 8080);
+        }
+    }
+
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
         // Network is ready, start activation
         SetDeviceState(kDeviceStateActivating);
@@ -379,6 +392,11 @@ void Application::HandleNetworkDisconnectedEvent() {
     if (state == kDeviceStateConnecting || state == kDeviceStateListening || state == kDeviceStateSpeaking) {
         ESP_LOGI(TAG, "Closing audio channel due to network disconnection");
         protocol_->CloseAudioChannel();
+    }
+
+    // 网络断开时停止 SD 卡日志 HTTP 服务
+    if (SdCardLogHttpIsRunning()) {
+        SdCardLogHttpStop();
     }
 
     // Update the status bar immediately to show the network state
@@ -497,6 +515,16 @@ void Application::CheckNewVersion() {
         esp_err_t err = ota_->CheckVersion();
         if (err != ESP_OK) {
             retry_count++;
+            // WiFi 已拿到 IP，但 OTA/服务端不可达 → 弹"联网失败"提示卡（仅一次）
+            // 优先使用 Ota 上一次失败原因（细分到 HTTP_OPEN_FAIL / STATUS xxx / URL_INVALID / JSON_PARSE_FAIL）
+            const std::string& reason = ota_->GetLastErrorMessage();
+            if (!reason.empty()) {
+                ShowInternetFailedNotification(reason.c_str());
+            } else {
+                char fb_reason[40];
+                snprintf(fb_reason, sizeof(fb_reason), "ERR 0x%x", err);
+                ShowInternetFailedNotification(fb_reason);
+            }
             if (retry_count >= MAX_RETRY) {
                 ESP_LOGE(TAG, "Too many retries, exit version check");
                 return;
@@ -791,6 +819,42 @@ void Application::DismissAlert() {
         display->SetEmotion("neutral");
         display->SetChatMessage("system", "");
     }
+}
+
+void Application::ShowInternetFailedNotification(const char* reason) {
+    // 由 CheckNewVersion 在 OTA/服务端不可达时调用；每次 WiFi 连接周期只提示一次
+    if (internet_failed_shown_) {
+        return;
+    }
+    internet_failed_shown_ = true;
+
+    // 解析原因：默认从 Ota 取最新错误，便于上层不传参时也能展示
+    const std::string& ota_reason = (ota_ != nullptr) ? ota_->GetLastErrorMessage() : std::string();
+    const char* why = (reason != nullptr && reason[0] != '\0') ? reason
+                     : (ota_reason.empty() ? "UNKNOWN" : ota_reason.c_str());
+
+    // 写一行可检索的日志（按规范使用 LOG_TAG=Internet，便于后期检索）
+    ESP_LOGE(TAG, "[InternetFailed] reason=%s, url=%s",
+             why,
+             (ota_ != nullptr ? ota_->GetCheckVersionUrl().c_str() : ""));
+
+    auto display = Board::GetInstance().GetDisplay();
+    // 顶部通知（兼容 LcdDisplay，与"已连接"同条状态栏）
+    display->ShowNotification(Lang::Strings::INTERNET_FAILED, 30000);
+
+    if (GetAttitudeDisplay() != nullptr) {
+        // 调试信息卡：罗盘 UI 替代基类表情聊天弹窗，必须走 ShowDebugInfo 才能落地
+        Schedule([this, why_str = std::string(why)]() {
+            if (auto* attitude = GetAttitudeDisplay()) {
+                attitude->ShowDebugInfo(
+                    Lang::Strings::INTERNET_FAILED,
+                    why_str,
+                    5000);
+            }
+        });
+    }
+    // 用失败提示音而非默认成功音，避免与配网成功音效混淆
+    audio_service_.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
 }
 
 void Application::ToggleChatState() {

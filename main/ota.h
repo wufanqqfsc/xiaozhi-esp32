@@ -30,8 +30,18 @@ public:
     const std::string& GetActivationMessage() const { return activation_message_; }
     const std::string& GetActivationCode() const { return activation_code_; }
     std::string GetCheckVersionUrl();
+    /** 上一次 CheckVersion 失败原因（"HTTP_OPEN_FAIL 0x101" / "STATUS 503" / "URL_INVALID" / "JSON_PARSE_FAIL"） */
+    const std::string& GetLastErrorMessage() const { return last_error_message_; }
+    int GetLastHttpStatus() const { return last_http_status_; }
+    int GetLastSocketError() const { return last_socket_error_; }
 
 private:
+    /** 上一次失败原因（人类可读短串，供 UI 提示卡 / 日志使用） */
+    std::string last_error_message_;
+    /** 上一次 HTTP 状态码（0 表示未到 HTTP 层） */
+    int last_http_status_ = 0;
+    /** 上一次 socket/HTTP 错误码（0 表示无） */
+    int last_socket_error_ = 0;
     std::string activation_message_;
     std::string activation_code_;
     bool has_new_version_ = false;

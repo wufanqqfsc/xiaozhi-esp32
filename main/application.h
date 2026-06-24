@@ -134,6 +134,9 @@ public:
     void RequestDebugTts(const std::string& text);
     /** 隐藏调试信息卡（包装到主循环） */
     void DismissDebugInfo();
+    /** 显示"联网失败"提示卡：WiFi 已连但 OTA/服务端不可达时调用；只在每次连接生命周期内提示一次
+     *  @param reason  失败原因短串（如 "HTTP_OPEN_FAIL 0x101" / "STATUS 503" / "URL_INVALID" / "JSON_PARSE_FAIL"），nullptr 时取 ota_->GetLastErrorMessage() */
+    void ShowInternetFailedNotification(const char* reason = nullptr);
     
     /**
      * Reset protocol resources (thread-safe)
@@ -165,6 +168,7 @@ private:
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool wifi_connected_debug_shown_ = false;  // WiFi 连接成功提示卡仅显示一次（断线后重置）
+    bool internet_failed_shown_ = false;        // 联网失败提示卡仅显示一次（重连成功后重置）
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 

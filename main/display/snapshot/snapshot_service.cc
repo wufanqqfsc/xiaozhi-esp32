@@ -1,7 +1,7 @@
 #include "snapshot_service.h"
 #include "display.h"
 #include "board.h"
-#include "jpg/image_to_jpeg.h"
+#include "../lvgl_display/jpg/image_to_jpeg.h"
 #include <esp_log.h>
 #include <esp_lvgl_port.h>
 #include <driver/uart.h>

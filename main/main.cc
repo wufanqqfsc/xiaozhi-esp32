@@ -10,61 +10,21 @@
 #include <cstring>
 #include <cstdio>
 
-// 启动时自动截图功能（默认关闭；启用方法：在 menuconfig / idf.py build -DXIAOZHI_ENABLE_BOOT_SCREENSHOT=1 显式打开）
-#ifndef XIAOZHI_ENABLE_BOOT_SCREENSHOT
-#define XIAOZHI_ENABLE_BOOT_SCREENSHOT 0
+// 串口截图服务（默认关闭；可通过串口命令 SNAP 手动触发截图，截图保存到 SD 卡）
+#ifndef XIAOZHI_ENABLE_SNAPSHOT_SERVICE
+#define XIAOZHI_ENABLE_SNAPSHOT_SERVICE 0
 #endif
 
 #include "application.h"
-#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
-#include <snapshot_protocol.h>
-#include "snapshot_service.h"
-#endif
 #include "board.h"
 #include "attitude_display.h"
 
-#define TAG "main"
-
-#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
-// 定期截图任务 - 每5秒自动截图
-static void screenshot_task(void* arg) {
-    auto& svc = SnapshotService::GetInstance();
-    int count = 0;
-
-    ESP_LOGI(TAG, "[screenshot_task] started on core %d", xPortGetCoreID());
-    fflush(stdout);
-
-    // 短暂等待屏幕初始化
-    vTaskDelay(pdMS_TO_TICKS(3000));
-
-    ESP_LOGI(TAG, "[screenshot_task] delay 3s done, will take screenshots every 5s");
-    fflush(stdout);
-
-    while (true) {
-        ESP_LOGI(TAG, "[screenshot_task] Taking screenshot #%d...", count + 1);
-        printf("\n[SCREENSHOT #%d]\n", count + 1);
-        fflush(stdout);
-
-        // 执行截图
-        esp_err_t ret = svc.TakeSnapshot();
-
-        if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "[screenshot_task] Screenshot #%d completed", count + 1);
-        } else {
-            ESP_LOGE(TAG, "[screenshot_task] Screenshot #%d failed: 0x%x", count + 1, ret);
-        }
-
-        count++;
-
-        // 每2秒截图一次（加快以捕获快速变化的画面）
-        ESP_LOGI(TAG, "[screenshot_task] Waiting 2s before next screenshot...");
-        fflush(stdout);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-    }
-
-    vTaskDelete(NULL);
-}
+#if XIAOZHI_ENABLE_SNAPSHOT_SERVICE
+#include <snapshot_protocol.h>
+#include "snapshot_service.h"
 #endif
+
+#define TAG "main"
 
 extern "C" void app_main(void)
 {
@@ -77,7 +37,8 @@ extern "C" void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
+#if XIAOZHI_ENABLE_SNAPSHOT_SERVICE
+    // 初始化串口截图服务（可通过串口命令 SNAP 手动触发）
     auto& snapshot_service = SnapshotService::GetInstance();
     ret = snapshot_service.Initialize();
     if (ret == ESP_OK) {
@@ -91,15 +52,6 @@ extern "C" void app_main(void)
     // Initialize and run the application
     auto& app = Application::GetInstance();
     app.Initialize();
-
-#if XIAOZHI_ENABLE_BOOT_SCREENSHOT
-    BaseType_t task_ret = xTaskCreate(&screenshot_task, "screenshot_task", 8192, NULL, 3, NULL);
-    if (task_ret != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create screenshot task");
-    } else {
-        ESP_LOGI(TAG, "Screenshot task created successfully");
-    }
-#endif
 
     app.Run();  // This function runs the main event loop and never returns
 }

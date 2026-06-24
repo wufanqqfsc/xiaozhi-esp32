@@ -4,9 +4,6 @@
 #include "assets/lang_config.h"
 #include "board.h"
 #include "compass_taiji.h"
-#if STUDY_SUB_FEATURES_ENABLED
-#include "drum/drum_synth.h"
-#endif
 #include <esp_log.h>
 #include <esp_heap_caps.h>
 #include <cstdio>
@@ -37,6 +34,23 @@ LV_FONT_DECLARE(font_awesome_16_4);
 LV_FONT_DECLARE(font_awesome_20_4);
 
 namespace {
+
+struct AttitudeColors {
+    lv_color_t bg_outer = COLOR_BG_OUTER;
+    lv_color_t bg_center = COLOR_BG_CENTER;
+    lv_color_t text_main = COLOR_TEXT_MAIN;
+    lv_color_t text_sub = COLOR_TEXT_SUB;
+    lv_color_t text_high = COLOR_TEXT_HIGH;
+    lv_color_t border_line = COLOR_BORDER_LINE;
+    lv_color_t state_heavy = COLOR_STATE_HEAVY;
+    lv_color_t state_danger = COLOR_STATE_DANGER;
+};
+
+static const AttitudeColors& GetAttitudeColors()
+{
+    static const AttitudeColors colors;
+    return colors;
+}
 
 // WiFi 鱼眼位：黑底白描边金色图标
 // BLE 鱼眼位：白底黑描边蓝色图标
@@ -140,17 +154,13 @@ void AttitudeDisplay::SetupUI()
     // 防御：Setup 阶段确保调试卡为干净状态
     DestroyDebugInfoCard();
 
-#if STUDY_SUB_FEATURES_ENABLED
-    drum::DrumSynth::GetInstance().Init();
-#endif
-
     auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
     if (lvgl_theme == nullptr) {
         ESP_LOGE(TAG, "Theme is null!");
         return;
     }
 
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = GetAttitudeColors();
 
     auto screen = lv_screen_active();
     lv_obj_set_style_text_font(screen, lvgl_theme->text_font()->font(), 0);
@@ -181,21 +191,14 @@ void AttitudeDisplay::SetupUI()
     CreateLayer0Taiji();
     CreateWifiFisheye();
     CreateBleFisheye();
-#if STUDY_SUB_FEATURES_ENABLED
-    CreateStudyArea();
-#endif
-#if MOOD_GUA_SUB_FEATURES_ENABLED
-    CreateMoodGuaArea();
-#endif
+
     UpdateWifiFisheye(WifiStatus::DISCONNECTED);
     UpdateBleFisheye(BleStatus::DISABLED);
     CompassTaiji::StartAutoRotation(TAIJI_ROTATION_PERIOD_NORMAL_MS);
     ESP_LOGI(TAG, "Taiji auto rotation started (period=%dms, fisheyes co-rotate)",
              TAIJI_ROTATION_PERIOD_NORMAL_MS);
 
-    CreateLayer1CoreInfo();
     CreateFortuneMenuRing();
-    // L3 状态进度环暂时移除，便于真机对比
     CreateLayer4Boundary();
     CreateFortuneMenuRingTouch();
     // 方位圆点已移除（v1.2+ 视觉简化，运势高亮见迭代 2 再定）
@@ -206,7 +209,7 @@ void AttitudeDisplay::SetupUI()
         lv_refr_now(display_);
     }
 
-    ESP_LOGI(TAG, "SetupUI completed (taiji+fisheye 90%%, fortune menu ring, L4 outer ring only, L3 disabled)");
+    ESP_LOGI(TAG, "SetupUI completed (taiji+fisheye 90%%, fortune menu ring, L4 outer ring only)");
 }
 
 void AttitudeDisplay::CreateLayer0Taiji()
@@ -221,7 +224,7 @@ void AttitudeDisplay::CreateLayer0Taiji()
 
 void AttitudeDisplay::CreateBackground()
 {
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = GetAttitudeColors();
 
     background_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(background_, LV_HOR_RES, LV_VER_RES);
@@ -235,7 +238,7 @@ void AttitudeDisplay::CreateBackground()
     lv_obj_set_size(bg_layer_center_, BG_LAYER_CENTER_SIZE, BG_LAYER_CENTER_SIZE);
     lv_obj_set_style_radius(bg_layer_center_, BG_LAYER_CENTER_SIZE / 2, 0);
     lv_obj_set_style_border_width(bg_layer_center_, 0, 0);
-    lv_obj_set_style_bg_color(bg_layer_center_, c.bg_inner, 0);
+    lv_obj_set_style_bg_color(bg_layer_center_, c.bg_center, 0);
     lv_obj_set_style_bg_opa(bg_layer_center_, LV_OPA_100, 0);
     lv_obj_center(bg_layer_center_);
 
@@ -267,35 +270,9 @@ void AttitudeDisplay::SetInterpretation(const std::string& text)
     (void)text;
 }
 
-void AttitudeDisplay::CreateLayer1CoreInfo()
-{
-    const int CENTER_X = 180;
-    const int CENTER_Y = 180;
-
-    layer1_container_ = lv_obj_create(attitude_container_);
-    lv_obj_set_size(layer1_container_, TAIJI_CANVAS_SIZE, TAIJI_CANVAS_SIZE);
-    lv_obj_set_pos(layer1_container_, CENTER_X - TAIJI_RADIUS, CENTER_Y - TAIJI_RADIUS);
-    lv_obj_set_style_radius(layer1_container_, TAIJI_RADIUS, 0);
-    lv_obj_set_style_clip_corner(layer1_container_, false, 0);
-    lv_obj_set_style_bg_opa(layer1_container_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(layer1_container_, 0, 0);
-    lv_obj_set_style_pad_all(layer1_container_, 0, 0);
-    lv_obj_clear_flag(layer1_container_, LV_OBJ_FLAG_CLICKABLE);
-
-    ESP_LOGI(TAG, "Layer1 CoreInfo created (r=%d)", TAIJI_RADIUS);
-}
-
-void AttitudeDisplay::CreateLayer3StatusProgress()
-{
-    // 暂时不创建 L3 背景弧 / 进度弧，便于真机对比
-    layer3_bg_arc_ = nullptr;
-    layer3_progress_arc_ = nullptr;
-    ESP_LOGI(TAG, "Layer3 StatusProgress disabled");
-}
-
 void AttitudeDisplay::CreateLayer4Boundary()
 {
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = GetAttitudeColors();
     const int CENTER_X = 180;
     const int CENTER_Y = 180;
     const int outer_r = LAYER4_BOUNDARY_RADIUS;
@@ -311,7 +288,7 @@ void AttitudeDisplay::CreateLayer4Boundary()
 
 void AttitudeDisplay::CreateFortuneMenuRing()
 {
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = GetAttitudeColors();
     const lv_font_t* icon_font = GetFortuneMenuIconFont();
 
     const double start_rad = FORTUNE_MENU_START_ANGLE_DEG * M_PI / 180.0;
@@ -393,10 +370,7 @@ void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
     }
     UpdateFortuneMenuItemVisual(index, true);
     // 功能区提示卡触发事件已全部移除（仅保留菜单选中态视觉切换）
-    SyncStudyAreaWithMenu();
-#if MOOD_GUA_SUB_FEATURES_ENABLED
-    SyncMoodGuaAreaWithMenu();
-#endif
+
     ESP_LOGI(TAG, "Fortune menu select -> %d (%s)", index,
              kFortuneMenuDefs[index].func_label);
 }
@@ -415,10 +389,6 @@ void AttitudeDisplay::DeselectFortuneMenuItemUnlocked()
         UpdateFortuneMenuItemVisual(prev, false);
     }
     HideDebugInfoUnlocked();
-    SyncStudyAreaWithMenu();
-#if MOOD_GUA_SUB_FEATURES_ENABLED
-    SyncMoodGuaAreaWithMenu();
-#endif
 }
 
 void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
@@ -426,7 +396,7 @@ void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
     if (index < 0 || index >= FORTUNE_MENU_COUNT || fortune_menu_labels_[index] == nullptr) {
         return;
     }
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
+    const auto& c = GetAttitudeColors();
     const int scale = (selected && fortune_menu_selection_active_)
         ? FORTUNE_MENU_ICON_SCALE_SELECTED
         : FORTUNE_MENU_ICON_SCALE;
@@ -459,10 +429,6 @@ void AttitudeDisplay::CycleFortuneMenuSelectionUnlocked()
     UpdateFortuneMenuItemVisual(prev, false);
     UpdateFortuneMenuItemVisual(fortune_menu_selected_index_, true);
     // 功能区提示卡触发事件已全部移除（仅保留菜单环选中态视觉切换）
-    SyncStudyAreaWithMenu();
-#if MOOD_GUA_SUB_FEATURES_ENABLED
-    SyncMoodGuaAreaWithMenu();
-#endif
     ESP_LOGI(TAG, "Fortune menu selected -> %d (%s)",
              fortune_menu_selected_index_,
              kFortuneMenuDefs[fortune_menu_selected_index_].func_label);
@@ -497,361 +463,6 @@ void AttitudeDisplay::SetFortuneMenuVisible(bool visible)
 
 // OnFortuneMenuRingTouched 已彻底删除：菜单环触摸事件已禁用（功能区提示卡触发事件已全部移除）
 
-#if STUDY_SUB_FEATURES_ENABLED
-
-void AttitudeDisplay::CreateStudyArea()
-{
-    lv_obj_t* container = CompassTaiji::GetContainer();
-    if (container == nullptr) {
-        ESP_LOGE(TAG, "CreateStudyArea: taiji container missing");
-        return;
-    }
-
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
-    const lv_font_t* icon_font = GetFortuneMenuIconFont();
-    auto* text_theme = static_cast<LvglTheme*>(LvglThemeManager::GetInstance().GetTheme("dark"));
-    const lv_font_t* text_font = text_theme != nullptr && text_theme->text_font() != nullptr
-        ? text_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
-
-    study_panel_ = lv_obj_create(container);
-    lv_obj_set_size(study_panel_, TAIJI_CANVAS_SIZE, TAIJI_CANVAS_SIZE);
-    lv_obj_set_pos(study_panel_, 0, 0);
-    lv_obj_set_style_radius(study_panel_, TAIJI_RADIUS, 0);
-    lv_obj_set_style_bg_opa(study_panel_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(study_panel_, 0, 0);
-    lv_obj_set_style_pad_all(study_panel_, 0, 0);
-    lv_obj_clear_flag(study_panel_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(study_panel_, LV_OBJ_FLAG_HIDDEN);
-
-    study_clock_label_ = lv_label_create(study_panel_);
-    lv_obj_set_style_text_font(study_clock_label_, icon_font, 0);
-    lv_obj_set_style_text_color(study_clock_label_, c.text_main, 0);
-    lv_obj_set_style_transform_scale(study_clock_label_, STUDY_ICON_SCALE, 0);
-    lv_obj_set_style_transform_pivot_x(study_clock_label_, LV_PCT(50), 0);
-    lv_obj_set_style_transform_pivot_y(study_clock_label_, LV_PCT(50), 0);
-    lv_label_set_text(study_clock_label_, FONT_AWESOME_CLOCK);
-    lv_obj_align(study_clock_label_, LV_ALIGN_CENTER, 0, -STUDY_ICON_OFFSET_Y);
-    lv_obj_add_flag(study_clock_label_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(study_clock_label_, OnStudyMenuIconClicked, LV_EVENT_CLICKED, this);
-
-    study_drum_label_ = lv_label_create(study_panel_);
-    lv_obj_set_style_text_font(study_drum_label_, icon_font, 0);
-    lv_obj_set_style_text_color(study_drum_label_, c.text_main, 0);
-    lv_obj_set_style_transform_scale(study_drum_label_, STUDY_ICON_SCALE, 0);
-    lv_obj_set_style_transform_pivot_x(study_drum_label_, LV_PCT(50), 0);
-    lv_obj_set_style_transform_pivot_y(study_drum_label_, LV_PCT(50), 0);
-    lv_label_set_text(study_drum_label_, FONT_AWESOME_MUSIC);
-    lv_obj_align(study_drum_label_, LV_ALIGN_CENTER, 0, STUDY_ICON_OFFSET_Y);
-    lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(study_drum_label_, OnStudyMenuIconClicked, LV_EVENT_CLICKED, this);
-
-    study_focus_arc_ = lv_arc_create(study_panel_);
-    lv_obj_set_size(study_focus_arc_, STUDY_FOCUS_ARC_SIZE, STUDY_FOCUS_ARC_SIZE);
-    lv_obj_align(study_focus_arc_, LV_ALIGN_CENTER, 0, 0);
-    lv_arc_set_range(study_focus_arc_, 0, 360);
-    lv_arc_set_bg_angles(study_focus_arc_, 0, 360);
-    lv_arc_set_value(study_focus_arc_, 360);
-    lv_obj_set_style_arc_width(study_focus_arc_, STUDY_FOCUS_ARC_TRACK_WIDTH, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(study_focus_arc_, lv_color_hex(0x3A3A3A), LV_PART_MAIN);
-    lv_obj_set_style_arc_rounded(study_focus_arc_, true, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(study_focus_arc_, STUDY_FOCUS_ARC_INDICATOR_WIDTH, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(study_focus_arc_, lv_color_hex(0x4FC3F7), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_rounded(study_focus_arc_, true, LV_PART_INDICATOR);
-    lv_obj_set_style_opa(study_focus_arc_, LV_OPA_TRANSP, LV_PART_KNOB);
-    lv_obj_clear_flag(study_focus_arc_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
-
-    study_time_label_ = lv_label_create(study_panel_);
-    lv_obj_set_style_text_font(study_time_label_, text_font, 0);
-    lv_obj_set_style_text_color(study_time_label_, c.text_high, 0);
-    lv_label_set_text(study_time_label_, "01:00");
-    lv_obj_align(study_time_label_, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
-
-    ESP_LOGI(TAG, "Study area created (icons %dpx, focus arc r=%d track=%d ind=%d, gap=%d)",
-             STUDY_ICON_GLYPH_PX, STUDY_FOCUS_ARC_RADIUS,
-             STUDY_FOCUS_ARC_TRACK_WIDTH, STUDY_FOCUS_ARC_INDICATOR_WIDTH,
-             STUDY_FOCUS_ARC_RING_GAP);
-}
-
-void AttitudeDisplay::UpdateStudyMenuSelection()
-{
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
-    const bool timer_sel = study_menu_selected_ == StudyMenuItem::Timer;
-
-    if (study_clock_label_ != nullptr) {
-        lv_obj_set_style_transform_scale(study_clock_label_,
-            timer_sel ? STUDY_ICON_SCALE_SELECTED : STUDY_ICON_SCALE, 0);
-        lv_obj_set_style_text_color(study_clock_label_,
-            timer_sel ? c.text_high : c.text_main, 0);
-    }
-    if (study_drum_label_ != nullptr) {
-        lv_obj_set_style_transform_scale(study_drum_label_,
-            timer_sel ? STUDY_ICON_SCALE : STUDY_ICON_SCALE_SELECTED, 0);
-        lv_obj_set_style_text_color(study_drum_label_,
-            timer_sel ? c.text_main : c.text_high, 0);
-    }
-}
-
-void AttitudeDisplay::SelectStudyMenuItem(StudyMenuItem item)
-{
-    if (study_menu_selected_ == item) {
-        return;
-    }
-    study_menu_selected_ = item;
-    UpdateStudyMenuSelection();
-    PlayFortuneMenuSelectSound();
-    ESP_LOGI(TAG, "Study menu item -> %d", static_cast<int>(item));
-}
-
-void AttitudeDisplay::OnStudyMenuIconClicked(lv_event_t* e)
-{
-    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
-    if (self == nullptr || self->study_sub_state_ != StudySubState::Menu) {
-        return;
-    }
-    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
-    if (target == self->study_clock_label_) {
-        self->SelectStudyMenuItem(StudyMenuItem::Timer);
-    } else if (target == self->study_drum_label_) {
-        self->SelectStudyMenuItem(StudyMenuItem::Drum);
-        self->EnterDrumPad();
-    }
-}
-
-void AttitudeDisplay::ApplyStudyAreaOrientation(bool study_active)
-{
-    if (study_active == study_orientation_applied_) {
-        return;
-    }
-    if (study_active) {
-        study_saved_taiji_rotation_ = CompassTaiji::GetRotation();
-        const int rotated = (study_saved_taiji_rotation_ + STUDY_AREA_ROTATION_OFFSET_TENTH_DEG) % 3600;
-        CompassTaiji::SetRotation(rotated);
-        ESP_LOGI(TAG, "Study area rotated +90° CW (%d -> %d)", study_saved_taiji_rotation_, rotated);
-    } else {
-        CompassTaiji::SetRotation(study_saved_taiji_rotation_);
-        ESP_LOGI(TAG, "Study area rotation restored (%d)", study_saved_taiji_rotation_);
-    }
-    study_orientation_applied_ = study_active;
-}
-
-void AttitudeDisplay::EnterStudyMenu()
-{
-    if (study_panel_ == nullptr || study_sub_state_ == StudySubState::FocusRunning) {
-        return;
-    }
-    if (study_sub_state_ == StudySubState::Menu
-        || study_sub_state_ == StudySubState::CompleteBgm) {
-        return;
-    }
-
-    study_had_auto_rotation_ = CompassTaiji::IsAutoRotating();
-    if (study_had_auto_rotation_) {
-        study_saved_rotation_period_ms_ = CompassTaiji::GetAutoRotationPeriod();
-        CompassTaiji::StopAutoRotation();
-    }
-
-    SetTaijiCoreVisible(false);
-    study_menu_selected_ = StudyMenuItem::Timer;
-    study_sub_state_ = StudySubState::Menu;
-    ShowStudyMenuPanel();
-    ESP_LOGI(TAG, "Study menu entered (default: timer)");
-}
-
-void AttitudeDisplay::ExitStudyArea()
-{
-    StopStudyFocusTimer();
-    StopStudyCompleteBgm();
-
-    if (study_panel_ != nullptr) {
-        lv_obj_add_flag(study_panel_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    if (study_sub_state_ != StudySubState::Hidden) {
-        SetTaijiCoreVisible(true);
-        if (study_had_auto_rotation_) {
-            CompassTaiji::StartAutoRotation(study_saved_rotation_period_ms_);
-        }
-        study_sub_state_ = StudySubState::Hidden;
-        ESP_LOGI(TAG, "Study area exited");
-    }
-}
-
-void AttitudeDisplay::ShowStudyMenuPanel()
-{
-    if (study_panel_ == nullptr) {
-        return;
-    }
-    lv_obj_remove_flag(study_panel_, LV_OBJ_FLAG_HIDDEN);
-    if (study_clock_label_ != nullptr) {
-        lv_obj_remove_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_drum_label_ != nullptr) {
-        lv_obj_remove_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_focus_arc_ != nullptr) {
-        lv_obj_add_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_time_label_ != nullptr) {
-        lv_obj_add_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    study_sub_state_ = StudySubState::Menu;
-    UpdateStudyMenuSelection();
-}
-
-void AttitudeDisplay::UpdateStudyFocusDisplay(int remaining_ms)
-{
-    if (remaining_ms < 0) {
-        remaining_ms = 0;
-    }
-    const int total_sec = (remaining_ms + 999) / 1000;
-    const int min = total_sec / 60;
-    const int sec = total_sec % 60;
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%02d:%02d", min, sec);
-    if (study_time_label_ != nullptr) {
-        lv_label_set_text(study_time_label_, buf);
-    }
-    if (study_focus_arc_ != nullptr) {
-        const int arc_val = (remaining_ms * 360) / STUDY_FOCUS_DURATION_MS;
-        lv_arc_set_value(study_focus_arc_, arc_val);
-    }
-}
-
-void AttitudeDisplay::StopStudyFocusTimer()
-{
-    if (study_focus_timer_ != nullptr) {
-        lv_timer_delete(study_focus_timer_);
-        study_focus_timer_ = nullptr;
-    }
-}
-
-void AttitudeDisplay::StopStudyCompleteBgm()
-{
-    if (study_complete_bgm_timer_ != nullptr) {
-        lv_timer_delete(study_complete_bgm_timer_);
-        study_complete_bgm_timer_ = nullptr;
-    }
-    if (study_sub_state_ == StudySubState::CompleteBgm) {
-        study_sub_state_ = StudySubState::Menu;
-    }
-}
-
-void AttitudeDisplay::PlayStudyFocusCompleteBgm()
-{
-    StopStudyCompleteBgm();
-    study_sub_state_ = StudySubState::CompleteBgm;
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_STUDY_FOCUS_BGM);
-    study_complete_bgm_timer_ = lv_timer_create(OnStudyCompleteBgmTimer,
-                                                STUDY_FOCUS_BGM_DURATION_MS, this);
-    lv_timer_set_repeat_count(study_complete_bgm_timer_, 1);
-}
-
-void AttitudeDisplay::OnStudyCompleteBgmTimer(lv_timer_t* timer)
-{
-    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
-    if (self == nullptr) {
-        return;
-    }
-    self->study_complete_bgm_timer_ = nullptr;
-    self->ShowStudyMenuPanel();
-    ESP_LOGI(TAG, "Study focus BGM finished -> menu");
-}
-
-void AttitudeDisplay::CancelStudyFocusToMenu()
-{
-    StopStudyFocusTimer();
-    if (study_focus_arc_ != nullptr) {
-        lv_arc_set_value(study_focus_arc_, 360);
-    }
-    ShowStudyMenuPanel();
-}
-
-void AttitudeDisplay::OnStudyFocusComplete()
-{
-    StopStudyFocusTimer();
-    UpdateStudyFocusDisplay(0);
-    if (study_focus_arc_ != nullptr) {
-        lv_obj_remove_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_time_label_ != nullptr) {
-        lv_obj_remove_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    PlayFortuneMenuSelectSound();
-    PlayStudyFocusCompleteBgm();
-    ESP_LOGI(TAG, "Study focus timer complete -> popup + BGM");
-}
-
-void AttitudeDisplay::OnStudyFocusTimer(lv_timer_t* timer)
-{
-    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
-    if (self == nullptr || self->study_sub_state_ != StudySubState::FocusRunning) {
-        return;
-    }
-
-    const uint32_t elapsed = lv_tick_elaps(self->study_focus_start_tick_);
-    const int remaining = static_cast<int>(STUDY_FOCUS_DURATION_MS) - static_cast<int>(elapsed);
-    if (remaining <= 0) {
-        self->OnStudyFocusComplete();
-        return;
-    }
-    self->UpdateStudyFocusDisplay(remaining);
-}
-
-void AttitudeDisplay::StartStudyFocusTimer()
-{
-    if (study_panel_ == nullptr || study_sub_state_ != StudySubState::Menu) {
-        return;
-    }
-    if (study_menu_selected_ != StudyMenuItem::Timer) {
-        ESP_LOGI(TAG, "Study focus: timer not selected, ignored");
-        return;
-    }
-
-    StopStudyFocusTimer();
-    study_sub_state_ = StudySubState::FocusRunning;
-
-    if (study_clock_label_ != nullptr) {
-        lv_obj_add_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_drum_label_ != nullptr) {
-        lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_focus_arc_ != nullptr) {
-        lv_obj_remove_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
-        lv_arc_set_value(study_focus_arc_, 360);
-    }
-    if (study_time_label_ != nullptr) {
-        lv_obj_remove_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    study_focus_start_tick_ = lv_tick_get();
-    UpdateStudyFocusDisplay(STUDY_FOCUS_DURATION_MS);
-    study_focus_timer_ = lv_timer_create(OnStudyFocusTimer, STUDY_FOCUS_TICK_MS, this);
-    ESP_LOGI(TAG, "Study focus timer started (%ds)", STUDY_FOCUS_DURATION_MS / 1000);
-}
-
-#endif  // STUDY_SUB_FEATURES_ENABLED
-
-void AttitudeDisplay::SyncStudyAreaWithMenu()
-{
-    if (!fortune_menu_selection_active_) {
-#if STUDY_SUB_FEATURES_ENABLED
-        ExitStudyArea();
-#endif
-        return;
-    }
-#if STUDY_SUB_FEATURES_ENABLED
-    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)) {
-        if (study_sub_state_ == StudySubState::Hidden) {
-            EnterStudyMenu();
-        }
-    } else {
-        ExitStudyArea();
-    }
-#endif
-}
 
 // ShowFortuneMenuFeatureCardUnlocked 已彻底删除：功能区提示卡触发事件已全部移除
 // ShowFortuneMenuFeatureCard 已彻底删除：公共 API 已被下游禁用
@@ -875,22 +486,8 @@ bool AttitudeDisplay::HandlePowerKey()
         return true;
     }
 
-#if STUDY_SUB_FEATURES_ENABLED
-    // 5. 学业区：退出
-    if (study_sub_state_ != StudySubState::Hidden) {
-        ExitStudyArea();
-        ESP_LOGI(TAG, "PWR: study area exited -> full taiji");
-        return true;
-    }
-#endif
-#if MOOD_GUA_SUB_FEATURES_ENABLED
-    // 6. 迷宫游戏：退出
-    if (mood_gua_sub_state_ != MoodGuaSubState::Hidden) {
-        ExitMoodGuaArea();
-        ESP_LOGI(TAG, "PWR: maze game exited -> full taiji");
-        return true;
-    }
-#endif
+
+
     return false;
 }
 
@@ -899,13 +496,6 @@ void AttitudeDisplay::UpdateStateColor(int level)
     if (level < 0) level = 0;
     if (level > 4) level = 4;
     current_state_level_ = level;
-
-    DisplayLockGuard lock(this);
-
-    if (layer3_progress_arc_ != nullptr) {
-        lv_color_t state_color = AttitudeTheme::GetInstance().GetStateColor(level);
-        lv_obj_set_style_arc_color(layer3_progress_arc_, state_color, LV_PART_INDICATOR);
-    }
 }
 
 void AttitudeDisplay::RotateTaiji()
@@ -1166,13 +756,8 @@ void AttitudeDisplay::UpdateBleFisheye(BleStatus status)
 // 迭代 2: AI 运势三态状态机 + 200×240 结果卡
 // ---------------------------------------------------------------------------
 
-namespace {
-
-} // namespace
-
 void AttitudeDisplay::EnterIdleState()
 {
-    ExitStudyArea();
     ApplyWifiFisheyeStyle(wifi_status_);
     ApplyBleFisheyeStyle(ble_status_);
 
@@ -1198,6 +783,10 @@ void AttitudeDisplay::CreateDebugInfoCard()
     // 30px 字体约占 36px 行高，标签高度设为 40-44 以确保完整显示
     const int row_h = 40;
     const int core_h = 60; // core 允许两行
+    // 垂直居中：按 font line_height 动态算 pad_top，让单行文字落在 row 中线
+    const int line_h = lv_font_get_line_height(text_font);
+    const int title_pad = (row_h > line_h) ? (row_h - line_h) / 2 : 0;
+    const int detail_pad = (core_h > line_h) ? (core_h - line_h) / 2 : 0;
 
     function_area_card_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(function_area_card_, card_w, card_w); // 正方形，300x300
@@ -1227,6 +816,7 @@ void AttitudeDisplay::CreateDebugInfoCard()
     lv_obj_set_y(debug_info_title_, cur_y);
     lv_label_set_long_mode(debug_info_title_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(debug_info_title_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_top(debug_info_title_, title_pad, 0);  // 垂直居中
     lv_label_set_text(debug_info_title_, "");
     cur_y += row_h;
 
@@ -1240,6 +830,7 @@ void AttitudeDisplay::CreateDebugInfoCard()
     lv_obj_set_y(debug_info_detail_, cur_y);
     lv_label_set_long_mode(debug_info_detail_, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(debug_info_detail_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_top(debug_info_detail_, detail_pad, 0);  // 垂直居中
     lv_label_set_text(debug_info_detail_, "");
 
     ApplyDebugInfoCardLayout();
@@ -1273,6 +864,10 @@ void AttitudeDisplay::ApplyDebugInfoCardLayout()
     const int y_detail = start_y + row_h;
 
     lv_obj_set_style_clip_corner(function_area_card_, true, 0);
+    // 垂直居中：按 font line_height 动态算 pad_top
+    const int line_h = lv_font_get_line_height(text_font);
+    const int title_pad = (row_h > line_h) ? (row_h - line_h) / 2 : 0;
+    const int detail_pad = (detail_h > line_h) ? (detail_h - line_h) / 2 : 0;
     if (debug_info_title_ != nullptr) {
         lv_obj_set_style_text_font(debug_info_title_, text_font, 0);
         lv_obj_set_style_text_color(debug_info_title_, DEBUG_INFO_TITLE_COLOR, 0);
@@ -1283,6 +878,7 @@ void AttitudeDisplay::ApplyDebugInfoCardLayout()
         lv_obj_set_y(debug_info_title_, y_title);
         lv_label_set_long_mode(debug_info_title_, LV_LABEL_LONG_CLIP);
         lv_obj_set_style_text_align(debug_info_title_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_pad_top(debug_info_title_, title_pad, 0);
     }
     if (debug_info_detail_ != nullptr) {
         lv_obj_set_style_text_font(debug_info_detail_, text_font, 0);
@@ -1293,6 +889,7 @@ void AttitudeDisplay::ApplyDebugInfoCardLayout()
         lv_obj_set_y(debug_info_detail_, y_detail);
         lv_label_set_long_mode(debug_info_detail_, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(debug_info_detail_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_pad_top(debug_info_detail_, detail_pad, 0);
     }
 }
 
@@ -1393,13 +990,7 @@ void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string&
         ESP_LOGD(TAG, "ShowDebugInfo skipped (fortune menu active): %s", title.c_str());
         return;
     }
-#if STUDY_SUB_FEATURES_ENABLED
-    // 与学业区互斥
-    if (study_sub_state_ != StudySubState::Hidden) {
-        ESP_LOGD(TAG, "ShowDebugInfo skipped (study busy): %s", title.c_str());
-        return;
-    }
-#endif
+
 
     const uint32_t now = lv_tick_get();
     // 同标题去重，避免快速连续触发同一事件
@@ -1439,22 +1030,8 @@ bool AttitudeDisplay::HandleBootKey()
 {
     DisplayLockGuard lock(this);
 
-#if STUDY_SUB_FEATURES_ENABLED
-    if (study_sub_state_ == StudySubState::FocusRunning
-        || study_sub_state_ == StudySubState::CompleteBgm) {
-        return true;
-    }
-#endif
-#if MOOD_GUA_SUB_FEATURES_ENABLED
-    if (mood_gua_sub_state_ == MoodGuaSubState::MazePlaying) {
-        // Boot 短按在迷宫游戏中：重新生成一个新迷宫
-        GenerateMaze();
-        DrawMazeOnCanvas();
-        RedrawMazePlayer();
-        ESP_LOGI(TAG, "Boot: maze regenerated");
-        return true;
-    }
-#endif
+
+
 
     // Idle状态：进入选中态或循环选择
     if (!fortune_menu_selection_active_) {
@@ -1463,14 +1040,7 @@ bool AttitudeDisplay::HandleBootKey()
         return true;
     }
 
-#if STUDY_SUB_FEATURES_ENABLED
-    // 学业区菜单：启动专注计时
-    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)
-        && study_sub_state_ == StudySubState::Menu) {
-        StartStudyFocusTimer();
-        return true;
-    }
-#endif
+
 
     // 循环选择下一个运势项
     CycleFortuneMenuSelectionUnlocked();
@@ -1484,883 +1054,17 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
     if (!fortune_menu_selection_active_) {
         return false;
     }
-#if STUDY_SUB_FEATURES_ENABLED
-    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::Study)
-        && study_sub_state_ != StudySubState::Hidden) {
-        ESP_LOGI(TAG, "Boot long press ignored in study area");
-        return true;
-    }
-#endif
-#if MOOD_GUA_SUB_FEATURES_ENABLED
-    if (mood_gua_sub_state_ == MoodGuaSubState::MazePlaying) {
-        ESP_LOGI(TAG, "Boot long press ignored in maze game");
-        return true;
-    }
-#endif
+
+
 
     ESP_LOGI(TAG, "Boot long press: fortune menu %d (no result card, Plan A removed)",
              fortune_menu_selected_index_);
     return true;
 }
 
-// =================================================================
-// 架子鼓模式实现（8 扇区 + 中心 Kick）
-// =================================================================
-#if STUDY_SUB_FEATURES_ENABLED
 
-// 8 个扇区相对正上（0°）的起始角度（顺时针，单位：度）
-// 扇区 0 = 正上（Kick 备用），1 = 右上 45°，2 = 右，...
-// 但这里 0 改为正上 Snare，便于将 Kick 放中心
-static constexpr int DRUM_SECTOR_ANGLE_DEG[8] = {
-    -90,  // 0: 正上 (Snare)
-    -45,  // 1: 右上 (Hi-Hat Closed)
-       0, // 2: 右   (Tom Hi)
-      45,  // 3: 右下 (Tom Mid)
-      90,  // 4: 正下 (Kick 备用)
-     135,  // 5: 左下 (Hi-Hat Open)
-     180,  // 6: 左   (Crash)
-    -135,  // 7: 左上 (Ride)
-};
-
-// 8 个扇区的中文标签（按 ID 顺序，对应 drum::Piece 枚举）
-static constexpr const char* DRUM_SECTOR_LABELS[8] = {
-    "军鼓", "闭镲", "高桶", "中桶",
-    "底鼓", "开镲", "强音钹", "叮叮镲"
-};
-
-void AttitudeDisplay::EnterDrumPad()
-{
-    if (study_sub_state_ != StudySubState::Menu) {
-        ESP_LOGD(TAG, "EnterDrumPad ignored: state=%d", static_cast<int>(study_sub_state_));
-        return;
-    }
-    auto& app = Application::GetInstance();
-    if (app.GetDeviceState() != kDeviceStateIdle) {
-        ESP_LOGI(TAG, "EnterDrumPad blocked: device busy");
-        // 与 StartStudyFocusTimer 行为一致：忙碌时不进入
-        return;
-    }
-
-    // 隐藏菜单图标
-    if (study_clock_label_ != nullptr) {
-        lv_obj_add_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_drum_label_ != nullptr) {
-        lv_obj_add_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_focus_arc_ != nullptr) {
-        lv_obj_add_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_time_label_ != nullptr) {
-        lv_obj_add_flag(study_time_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    study_sub_state_ = StudySubState::DrumPad;
-    drum::DrumSynth::GetInstance().SetActive(true);
-    ShowDrumPadUI();
-    ESP_LOGI(TAG, "DrumPad entered");
-}
-
-void AttitudeDisplay::ExitDrumPad()
-{
-    if (study_sub_state_ != StudySubState::DrumPad) {
-        return;
-    }
-    drum::DrumSynth::GetInstance().SetActive(false);
-    HideDrumPadUI();
-
-    // 恢复菜单
-    study_sub_state_ = StudySubState::Menu;
-    if (study_clock_label_ != nullptr) {
-        lv_obj_remove_flag(study_clock_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_drum_label_ != nullptr) {
-        lv_obj_remove_flag(study_drum_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (study_focus_arc_ != nullptr) {
-        lv_obj_remove_flag(study_focus_arc_, LV_OBJ_FLAG_HIDDEN);
-    }
-    UpdateStudyMenuSelection();
-    ESP_LOGI(TAG, "DrumPad exited");
-}
-
-void AttitudeDisplay::ShowDrumPadUI()
-{
-    if (drum_pad_ != nullptr) {
-        lv_obj_remove_flag(drum_pad_, LV_OBJ_FLAG_HIDDEN);
-        return;
-    }
-    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
-    const lv_color_t accent = (lvgl_theme != nullptr) ? lvgl_theme->border_color()
-                                                      : lv_color_hex(0x00C8C8);
-    const lv_color_t dim = lv_color_hex(0x333333);
-
-    // 架子鼓触摸板：覆盖 study_panel_，占满整个圆形画布
-    drum_pad_ = lv_obj_create(study_panel_);
-    lv_obj_set_size(drum_pad_, lv_pct(100), lv_pct(100));
-    lv_obj_set_pos(drum_pad_, 0, 0);
-    lv_obj_set_style_bg_opa(drum_pad_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(drum_pad_, 0, 0);
-    lv_obj_set_style_pad_all(drum_pad_, 0, 0);
-    lv_obj_clear_flag(drum_pad_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(drum_pad_, LV_OBJ_FLAG_SCROLLABLE);
-
-    // 8 扇区：以中心为锚点
-    // 圆形屏直径 360px，扇区径向覆盖 [80, 170]，中间留出中心按钮
-    static constexpr int SECTOR_R_INNER = 80;
-    static constexpr int SECTOR_R_OUTER = 168;
-    static constexpr int SECTOR_ANGLE_WIDTH = 36;  // 每个扇区 36°，8 扇区覆盖 288°，留 72° 死区
-    static constexpr int SECTOR_OFFSET_DEG = 0;    // 旋转偏移：把"正上"对准第一个扇区中心
-
-    for (int i = 0; i < 8; i++) {
-        int center_angle = DRUM_SECTOR_ANGLE_DEG[i] + SECTOR_OFFSET_DEG;
-        // 扇区中心 = center_angle，扇区覆盖 [center_angle - 18, center_angle + 18]
-        int start_angle = (center_angle - SECTOR_ANGLE_WIDTH / 2 + 360) % 360;
-        int end_angle = (center_angle + SECTOR_ANGLE_WIDTH / 2 + 360) % 360;
-
-        // 使用 lv_arc 表示扇区
-        lv_obj_t* arc = lv_arc_create(drum_pad_);
-        lv_obj_set_size(arc, SECTOR_R_OUTER * 2, SECTOR_R_OUTER * 2);
-        lv_obj_align(arc, LV_ALIGN_CENTER, 0, 0);
-        // lv_arc 0° 在正下方（6 点钟），需要偏移 -90° 让 0° 在正上（12 点钟）
-        // 扇区角度转换：用户角度 0=正上 → lv_arc 角度 270
-        int lv_start = (start_angle + 90) % 360;
-        int lv_end = (end_angle + 90) % 360;
-        lv_arc_set_bg_angles(arc, lv_start, lv_end);
-        lv_arc_set_angles(arc, lv_start, lv_end);
-        lv_arc_set_range(arc, 0, 360);
-        lv_arc_set_value(arc, 0);
-        // 背景轨道不可见
-        lv_obj_set_style_arc_color(arc, dim, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(arc, SECTOR_R_OUTER - SECTOR_R_INNER, LV_PART_MAIN);
-        lv_obj_set_style_arc_opa(arc, LV_OPA_30, LV_PART_MAIN);
-        // 前景扇区
-        lv_obj_set_style_arc_color(arc, accent, LV_PART_INDICATOR);
-        lv_obj_set_style_arc_width(arc, SECTOR_R_OUTER - SECTOR_R_INNER, LV_PART_INDICATOR);
-        lv_obj_set_style_arc_opa(arc, LV_OPA_20, LV_PART_INDICATOR);
-        // 点击扇区
-        lv_obj_add_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(arc, OnDrumPadTouchedStatic, LV_EVENT_CLICKED, this);
-        // 存储扇区索引到 user_data 不行（arc 自带），用数组下标
-        // 改用自定义机制：在 user_data 不行时，用 arc 对象的坐标存 piece idx
-        // 简化：把 arc 直接存到数组
-        drum_sectors_[i] = arc;
-        // 扇区标签
-        lv_obj_t* label = lv_label_create(drum_pad_);
-        lv_obj_set_style_text_font(label, &BUILTIN_TEXT_FONT, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(label, DRUM_SECTOR_LABELS[i]);
-        // 标签位置 = 扇区中心方向 × 半径 (SECTOR_R_INNER + SECTOR_R_OUTER) / 2
-        float mid_r = (SECTOR_R_INNER + SECTOR_R_OUTER) / 2.0f;
-        float rad = (center_angle) * 3.14159265f / 180.0f;
-        // 角度 -> 屏幕坐标（Y 轴向下，正上对应 -Y）
-        int lx = (int)(mid_r * sinf(rad));
-        int ly = -(int)(mid_r * cosf(rad));
-        lv_obj_align(label, LV_ALIGN_CENTER, lx, ly);
-        drum_sector_labels_[i] = label;
-    }
-
-    // 中心 Kick 按钮
-    drum_center_ = lv_obj_create(drum_pad_);
-    lv_obj_set_size(drum_center_, SECTOR_R_INNER * 2, SECTOR_R_INNER * 2);
-    lv_obj_align(drum_center_, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_radius(drum_center_, SECTOR_R_INNER, 0);
-    lv_obj_set_style_bg_color(drum_center_, accent, 0);
-    lv_obj_set_style_bg_opa(drum_center_, LV_OPA_30, 0);
-    lv_obj_set_style_border_color(drum_center_, accent, 0);
-    lv_obj_set_style_border_width(drum_center_, 3, 0);
-    lv_obj_set_style_border_opa(drum_center_, LV_OPA_60, 0);
-    lv_obj_set_style_pad_all(drum_center_, 0, 0);
-    lv_obj_add_flag(drum_center_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(drum_center_, OnDrumPadTouchedStatic, LV_EVENT_CLICKED, this);
-
-    // 中心标签
-    lv_obj_t* center_label = lv_label_create(drum_center_);
-    lv_obj_set_style_text_font(center_label, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(center_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_align(center_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(center_label, "底鼓");
-    lv_obj_align(center_label, LV_ALIGN_CENTER, 0, 0);
-
-    // 退出提示（顶部小字）+ 长按退出
-    lv_obj_t* hint = lv_label_create(drum_pad_);
-    lv_obj_set_style_text_font(hint, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(hint, lv_color_hex(0xAAAAAA), 0);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(hint, "架子鼓  长按顶边退出");
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 4);
-
-    // 顶部"退出区"：长按 2s 退出架子鼓模式
-    lv_obj_t* exit_zone = lv_obj_create(drum_pad_);
-    lv_obj_set_size(exit_zone, lv_pct(100), 24);
-    lv_obj_align(exit_zone, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_opa(exit_zone, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(exit_zone, 0, 0);
-    lv_obj_set_style_pad_all(exit_zone, 0, 0);
-    lv_obj_add_flag(exit_zone, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(exit_zone, OnDrumPadTouchedStatic, LV_EVENT_LONG_PRESSED, this);
-
-    ESP_LOGI(TAG, "DrumPad UI created");
-}
-
-void AttitudeDisplay::HideDrumPadUI()
-{
-    if (drum_pad_ != nullptr) {
-        lv_obj_add_flag(drum_pad_, LV_OBJ_FLAG_HIDDEN);
-    }
-    // 释放闪烁定时器
-    if (drum_flash_timer_id_ >= 0) {
-        lv_timer_del(reinterpret_cast<lv_timer_t*>(static_cast<uintptr_t>(drum_flash_timer_id_)));
-        drum_flash_timer_id_ = -1;
-    }
-}
-
-void AttitudeDisplay::OnDrumPadTouchedStatic(lv_event_t* e)
-{
-    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
-    if (self != nullptr) {
-        self->OnDrumPadTouched(e);
-    }
-}
-
-void AttitudeDisplay::OnDrumPadTouched(lv_event_t* e)
-{
-    if (study_sub_state_ != StudySubState::DrumPad) {
-        return;
-    }
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
-
-    // 长按顶部退出区 → 退出架子鼓模式
-    if (code == LV_EVENT_LONG_PRESSED) {
-        // 顶部 24px 高度的 exit_zone
-        lv_coord_t y = 0;
-        if (target != nullptr) {
-            y = lv_obj_get_y(target);
-        }
-        if (y == 0) {
-            ESP_LOGI(TAG, "DrumPad long press top -> exit");
-            ExitDrumPad();
-            return;
-        }
-    }
-
-    if (code != LV_EVENT_CLICKED) {
-        return;
-    }
-    int piece_idx = -1;
-
-    // 判断是哪个扇区/中心
-    if (target == drum_center_) {
-        piece_idx = static_cast<int>(drum::Piece::KICK);
-    } else {
-        for (int i = 0; i < 8; i++) {
-            if (drum_sectors_[i] == target) {
-                piece_idx = i;
-                break;
-            }
-        }
-    }
-    if (piece_idx < 0) {
-        return;
-    }
-
-    ESP_LOGD(TAG, "DrumPad touch piece=%d", piece_idx);
-    drum::DrumSynth::GetInstance().Trigger(
-        static_cast<drum::Piece>(piece_idx));
-    FlashDrumSector(piece_idx);
-}
-
-void AttitudeDisplay::FlashDrumSector(int piece_idx)
-{
-    // 简单的视觉反馈：被点击的扇区前景色不透明度 20% -> 80% -> 20%
-    // 200ms 淡入 + 200ms 淡出
-    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
-    const lv_color_t accent = (lvgl_theme != nullptr) ? lvgl_theme->border_color()
-                                                      : lv_color_hex(0x00C8C8);
-    (void)accent;  // 仅用于未来扩展
-
-    if (piece_idx == static_cast<int>(drum::Piece::KICK)) {
-        // 中心：背景不透明度跳到 80% 再回 30%
-        if (drum_center_ != nullptr) {
-            lv_obj_set_style_bg_opa(drum_center_, LV_OPA_80, 0);
-        }
-        // 200ms 后恢复
-        if (drum_flash_timer_id_ < 0) {
-            drum_flash_start_ms_ = lv_tick_get();
-            lv_timer_t* t = lv_timer_create([](lv_timer_t* timer) {
-                auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
-                if (self != nullptr) {
-                    if (self->drum_center_ != nullptr) {
-                        lv_obj_set_style_bg_opa(self->drum_center_, LV_OPA_30, 0);
-                    }
-                    self->drum_flash_timer_id_ = -1;
-                }
-                lv_timer_del(timer);
-            }, 200, this);
-            drum_flash_timer_id_ = static_cast<int>(reinterpret_cast<uintptr_t>(t));
-        }
-        return;
-    }
-
-    // 扇区：前景不透明度短暂提升
-    if (piece_idx < 0 || piece_idx >= 8) {
-        return;
-    }
-    lv_obj_t* arc = drum_sectors_[piece_idx];
-    if (arc == nullptr) {
-        return;
-    }
-    lv_obj_set_style_arc_opa(arc, LV_OPA_80, LV_PART_INDICATOR);
-    // 200ms 后恢复
-    lv_timer_t* t = lv_timer_create([](lv_timer_t* timer) {
-        lv_obj_t* target_arc = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
-        if (target_arc != nullptr) {
-            lv_obj_set_style_arc_opa(target_arc, LV_OPA_20, LV_PART_INDICATOR);
-        }
-        lv_timer_del(timer);
-    }, 200, arc);
-    (void)t;  // 定时器自动释放
-}
-
-#endif  // STUDY_SUB_FEATURES_ENABLED
 
 // =================================================================
 // 迷宫游戏实现（心情卦）
 // =================================================================
-#if MOOD_GUA_SUB_FEATURES_ENABLED
 
-#if !STUDY_SUB_FEATURES_ENABLED
-void AttitudeDisplay::SetTaijiCoreVisible(bool visible)
-{
-    if (auto* canvas = CompassTaiji::GetCanvas()) {
-        if (visible) {
-            lv_obj_remove_flag(canvas, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(canvas, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-    if (wifi_fisheye_ != nullptr) {
-        if (visible) {
-            lv_obj_remove_flag(wifi_fisheye_, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(wifi_fisheye_, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-    if (ble_fisheye_ != nullptr) {
-        if (visible) {
-            lv_obj_remove_flag(ble_fisheye_, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(ble_fisheye_, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-}
-#endif  // !STUDY_SUB_FEATURES_ENABLED
-
-void AttitudeDisplay::CreateMoodGuaArea()
-{
-    lv_obj_t* container = CompassTaiji::GetContainer();
-    if (container == nullptr) {
-        ESP_LOGE(TAG, "CreateMoodGuaArea: taiji container missing");
-        return;
-    }
-
-    const auto& c = AttitudeTheme::GetInstance().GetColors();
-
-    // 主面板 - 覆盖整个太极区域
-    mood_gua_panel_ = lv_obj_create(container);
-    lv_obj_set_size(mood_gua_panel_, TAIJI_CANVAS_SIZE, TAIJI_CANVAS_SIZE);
-    lv_obj_set_pos(mood_gua_panel_, 0, 0);
-    lv_obj_set_style_radius(mood_gua_panel_, TAIJI_RADIUS, 0);
-    lv_obj_set_style_bg_opa(mood_gua_panel_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(mood_gua_panel_, 0, 0);
-    lv_obj_set_style_pad_all(mood_gua_panel_, 0, 0);
-    lv_obj_clear_flag(mood_gua_panel_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(mood_gua_panel_, LV_OBJ_FLAG_HIDDEN);
-
-    // 迷宫 canvas - 用于绘制墙壁
-    maze_canvas_ = lv_canvas_create(mood_gua_panel_);
-    lv_obj_set_size(maze_canvas_, MAZE_CANVAS_SIZE, MAZE_CANVAS_SIZE);
-    const int maze_offset = (TAIJI_CANVAS_SIZE - MAZE_CANVAS_SIZE) / 2;
-    lv_obj_set_pos(maze_canvas_, maze_offset, maze_offset);
-    lv_obj_set_style_bg_opa(maze_canvas_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(maze_canvas_, 0, 0);
-
-    // 为 canvas 分配绘制 buffer - 使用静态 buf 避免频繁分配
-    static lv_color_t maze_buf[MAZE_CANVAS_SIZE * MAZE_CANVAS_SIZE];
-    lv_canvas_set_buffer(maze_canvas_, maze_buf, MAZE_CANVAS_SIZE, MAZE_CANVAS_SIZE, LV_COLOR_FORMAT_NATIVE);
-
-    // 玩家小圆点 - 使用独立的 lv_obj 便于移动
-    maze_player_obj_ = lv_obj_create(mood_gua_panel_);
-    lv_obj_set_size(maze_player_obj_, MAZE_PLAYER_SIZE, MAZE_PLAYER_SIZE);
-    lv_obj_set_style_radius(maze_player_obj_, MAZE_PLAYER_SIZE / 2, 0);
-    lv_obj_set_style_bg_color(maze_player_obj_, lv_color_hex(0xFFD700), 0); // 金色
-    lv_obj_set_style_bg_opa(maze_player_obj_, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(maze_player_obj_, 0, 0);
-    lv_obj_clear_flag(maze_player_obj_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(maze_player_obj_, LV_OBJ_FLAG_HIDDEN);
-
-    // 迷宫标题（顶部显示功能名称）
-    maze_title_label_ = lv_label_create(mood_gua_panel_);
-    lv_obj_set_style_text_font(maze_title_label_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(maze_title_label_, c.text_main, 0);
-    lv_label_set_text(maze_title_label_, "迷宫游戏");
-    lv_obj_align(maze_title_label_, LV_ALIGN_TOP_MID, 0, 2);
-    lv_obj_add_flag(maze_title_label_, LV_OBJ_FLAG_HIDDEN);
-
-    // 胜利提示（右下角显示）
-    maze_end_label_ = lv_label_create(mood_gua_panel_);
-    lv_obj_set_style_text_font(maze_end_label_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(maze_end_label_, lv_color_hex(0x00FF00), 0);
-    lv_label_set_text(maze_end_label_, "✓");
-    lv_obj_add_flag(maze_end_label_, LV_OBJ_FLAG_HIDDEN);
-
-    // 为整个 panel 注册点击事件（检测方向移动）
-    lv_obj_add_flag(mood_gua_panel_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(mood_gua_panel_, OnMazeTouchedStatic, LV_EVENT_CLICKED, this);
-
-    // 初始化迷宫墙壁（全部为有墙状态）并生成一个初始迷宫
-    GenerateMaze();
-
-    ESP_LOGI(TAG, "MoodGua maze area created (grid=%d, cell=%d, player=%d)",
-             MAZE_GRID_SIZE, MAZE_CELL_SIZE, MAZE_PLAYER_SIZE);
-}
-
-void AttitudeDisplay::SyncMoodGuaAreaWithMenu()
-{
-    if (!fortune_menu_selection_active_) {
-        if (mood_gua_sub_state_ != MoodGuaSubState::Hidden) {
-            ExitMoodGuaArea();
-        }
-        return;
-    }
-
-    if (fortune_menu_selected_index_ == static_cast<int>(FortuneMenuType::MoodGua)) {
-#if STUDY_SUB_FEATURES_ENABLED
-        // 如果学业区已进入，先退出
-        if (study_sub_state_ != StudySubState::Hidden) {
-            ExitStudyArea();
-        }
-#endif
-        // 隐藏其他功能卡
-        if (function_area_card_ != nullptr
-            && !lv_obj_has_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN)) {
-            HideDebugInfoUnlocked();
-        }
-        if (mood_gua_sub_state_ == MoodGuaSubState::Hidden) {
-            EnterMaze();
-        }
-    } else {
-        if (mood_gua_sub_state_ != MoodGuaSubState::Hidden) {
-            ExitMoodGuaArea();
-        }
-    }
-}
-
-void AttitudeDisplay::EnterMaze()
-{
-    if (mood_gua_panel_ == nullptr) {
-        return;
-    }
-
-    // 保存并停止太极旋转
-    mood_gua_had_auto_rotation_ = CompassTaiji::IsAutoRotating();
-    if (mood_gua_had_auto_rotation_) {
-        mood_gua_saved_rotation_period_ms_ = CompassTaiji::GetAutoRotationPeriod();
-        CompassTaiji::StopAutoRotation();
-    }
-
-    // 隐藏太极核心（保持鱼眼可见与否，与学业区一致）
-    SetTaijiCoreVisible(false);
-
-    // 重置玩家位置到起点
-    maze_player_row_ = 0;
-    maze_player_col_ = 0;
-
-    // 生成新的随机迷宫
-    GenerateMaze();
-
-    // 绘制迷宫
-    DrawMazeOnCanvas();
-
-    // 绘制玩家
-    RedrawMazePlayer();
-
-    // 显示 UI 元素
-    lv_obj_remove_flag(mood_gua_panel_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(maze_canvas_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(maze_player_obj_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(maze_title_label_, LV_OBJ_FLAG_HIDDEN);
-
-    // 隐藏胜利标记
-    if (maze_end_label_ != nullptr) {
-        lv_obj_add_flag(maze_end_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    mood_gua_sub_state_ = MoodGuaSubState::MazePlaying;
-    ESP_LOGI(TAG, "Maze game entered (player=0,0, end=%d,%d)",
-             maze_end_row_, maze_end_col_);
-}
-
-void AttitudeDisplay::ExitMoodGuaArea()
-{
-    if (mood_gua_panel_ != nullptr) {
-        lv_obj_add_flag(mood_gua_panel_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (maze_canvas_ != nullptr) {
-        lv_obj_add_flag(maze_canvas_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (maze_player_obj_ != nullptr) {
-        lv_obj_add_flag(maze_player_obj_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (maze_title_label_ != nullptr) {
-        lv_obj_add_flag(maze_title_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (maze_end_label_ != nullptr) {
-        lv_obj_add_flag(maze_end_label_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    if (mood_gua_sub_state_ != MoodGuaSubState::Hidden) {
-        SetTaijiCoreVisible(true);
-        if (mood_gua_had_auto_rotation_) {
-            CompassTaiji::StartAutoRotation(mood_gua_saved_rotation_period_ms_);
-        }
-        mood_gua_sub_state_ = MoodGuaSubState::Hidden;
-        ESP_LOGI(TAG, "Maze game exited");
-    }
-}
-
-// --- DFS 随机迷宫生成算法 ---
-// 使用递归回溯法生成完美迷宫
-// 墙壁定义：maze_walls_[row][col] = {top, right, bottom, left}
-// true 表示有墙，false 表示无墙
-
-namespace {
-
-// 墙壁方向索引
-const int kWallTop = 0;
-const int kWallRight = 1;
-const int kWallBottom = 2;
-const int kWallLeft = 3;
-
-// 递归 DFS 生成
-void MazeDfsGenerate(bool walls[MAZE_GRID_SIZE][MAZE_GRID_SIZE][4],
-                     int row, int col,
-                     bool visited[MAZE_GRID_SIZE][MAZE_GRID_SIZE])
-{
-    visited[row][col] = true;
-
-    // 随机打乱四个方向的顺序
-    int dirs[4] = {0, 1, 2, 3}; // top, right, bottom, left
-    for (int i = 0; i < 4; i++) {
-        int j = rand() % (4 - i) + i;
-        int t = dirs[i];
-        dirs[i] = dirs[j];
-        dirs[j] = t;
-    }
-
-    // 尝试每个方向
-    for (int d = 0; d < 4; d++) {
-        int dir = dirs[d];
-        int nr = row;
-        int nc = col;
-        int opposite = 0;
-
-        if (dir == kWallTop) { nr = row - 1; opposite = kWallBottom; }
-        else if (dir == kWallRight) { nc = col + 1; opposite = kWallLeft; }
-        else if (dir == kWallBottom) { nr = row + 1; opposite = kWallTop; }
-        else if (dir == kWallLeft) { nc = col - 1; opposite = kWallRight; }
-
-        if (nr < 0 || nr >= MAZE_GRID_SIZE || nc < 0 || nc >= MAZE_GRID_SIZE) {
-            continue;
-        }
-        if (visited[nr][nc]) {
-            continue;
-        }
-
-        // 拆除当前格子和相邻格子之间的墙
-        walls[row][col][dir] = false;
-        walls[nr][nc][opposite] = false;
-
-        // 递归访问邻居
-        MazeDfsGenerate(walls, nr, nc, visited);
-    }
-}
-
-} // namespace
-
-void AttitudeDisplay::GenerateMaze()
-{
-    // 初始化：所有墙壁都存在
-    for (int r = 0; r < MAZE_GRID_SIZE; r++) {
-        for (int c = 0; c < MAZE_GRID_SIZE; c++) {
-            maze_walls_[r][c][kWallTop] = true;
-            maze_walls_[r][c][kWallRight] = true;
-            maze_walls_[r][c][kWallBottom] = true;
-            maze_walls_[r][c][kWallLeft] = true;
-        }
-    }
-
-    // 使用当前 tick 作为随机种子（保证每次不同）
-    srand(lv_tick_get());
-
-    // 访问数组
-    bool visited[MAZE_GRID_SIZE][MAZE_GRID_SIZE] = {false};
-
-    // DFS 生成从 (0,0) 开始
-    MazeDfsGenerate(maze_walls_, 0, 0, visited);
-
-    // 拆除起点的左上角边框和终点的右下角边框，便于视觉辨识
-    maze_walls_[0][0][kWallTop] = false;
-    maze_walls_[0][0][kWallLeft] = false;
-    maze_walls_[maze_end_row_][maze_end_col_][kWallBottom] = false;
-    maze_walls_[maze_end_row_][maze_end_col_][kWallRight] = false;
-
-    ESP_LOGI(TAG, "Maze generated (%dx%d)", MAZE_GRID_SIZE, MAZE_GRID_SIZE);
-}
-
-void AttitudeDisplay::DrawMazeOnCanvas()
-{
-    if (maze_canvas_ == nullptr) {
-        return;
-    }
-
-    lv_obj_t* canvas = maze_canvas_;
-
-    // 用黑色背景清空
-    lv_color_t bg = lv_color_hex(0x0A0A0A);
-    lv_color_t wall_color = lv_color_hex(0xD4AF37); // 金色墙壁
-    lv_color_t end_color = lv_color_hex(0xFF6B6B);  // 终点标记颜色
-
-    // 清空整个 canvas
-    for (int y = 0; y < MAZE_CANVAS_SIZE; y++) {
-        for (int x = 0; x < MAZE_CANVAS_SIZE; x++) {
-            lv_canvas_set_px(canvas, x, y, bg, LV_OPA_COVER);
-        }
-    }
-
-    const int cell = MAZE_CELL_SIZE;
-
-    // 使用 LVGL 9.x layer API 进行矩形绘制
-    lv_layer_t layer;
-    lv_canvas_init_layer(canvas, &layer);
-
-    lv_draw_rect_dsc_t dsc;
-    lv_draw_rect_dsc_init(&dsc);
-    dsc.bg_color = wall_color;
-    dsc.bg_opa = LV_OPA_COVER;
-    dsc.border_width = 0;
-    dsc.radius = 0;
-
-    lv_area_t area;
-
-    // 绘制每格的右墙和底墙
-    for (int r = 0; r < MAZE_GRID_SIZE; r++) {
-        for (int c = 0; c < MAZE_GRID_SIZE; c++) {
-            // 右墙
-            if (maze_walls_[r][c][kWallRight] && c < MAZE_GRID_SIZE - 1) {
-                int x1 = (c + 1) * cell - MAZE_WALL_WIDTH / 2;
-                int x2 = (c + 1) * cell + MAZE_WALL_WIDTH / 2;
-                int y1 = r * cell;
-                int y2 = (r + 1) * cell;
-                lv_area_set(&area, x1, y1, x2, y2);
-                lv_draw_rect(&layer, &dsc, &area);
-            }
-            // 底墙
-            if (maze_walls_[r][c][kWallBottom] && r < MAZE_GRID_SIZE - 1) {
-                int x1 = c * cell;
-                int x2 = (c + 1) * cell;
-                int y1 = (r + 1) * cell - MAZE_WALL_WIDTH / 2;
-                int y2 = (r + 1) * cell + MAZE_WALL_WIDTH / 2;
-                lv_area_set(&area, x1, y1, x2, y2);
-                lv_draw_rect(&layer, &dsc, &area);
-            }
-        }
-    }
-
-    // 绘制外边框（上、下、左、右四周边）
-    lv_area_set(&area, 0, 0, MAZE_CANVAS_SIZE, MAZE_WALL_WIDTH);
-    lv_draw_rect(&layer, &dsc, &area);
-    lv_area_set(&area, 0, 0, MAZE_WALL_WIDTH, MAZE_CANVAS_SIZE);
-    lv_draw_rect(&layer, &dsc, &area);
-    lv_area_set(&area, MAZE_CANVAS_SIZE - MAZE_WALL_WIDTH, 0, MAZE_CANVAS_SIZE - 1, MAZE_CANVAS_SIZE);
-    lv_draw_rect(&layer, &dsc, &area);
-    lv_area_set(&area, 0, MAZE_CANVAS_SIZE - MAZE_WALL_WIDTH, MAZE_CANVAS_SIZE, MAZE_CANVAS_SIZE);
-    lv_draw_rect(&layer, &dsc, &area);
-
-    // 在终点位置标记一个小方块
-    int ex = maze_end_col_ * cell + cell / 4;
-    int ey = maze_end_row_ * cell + cell / 4;
-    int es = cell / 2;
-    dsc.bg_color = end_color;
-    lv_area_set(&area, ex, ey, ex + es, ey + es);
-    lv_draw_rect(&layer, &dsc, &area);
-
-    // 起点位置用蓝色小方块标记
-    int sx = 0 * cell + cell / 4;
-    int sy = 0 * cell + cell / 4;
-    dsc.bg_color = lv_color_hex(0x4FC3F7);
-    lv_area_set(&area, sx, sy, sx + es, sy + es);
-    lv_draw_rect(&layer, &dsc, &area);
-
-    lv_canvas_finish_layer(canvas, &layer);
-
-    if (display_ != nullptr) {
-        lv_refr_now(display_);
-    }
-}
-
-void AttitudeDisplay::MoveMazePlayer(int drow, int dcol)
-{
-    if (mood_gua_sub_state_ != MoodGuaSubState::MazePlaying) {
-        return;
-    }
-
-    int new_row = maze_player_row_ + drow;
-    int new_col = maze_player_col_ + dcol;
-
-    // 检查边界
-    if (new_row < 0 || new_row >= MAZE_GRID_SIZE
-        || new_col < 0 || new_col >= MAZE_GRID_SIZE) {
-        return;
-    }
-
-    // 检查墙壁（从当前格移动到新格，需要确保对应方向没有墙）
-    int wall_dir = -1;
-    if (drow == -1 && dcol == 0) wall_dir = kWallTop;       // 向上走
-    if (drow == 1 && dcol == 0) wall_dir = kWallBottom;     // 向下走
-    if (drow == 0 && dcol == 1) wall_dir = kWallRight;      // 向右走
-    if (drow == 0 && dcol == -1) wall_dir = kWallLeft;      // 向左走
-
-    if (wall_dir == -1) {
-        return; // 只支持单方向移动
-    }
-
-    if (maze_walls_[maze_player_row_][maze_player_col_][wall_dir]) {
-        // 有墙，不能走
-        return;
-    }
-
-    // 可以移动
-    maze_player_row_ = new_row;
-    maze_player_col_ = new_col;
-    RedrawMazePlayer();
-    PlayFortuneMenuSelectSound();
-
-    ESP_LOGD(TAG, "Maze player moved to (%d,%d)", new_row, new_col);
-
-    // 检查是否到达终点
-    if (new_row == maze_end_row_ && new_col == maze_end_col_) {
-        OnMazeWon();
-    }
-}
-
-void AttitudeDisplay::RedrawMazePlayer()
-{
-    if (maze_player_obj_ == nullptr) {
-        return;
-    }
-
-    // 计算玩家在 canvas 中的位置（相对 panel 的坐标）
-    const int maze_offset = (TAIJI_CANVAS_SIZE - MAZE_CANVAS_SIZE) / 2;
-    const int cell = MAZE_CELL_SIZE;
-    const int px = maze_offset + maze_player_col_ * cell + (cell - MAZE_PLAYER_SIZE) / 2;
-    const int py = maze_offset + maze_player_row_ * cell + (cell - MAZE_PLAYER_SIZE) / 2;
-
-    lv_obj_set_pos(maze_player_obj_, px, py);
-}
-
-void AttitudeDisplay::OnMazeTouched(lv_event_t* e)
-{
-    if (mood_gua_sub_state_ != MoodGuaSubState::MazePlaying) {
-        return;
-    }
-
-    lv_indev_t* indev = lv_indev_active();
-    if (indev == nullptr) {
-        return;
-    }
-
-    lv_point_t pt;
-    lv_indev_get_point(indev, &pt);
-
-    // 获取 panel 的位置和尺寸
-    lv_obj_t* panel = static_cast<lv_obj_t*>(lv_event_get_target(e));
-    lv_area_t panel_area;
-    lv_obj_get_coords(panel, &panel_area);
-
-    // 将点击坐标转换为相对 panel 的坐标
-    int rel_x = pt.x - panel_area.x1;
-    int rel_y = pt.y - panel_area.y1;
-
-    // 计算迷宫区域的中心偏移
-    int center_x = TAIJI_CANVAS_SIZE / 2;
-    int center_y = TAIJI_CANVAS_SIZE / 2;
-    int dx = rel_x - center_x;
-    int dy = rel_y - center_y;
-
-    // 根据点击方向（上/下/左/右）移动
-    // 优先选择绝对值较大的方向
-    if (abs(dx) > abs(dy)) {
-        // 水平方向
-        if (dx > 0) {
-            MoveMazePlayer(0, 1);  // 右
-        } else {
-            MoveMazePlayer(0, -1); // 左
-        }
-    } else {
-        // 垂直方向
-        if (dy > 0) {
-            MoveMazePlayer(1, 0);  // 下
-        } else {
-            MoveMazePlayer(-1, 0); // 上
-        }
-    }
-}
-
-void AttitudeDisplay::OnMazeTouchedStatic(lv_event_t* e)
-{
-    AttitudeDisplay* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
-    if (self != nullptr) {
-        self->OnMazeTouched(e);
-    }
-}
-
-void AttitudeDisplay::OnMazeWon()
-{
-    ESP_LOGI(TAG, "Maze won! Player reached end (%d,%d)", maze_player_row_, maze_player_col_);
-
-    // 显示胜利标记
-    if (maze_end_label_ != nullptr) {
-        lv_obj_remove_flag(maze_end_label_, LV_OBJ_FLAG_HIDDEN);
-        const int maze_offset = (TAIJI_CANVAS_SIZE - MAZE_CANVAS_SIZE) / 2;
-        const int cell = MAZE_CELL_SIZE;
-        const int px = maze_offset + maze_end_col_ * cell;
-        const int py = maze_offset + maze_end_row_ * cell - cell / 2 - 4;
-        lv_obj_set_pos(maze_end_label_, px, py);
-    }
-
-    // 播放完成音效
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_SUCCESS);
-
-    // 一段时间后自动生成新的迷宫
-    lv_timer_t* t = lv_timer_create([](lv_timer_t* timer) {
-        AttitudeDisplay* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
-        if (self != nullptr && self->mood_gua_sub_state_ == MoodGuaSubState::MazePlaying) {
-            self->maze_player_row_ = 0;
-            self->maze_player_col_ = 0;
-            self->GenerateMaze();
-            self->DrawMazeOnCanvas();
-            self->RedrawMazePlayer();
-            if (self->maze_end_label_ != nullptr) {
-                lv_obj_add_flag(self->maze_end_label_, LV_OBJ_FLAG_HIDDEN);
-            }
-            ESP_LOGI(TAG, "New maze after win");
-        }
-        lv_timer_del(timer);
-    }, 1500, this);
-    (void)t;
-}
-
-#endif  // MOOD_GUA_SUB_FEATURES_ENABLED
