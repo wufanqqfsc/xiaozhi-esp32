@@ -4,6 +4,7 @@
 #include "display/display.h"
 #include "display/lvgl_display/jpg/image_to_jpeg.h"
 #include "board.h"
+#include "settings.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -414,6 +415,8 @@ static esp_err_t handle_shot_delete(httpd_req_t* req);
 static esp_err_t handle_device_status(httpd_req_t* req);
 static esp_err_t handle_device_reboot(httpd_req_t* req);
 static esp_err_t handle_device_logs(httpd_req_t* req);
+static esp_err_t handle_device_ota_url(httpd_req_t* req);
+static esp_err_t handle_device_clear_nvs(httpd_req_t* req);
 static esp_err_t handle_file_delete(httpd_req_t* req);
 
 bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
@@ -544,6 +547,24 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_logs);
+
+    // OTA URL 查询 API: GET /api/device/ota-url
+    httpd_uri_t uri_device_ota_url = {
+        .uri = "/api/device/ota-url",
+        .method = HTTP_GET,
+        .handler = handle_device_ota_url,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_device_ota_url);
+
+    // 清除 NVS ota_url API: POST /api/device/clear-nvs
+    httpd_uri_t uri_device_clear_nvs = {
+        .uri = "/api/device/clear-nvs",
+        .method = HTTP_POST,
+        .handler = handle_device_clear_nvs,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_device_clear_nvs);
 
     // SD 卡文件删除 API: /api/sdcard/files/*
     httpd_uri_t uri_file_del = {
@@ -886,6 +907,99 @@ static esp_err_t handle_device_logs(httpd_req_t* req) {
     free(buf);
     close(fd);
     httpd_resp_send_chunk(req, nullptr, 0);
+    return ESP_OK;
+}
+
+// HTTP GET /api/device/ota-url - 查询当前 OTA URL 配置（用于诊断 NVS 覆盖）
+static esp_err_t handle_device_ota_url(httpd_req_t* req) {
+    Settings nvs_settings("wifi", false);
+    Settings ws_settings("app", false);
+    std::string nvs_ota_url = nvs_settings.GetString("ota_url", "");
+    std::string nvs_ws_url = ws_settings.GetString("websocket_url", "");
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "nvs_ota_url", nvs_ota_url.c_str());
+    cJSON_AddStringToObject(root, "nvs_websocket_url", nvs_ws_url.c_str());
+    cJSON_AddStringToObject(root, "build_ota_url", CONFIG_OTA_URL);
+    cJSON_AddStringToObject(root, "build_websocket_url", CONFIG_LOCAL_WEBSOCKET_URL);
+    cJSON_AddBoolToObject(root, "nvs_ota_overridden", !nvs_ota_url.empty());
+    cJSON_AddBoolToObject(root, "nvs_ws_overridden", !nvs_ws_url.empty());
+
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// HTTP POST /api/device/clear-nvs - 清除 NVS 中存储的 ota_url 和 websocket_url
+// 用法: POST /api/device/clear-nvs   (清除所有 URL 覆盖)
+//       POST /api/device/clear-nvs?key=ota_url     (清除单个 key)
+static esp_err_t handle_device_clear_nvs(httpd_req_t* req) {
+    // 解析 query 参数 (?key=ota_url)
+    std::string requested_key = "";
+    if (req->uri[0] != '\0') {
+        const char* q = strchr(req->uri, '?');
+        if (q) {
+            q++;
+            if (strncmp(q, "key=", 4) == 0) {
+                const char* k = q + 4;
+                char* decoded = url_decode(k);
+                if (decoded) {
+                    requested_key = std::string(decoded);
+                    free(decoded);
+                }
+            }
+        }
+    }
+
+    // 安全检查: 只允许清除 ota_url 和 websocket_url
+    auto is_allowed_key = [](const std::string& key) -> bool {
+        return key == "ota_url" || key == "websocket_url";
+    };
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", true);
+
+    if (!requested_key.empty()) {
+        // 清除单个 key
+        if (!is_allowed_key(requested_key)) {
+            httpd_resp_set_status(req, "400 Bad Request");
+            cJSON_Delete(root);
+            cJSON* err = cJSON_CreateObject();
+            cJSON_AddBoolToObject(err, "ok", false);
+            cJSON_AddStringToObject(err, "error", "Only 'ota_url' or 'websocket_url' allowed");
+            char* ej = cJSON_PrintUnformatted(err);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, ej ? ej : "{}", HTTPD_RESP_USE_STRLEN);
+            if (ej) free(ej);
+            cJSON_Delete(err);
+            return ESP_FAIL;
+        }
+
+        Settings settings("wifi", true);
+        if (requested_key == "ota_url") {
+            settings.EraseKey("ota_url");
+        } else if (requested_key == "websocket_url") {
+            settings.EraseKey("websocket_url");
+        }
+        cJSON_AddStringToObject(root, "cleared", requested_key.c_str());
+        ESP_LOGW(TAG, "NVS key '%s' erased via HTTP API (next reboot will use CONFIG_xxx_URL)", requested_key.c_str());
+    } else {
+        // 清除所有 URL keys
+        Settings settings("wifi", true);
+        settings.EraseKey("ota_url");
+        settings.EraseKey("websocket_url");
+        cJSON_AddStringToObject(root, "cleared", "ota_url,websocket_url");
+        ESP_LOGW(TAG, "All NVS URL keys erased via HTTP API (next reboot will use CONFIG_xxx_URL)");
+    }
+
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
     return ESP_OK;
 }
 

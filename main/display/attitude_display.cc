@@ -258,6 +258,80 @@ void AttitudeDisplay::SetTheme(Theme* theme)
     Display::SetTheme(theme);
 }
 
+// ============================================================================
+// 重写基类 UI 显示方法
+// 背景：AttitudeDisplay::SetupUI() 完全重写了父类 UI 初始化流程，没有调用
+//       LcdDisplay::SetupUI()，因此父类的 notification_label_/status_label_/
+//       chat_message_label_/emoji_image_ 都是 nullptr。当 application.cc 调用
+//       这些方法时，会触发 "label is nullptr" 警告且无任何 UI 反馈。
+// 重写策略：使用 AttitudeDisplay 自带的 DebugInfoCard 来显示通知/状态信息。
+//           SetEmotion/ClearChatMessages 不影响 AttitudeDisplay 的太极+鱼眼
+//           视觉，直接 no-op。
+// ============================================================================
+
+void AttitudeDisplay::ShowNotification(const char* notification, int duration_ms)
+{
+    if (notification == nullptr || notification[0] == '\0') {
+        return;
+    }
+    ESP_LOGD(TAG, "ShowNotification: %s (duration=%dms)", notification, duration_ms);
+    // 将时长限制在合理区间，避免动画任务异常
+    uint32_t hold_ms = (duration_ms > 0) ? static_cast<uint32_t>(duration_ms) : DEBUG_INFO_SHOW_MS;
+    if (hold_ms < 500) hold_ms = 500;
+    if (hold_ms > DEBUG_INFO_HOLD_MAX_MS) hold_ms = DEBUG_INFO_HOLD_MAX_MS;
+    ShowDebugInfo("通知", std::string(notification), hold_ms);
+}
+
+void AttitudeDisplay::ShowNotification(const std::string& notification, int duration_ms)
+{
+    if (notification.empty()) {
+        return;
+    }
+    ShowNotification(notification.c_str(), duration_ms);
+}
+
+void AttitudeDisplay::SetStatus(const char* status)
+{
+    if (status == nullptr || status[0] == '\0') {
+        return;
+    }
+    ESP_LOGD(TAG, "SetStatus: %s", status);
+    // 状态信息短暂显示 5 秒，避免和通知抢占显示
+    ShowDebugInfo("状态", std::string(status), 5000);
+}
+
+void AttitudeDisplay::SetEmotion(const char* emotion)
+{
+    if (emotion == nullptr || emotion[0] == '\0') {
+        return;
+    }
+    // AttitudeDisplay 使用太极+鱼眼表达状态，不依赖 LcdDisplay 的表情控件。
+    // 这里仅记录日志，保持与 application.cc 状态机同步。
+    ESP_LOGD(TAG, "SetEmotion: %s (no-op, taiji+fisheye unchanged)", emotion);
+}
+
+void AttitudeDisplay::SetChatMessage(const char* role, const char* content)
+{
+    if (content == nullptr || content[0] == '\0') {
+        return;
+    }
+    if (role == nullptr) {
+        role = "system";
+    }
+    ESP_LOGD(TAG, "SetChatMessage: role=%s content=%.40s%s",
+             role, content, (strlen(content) > 40 ? "..." : ""));
+    // 仅对 system 消息使用 DebugInfoCard 提示，普通对话由 attitude UI 自行表达
+    if (strcmp(role, "system") == 0) {
+        ShowDebugInfo("系统消息", std::string(content), 5000);
+    }
+}
+
+void AttitudeDisplay::ClearChatMessages()
+{
+    // AttitudeDisplay 没有聊天消息气泡，无需清理
+    ESP_LOGD(TAG, "ClearChatMessages (no-op, attitude ui has no message bubbles)");
+}
+
 void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
 {
     current_pitch_ = pitch;

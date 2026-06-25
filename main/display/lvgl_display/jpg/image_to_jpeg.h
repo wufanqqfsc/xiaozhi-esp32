@@ -1,9 +1,6 @@
 // image_to_jpeg.h - 图像到JPEG转换的高效编码接口
 // 节省约8KB SRAM的JPEG编码实现
 #pragma once
-#include "sdkconfig.h"
-#ifndef CONFIG_IDF_TARGET_ESP32
-
 #include <stdint.h>
 #include <stddef.h>
 
@@ -83,4 +80,4 @@ extern "C"
 }
 #endif
 
-#endif // ndef CONFIG_IDF_TARGET_ESP32
+

@@ -5,6 +5,7 @@
 #include "application.h"
 #include "button.h"
 #include "config.h"
+#include "sdcard_log.h"
 
 #include <esp_log.h>
 #include "i2c_device.h"
@@ -464,6 +465,8 @@ private:
         vTaskDelay(pdMS_TO_TICKS(2500));
 
         sdmmc_card_t* card = nullptr;
+
+        // 第一次尝试：标准 FAT 挂载（要求卡内已有 FAT32/exFAT 分区）
         esp_vfs_fat_sdmmc_mount_config_t mount_config = {
             .format_if_mount_failed = false,
             .max_files = 5,
@@ -489,7 +492,23 @@ private:
 #endif
         slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
+        // 第一次尝试：低频 + 1-bit（更稳定的协议探测）
+        host.max_freq_khz = 10000;  // 10MHz（默认 20MHz）
         esp_err_t ret = esp_vfs_fat_sdmmc_mount(SD_MMC_MOUNT_POINT, &host, &slot_config, &mount_config, &card);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "SD卡挂载失败(第一次): %s (0x%x) errno=13 通常是 FR_NO_FILESYSTEM 或 FR_DISK_ERR",
+                     esp_err_to_name(ret), ret);
+            ESP_LOGE(TAG, "可能原因: (1)卡内无 FAT32/exFAT (2)卡未插好 (3)卡被写保护 (4)卡损坏");
+
+            // 第二次尝试：开启 format_if_mount_failed，让设备自动格式化为 FAT32
+            // 用户可直接在板上格式化卡片（卡内数据将丢失）
+            ESP_LOGW(TAG, "尝试 format_if_mount_failed=true 自动格式化...");
+            mount_config.format_if_mount_failed = true;
+            vTaskDelay(pdMS_TO_TICKS(500));
+            ret = esp_vfs_fat_sdmmc_mount(SD_MMC_MOUNT_POINT, &host, &slot_config, &mount_config, &card);
+        }
+
         if (ret == ESP_OK && card != nullptr) {
             char msg[64];
             double gb = (double)card->csd.capacity * card->csd.sector_size / (1024.0 * 1024.0 * 1024.0);
@@ -498,10 +517,16 @@ private:
             if (self->display_ != nullptr) {
                 self->display_->ShowNotification(msg, 4000);
             }
+            // 启动 SD 卡日志重定向：所有 ESP_LOG 自动写入 /sdcard/xiaozhi_<boottime>.log
+            if (SdCardLogStart(SD_MMC_MOUNT_POINT)) {
+                ESP_LOGI(TAG, "启动日志已重定向到 TF 卡: %s", SdCardLogGetPath());
+            } else {
+                ESP_LOGW(TAG, "SD 卡日志重定向失败（mount ok 但 write 不可用？）");
+            }
         } else {
             ESP_LOGE(TAG, "SD卡最终未挂载: %s (0x%x)", esp_err_to_name(ret), ret);
             if (self->display_ != nullptr) {
-                self->display_->ShowNotification("SD卡未检测到", 4000);
+                self->display_->ShowNotification("SD卡未检测到/格式不支持", 4000);
             }
         }
         vTaskDelete(nullptr);

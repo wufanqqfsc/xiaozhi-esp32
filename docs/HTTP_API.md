@@ -1,7 +1,7 @@
 # ESP32 HTTP API 文档
 
-> **版本**: v1.0  
-> **更新日期**: 2025-06-24  
+> **版本**: v1.1  
+> **更新日期**: 2026-06-25  
 > **服务端口**: 8080
 
 ---
@@ -25,6 +25,8 @@ http://<设备IP>:8080
 | `/api/device/status` | GET | 获取设备状态 |
 | `/api/device/logs` | GET | 获取设备日志 |
 | `/api/device/reboot` | POST | 重启设备 |
+| `/api/device/ota-url` | GET | 查询 OTA/WS URL 配置（NVS vs 构建配置） |
+| `/api/device/clear-nvs` | POST | 清除 NVS 中存储的 ota_url 和 websocket_url |
 | `/api/sdcard/info` | GET | 获取 SD 卡信息 |
 | `/api/sdcard/logs` | GET | 获取日志文件列表 |
 | `/api/sdcard/logs/<filename>` | GET | 下载日志文件 |
@@ -121,9 +123,73 @@ POST /api/device/reboot
 
 ---
 
+### 4. 查询 OTA / WebSocket URL 配置
+
+**请求**
+```
+GET /api/device/ota-url
+```
+
+**响应示例**
+```json
+{
+  "nvs_ota_url": "http://192.168.3.31:8003/xiaozhi/ota/",
+  "nvs_websocket_url": "",
+  "build_ota_url": "http://192.168.3.32:8091/api/device/ota",
+  "build_websocket_url": "ws://192.168.3.32:8092/ws/xiaozhi/v1/",
+  "nvs_ota_overridden": true,
+  "nvs_ws_overridden": false
+}
+```
+
+**字段说明**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `nvs_ota_url` | string | NVS 中存储的 OTA URL（如有覆盖） |
+| `nvs_websocket_url` | string | NVS 中存储的 WebSocket URL（如有覆盖） |
+| `build_ota_url` | string | 编译期固化的 OTA URL (`CONFIG_OTA_URL`) |
+| `build_websocket_url` | string | 编译期固化的 WebSocket URL (`CONFIG_LOCAL_WEBSOCKET_URL`) |
+| `nvs_ota_overridden` | bool | NVS 是否覆盖了 OTA URL |
+| `nvs_ws_overridden` | bool | NVS 是否覆盖了 WebSocket URL |
+
+**使用场景**: 排查 OTA 连接失败问题，确认 NVS 中是否存储了旧的错误 URL。
+
+---
+
+### 5. 清除 NVS 中存储的 URL
+
+**请求**
+```
+POST /api/device/clear-nvs            # 清除所有 URL（ota_url + websocket_url）
+POST /api/device/clear-nvs?key=ota_url     # 仅清除 OTA URL
+POST /api/device/clear-nvs?key=websocket_url   # 仅清除 WebSocket URL
+```
+
+**响应示例**
+```json
+{
+  "ok": true,
+  "cleared": "ota_url,websocket_url"
+}
+```
+
+**使用示例**
+```bash
+# 清除所有 NVS 中的 URL，下次启动将使用 CONFIG_OTA_URL / CONFIG_LOCAL_WEBSOCKET_URL
+curl -X POST http://192.168.3.22:8080/api/device/clear-nvs
+```
+
+**安全约束**
+- 仅允许清除 `ota_url` 和 `websocket_url` 两个 key
+- 其他 NVS 数据（如 WiFi 凭据、设备配对信息）不受影响
+- 清除后立即生效（下次设备启动时读取 `CONFIG_*_URL`）
+
+---
+
 ## SD 卡管理 API
 
-### 4. 获取 SD 卡信息
+### 6. 获取 SD 卡信息
 
 **请求**
 ```
@@ -143,7 +209,7 @@ GET /api/sdcard/info
 
 ---
 
-### 5. 获取日志文件列表
+### 7. 获取日志文件列表
 
 **请求**
 ```
@@ -168,7 +234,7 @@ GET /api/sdcard/logs
 
 ---
 
-### 6. 下载日志文件
+### 8. 下载日志文件
 
 **请求**
 ```
@@ -186,7 +252,7 @@ curl -o boot.log http://192.168.3.22:8080/api/sdcard/logs/xiaozhi_boot_1.log
 
 ---
 
-### 7. 删除日志文件
+### 9. 删除日志文件
 
 **请求**
 ```
@@ -202,7 +268,7 @@ DELETE /api/sdcard/logs/<filename>
 
 ---
 
-### 8. 获取截图文件列表
+### 10. 获取截图文件列表
 
 **请求**
 ```
@@ -238,7 +304,7 @@ GET /api/sdcard/shots
 
 ---
 
-### 9. 触发屏幕截图
+### 11. 触发屏幕截图
 
 **请求**
 ```
@@ -260,7 +326,7 @@ POST /api/sdcard/shots
 
 ---
 
-### 10. 下载截图文件
+### 12. 下载截图文件
 
 **请求**
 ```
@@ -278,7 +344,7 @@ curl -o shot.jpg http://192.168.3.22:8080/api/sdcard/shots/shot_20250624_143052.
 
 ---
 
-### 11. 删除截图文件
+### 13. 删除截图文件
 
 **请求**
 ```
@@ -294,7 +360,7 @@ DELETE /api/sdcard/shots/<filename>
 
 ---
 
-### 12. 删除 SD 卡任意文件
+### 14. 删除 SD 卡任意文件
 
 **请求**
 ```

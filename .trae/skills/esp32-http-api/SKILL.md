@@ -20,6 +20,13 @@ curl http://<IP>:8080/api/device/logs
 
 # Reboot device
 curl -X POST http://<IP>:8080/api/device/reboot
+
+# Query OTA/WS URL configuration (NVS vs build config)
+curl http://<IP>:8080/api/device/ota-url
+
+# Clear NVS stored ota_url/websocket_url (force use of build config)
+curl -X POST http://<IP>:8080/api/device/clear-nvs
+curl -X POST "http://<IP>:8080/api/device/clear-nvs?key=ota_url"
 ```
 
 ### Screenshot Management
@@ -68,6 +75,8 @@ curl -X DELETE http://<IP>:8080/api/sdcard/files/<filename>
 | `/api/device/status` | GET | Device status |
 | `/api/device/logs` | GET | Device logs |
 | `/api/device/reboot` | POST | Reboot device |
+| `/api/device/ota-url` | GET | Query OTA/WS URL (NVS vs build config) |
+| `/api/device/clear-nvs` | POST | Clear NVS ota_url/websocket_url |
 | `/api/sdcard/info` | GET | SD card info |
 | `/api/sdcard/logs` | GET | Log file list |
 | `/api/sdcard/logs/<filename>` | GET/DELETE | Download/delete log |

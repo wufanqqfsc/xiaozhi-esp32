@@ -109,6 +109,16 @@ public:
     virtual void SetTheme(Theme* theme) override;
     virtual void UpdateStatusBar(bool update_all = false) override;
 
+    // 覆盖基类的 UI 显示方法：AttitudeDisplay 使用自己的 UI 架构（太极 + 鱼眼 + DebugInfoCard）
+    // 不使用 LcdDisplay 的 status_bar_/notification_label_/chat_message_label_/emoji_image_
+    // 重写这些方法避免调用父类时触发 "label is nullptr" 警告，并改用 ShowDebugInfo 提示用户
+    virtual void ShowNotification(const char* notification, int duration_ms = 3000) override;
+    virtual void ShowNotification(const std::string& notification, int duration_ms = 3000) override;
+    virtual void SetStatus(const char* status) override;
+    virtual void SetEmotion(const char* emotion) override;
+    virtual void SetChatMessage(const char* role, const char* content) override;
+    virtual void ClearChatMessages() override;
+
     void SetAttitudeData(float pitch, float roll, float yaw);
     void SetInterpretation(const std::string& text);
 
