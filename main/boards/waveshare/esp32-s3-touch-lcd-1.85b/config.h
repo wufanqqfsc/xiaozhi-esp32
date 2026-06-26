@@ -14,7 +14,11 @@
 #define AUDIO_I2S_GPIO_DIN          GPIO_NUM_39
 #define AUDIO_I2S_GPIO_DOUT         GPIO_NUM_47
 #define AUDIO_CODEC_PA_PIN          GPIO_NUM_9
-#define AUDIO_INPUT_REFERENCE       true
+// 2026-06-25: 禁用参考输入。
+// 原配置 true → AFE 输入 "MR" (1 mic + 1 ref)，但 ES7210 TDM 4 槽中第 2 槽实际是 MIC2 数据，
+// 造成 AEC 把 MIC2 当作"回声"消除掉麦克风数据，导致唤醒词无法识别。
+// 改为 false → AFE 输入 "M" (仅 1 mic)，跳过 AEC，唤醒词应能正常检测。
+#define AUDIO_INPUT_REFERENCE       false
 #define AUDIO_CODEC_ES8311_ADDR     ES8311_CODEC_DEFAULT_ADDR
 #define AUDIO_CODEC_ES7210_ADDR     ES7210_CODEC_DEFAULT_ADDR
 

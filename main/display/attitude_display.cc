@@ -32,6 +32,7 @@ LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 LV_FONT_DECLARE(font_awesome_30_4);
 LV_FONT_DECLARE(font_awesome_16_4);
 LV_FONT_DECLARE(font_awesome_20_4);
+LV_FONT_DECLARE(font_puhui_20_4);
 
 namespace {
 
@@ -279,6 +280,9 @@ void AttitudeDisplay::ShowNotification(const char* notification, int duration_ms
     uint32_t hold_ms = (duration_ms > 0) ? static_cast<uint32_t>(duration_ms) : DEBUG_INFO_SHOW_MS;
     if (hold_ms < 500) hold_ms = 500;
     if (hold_ms > DEBUG_INFO_HOLD_MAX_MS) hold_ms = DEBUG_INFO_HOLD_MAX_MS;
+    // 加 LVGL 互斥锁：SdCardReportTask 等非 LVGL 任务也会调用 ShowNotification
+    // 没有锁的话会在 lv_refr_now 阶段触发 LoadProhibited
+    DisplayLockGuard lock(this);
     ShowDebugInfo("通知", std::string(notification), hold_ms);
 }
 
@@ -297,6 +301,7 @@ void AttitudeDisplay::SetStatus(const char* status)
     }
     ESP_LOGD(TAG, "SetStatus: %s", status);
     // 状态信息短暂显示 5 秒，避免和通知抢占显示
+    DisplayLockGuard lock(this);
     ShowDebugInfo("状态", std::string(status), 5000);
 }
 
@@ -322,6 +327,7 @@ void AttitudeDisplay::SetChatMessage(const char* role, const char* content)
              role, content, (strlen(content) > 40 ? "..." : ""));
     // 仅对 system 消息使用 DebugInfoCard 提示，普通对话由 attitude UI 自行表达
     if (strcmp(role, "system") == 0) {
+        DisplayLockGuard lock(this);
         ShowDebugInfo("系统消息", std::string(content), 5000);
     }
 }
@@ -847,20 +853,27 @@ void AttitudeDisplay::CreateDebugInfoCard()
     if (function_area_card_ != nullptr) {
         return;
     }
-    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
-    const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
-        ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
-    // 300px 卡片，边距 20px，标签宽度 260px，高度更紧凑，确保内容全部在圆内
+    // 调试卡固定使用 20px 字体（比主题 30px 略小），布局：
+    //   标题 y=32 偏上 50px
+    //   详情中心 y=150（卡片直径位置）垂直居中
+    const lv_font_t* text_font = &font_puhui_20_4;
     const int card_w = DEBUG_INFO_CARD_W;
     const int text_w = card_w - 40;
     const int text_x = 20;
-    // 30px 字体约占 36px 行高，标签高度设为 40-44 以确保完整显示
-    const int row_h = 40;
-    const int core_h = 60; // core 允许两行
+    // 20px 字体行高 ~24px：
+    //   - 标题 1 行 → row_h = 32（24+8 缓冲）
+    //   - 详情 5 行 → detail_h = 144（5*24+24 缓冲），避免第 3 行被截断
+    const int row_h = 32;
+    const int detail_h = 144;
+    // 标题位置（用户要求：原 y=82 上移 50 → y=32）
+    const int y_title = 32;
+    // 详情中心放在卡片直径位置 y=150
+    const int y_detail = 150 - detail_h / 2;
+
     // 垂直居中：按 font line_height 动态算 pad_top，让单行文字落在 row 中线
     const int line_h = lv_font_get_line_height(text_font);
     const int title_pad = (row_h > line_h) ? (row_h - line_h) / 2 : 0;
-    const int detail_pad = (core_h > line_h) ? (core_h - line_h) / 2 : 0;
+    const int detail_pad = (detail_h > line_h) ? (detail_h - line_h) / 2 : 0;
 
     function_area_card_ = lv_obj_create(attitude_container_);
     lv_obj_set_size(function_area_card_, card_w, card_w); // 正方形，300x300
@@ -876,10 +889,7 @@ void AttitudeDisplay::CreateDebugInfoCard()
     lv_obj_clear_flag(function_area_card_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN);
 
-    // 调试卡简化版：title（顶部）+ detail（底部），删除 gua/core/yi/ji 四行（功能区提示卡已下线）
-    const int start_y = 40;
-    int cur_y = start_y;
-
+    // 标题（顶部偏上）
     debug_info_title_ = lv_label_create(function_area_card_);
     lv_obj_set_style_text_font(debug_info_title_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_title_, DEBUG_INFO_TITLE_COLOR, 0);
@@ -887,32 +897,37 @@ void AttitudeDisplay::CreateDebugInfoCard()
     lv_obj_set_width(debug_info_title_, text_w);
     lv_obj_set_height(debug_info_title_, row_h);
     lv_obj_set_x(debug_info_title_, text_x);
-    lv_obj_set_y(debug_info_title_, cur_y);
+    lv_obj_set_y(debug_info_title_, y_title);
     lv_label_set_long_mode(debug_info_title_, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(debug_info_title_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_pad_top(debug_info_title_, title_pad, 0);  // 垂直居中
+    lv_obj_set_style_pad_top(debug_info_title_, title_pad, 0);
     lv_label_set_text(debug_info_title_, "");
-    cur_y += row_h;
 
-    // detail（第二行）：展示事件具体内容
+    // 详情（中心 y=150 卡片直径位置，2 行）
     debug_info_detail_ = lv_label_create(function_area_card_);
     lv_obj_set_style_text_font(debug_info_detail_, text_font, 0);
     lv_obj_set_style_text_color(debug_info_detail_, DEBUG_INFO_DETAIL_COLOR, 0);
     lv_obj_set_width(debug_info_detail_, text_w);
-    lv_obj_set_height(debug_info_detail_, core_h);
+    lv_obj_set_height(debug_info_detail_, detail_h);
     lv_obj_set_x(debug_info_detail_, text_x);
-    lv_obj_set_y(debug_info_detail_, cur_y);
+    lv_obj_set_y(debug_info_detail_, y_detail);
     lv_label_set_long_mode(debug_info_detail_, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(debug_info_detail_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_pad_top(debug_info_detail_, detail_pad, 0);  // 垂直居中
+    lv_obj_set_style_pad_top(debug_info_detail_, detail_pad, 0);
     lv_label_set_text(debug_info_detail_, "");
 
     ApplyDebugInfoCardLayout();
 
+    // 关键修复：必须用无限循环（repeat_count = -1）
+    // 原代码设为 1，导致 LVGL 在定时器触发后自动 delete 定时器，
+    // 但 debug_info_hide_timer_ 成员未被置空，下次 ShowDebugInfo 会
+    // 在悬空指针上调用 lv_timer_reset/set_period，卡片永远不消失。
+    // 现在定时器永久运行，由 DestroyDebugInfoCard 显式 delete。
     debug_info_hide_timer_ = lv_timer_create(OnDebugInfoHideTimer, DEBUG_INFO_SHOW_MS, this);
-    lv_timer_set_repeat_count(debug_info_hide_timer_, 1);
+    lv_timer_set_repeat_count(debug_info_hide_timer_, -1);
 
-    ESP_LOGD(TAG, "Debug info card created");
+    ESP_LOGD(TAG, "Debug info card created: y_title=%d y_detail=%d (detail center=%d, card center=150)",
+             y_title, y_detail, y_detail + detail_h / 2);
 }
 
 // EnsureFortunePromptTitle 已彻底删除：screen 顶层短提示路径已废弃
@@ -924,18 +939,17 @@ void AttitudeDisplay::ApplyDebugInfoCardLayout()
     if (function_area_card_ == nullptr) {
         return;
     }
-    auto lvgl_theme = static_cast<LvglTheme*>(GetTheme());
-    const lv_font_t* text_font = (lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr)
-        ? lvgl_theme->text_font()->font() : &BUILTIN_TEXT_FONT;
+    // 调试卡固定使用 20px 字体（与 CreateDebugInfoCard 保持一致）
+    const lv_font_t* text_font = &font_puhui_20_4;
     const int card_w = DEBUG_INFO_CARD_W;
     const int text_w = card_w - 40;
     const int text_x = 20;
-    const int row_h = 40;
-    const int detail_h = 60;
-
-    const int start_y = 40;
-    const int y_title = start_y;
-    const int y_detail = start_y + row_h;
+    // 必须与 CreateDebugInfoCard 保持一致：row_h=32, detail_h=144
+    const int row_h = 32;
+    const int detail_h = 144;
+    // 标题 y=32（偏上 50px），详情中心 y=150（卡片直径位置）
+    const int y_title = 32;
+    const int y_detail = 150 - detail_h / 2;
 
     lv_obj_set_style_clip_corner(function_area_card_, true, 0);
     // 垂直居中：按 font line_height 动态算 pad_top
@@ -1009,9 +1023,9 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
     lv_obj_remove_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(function_area_card_);
     lv_obj_update_layout(function_area_card_);
-    if (display_ != nullptr) {
-        lv_refr_now(display_);
-    }
+    // 注意：不能在持锁情况下调用 lv_refr_now()，LVGL 文档禁止从非 LVGL 任务刷新。
+    // 此函数由 ShowNotification 等 UI 调用方持有 DisplayLockGuard，本身为非 LVGL 任务上下文，
+    // 故移除 lv_refr_now()；下次 LVGL 周期会自动刷新（典型 < 30ms）。
 
     ESP_LOGI(TAG, "DebugInfoCard shown: title=%s hidden=%d card_hidden=%d",
              title.c_str(),
@@ -1054,6 +1068,9 @@ void AttitudeDisplay::OnDebugInfoHideTimer(lv_timer_t* timer)
     }
     DisplayLockGuard lock(self);
     self->HideDebugInfoUnlocked();
+    // 优化：定时器触发后自动暂停，避免卡片已隐藏但定时器仍每 5s 触发
+    // 下次 ShowDebugInfo → PresentDebugInfoCardUnlocked 中会 lv_timer_resume + reset
+    lv_timer_pause(timer);
 }
 
 void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms)

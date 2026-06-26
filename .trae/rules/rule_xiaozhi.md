@@ -1,8 +1,8 @@
 # Xiaozhi ESP32 开发规则
 
 > **项目**: Xiaozhi ESP32 AI 罗盘项目  
-> **版本**: v1.0  
-> **更新日期**: 2026-06-15
+> **版本**: v1.2  
+> **更新日期**: 2026-06-26
 
 ---
 
@@ -53,6 +53,90 @@
 ```
 
 > **注意**: 如果脚本不存在或有问题，请先检查脚本内容或创建符合项目需求的编译烧录脚本。
+
+### 4. 服务器地址同步规则
+
+> **重要**: 每次烧录固件前，**必须**确认并更新 ESP32 固件中链接的服务器地址为 **当前 host 端（运行 `xiaozhi-esp32-server-java` 的 Mac）的 IP 地址**。
+
+#### 为什么需要手动同步？
+
+- **网络切换**：Mac 的 WiFi 可能从 `HUAWEI-9YQAVW` (192.168.3.x) 切换到 iPhone 热点 (10.x.x.x) 等其他网络
+- **DHCP 重分配**：每次重连后 IP 地址可能变化
+- **服务端口固定**：Java 后端监听 `8091`（HTTP OTA）和 `8092`（WebSocket）
+
+#### 操作步骤
+
+1. **获取当前 host IP**：
+   ```bash
+   ifconfig en0 | grep "inet " | awk '{print $2}'
+   ```
+   当前常见 IP：
+   - HUAWEI-9YQAVW 网络 → `192.168.3.33`
+   - iPhone 热点 (REDMI Turbo 4) → `10.161.227.170`
+
+2. **更新 `sdkconfig`** 中两个变量（用上面查到的 IP 替换）：
+   ```
+   CONFIG_OTA_URL="http://<CURRENT_HOST_IP>:8091/api/device/ota"
+   CONFIG_LOCAL_WEBSOCKET_URL="ws://<CURRENT_HOST_IP>:8092/ws/xiaozhi/v1/"
+   ```
+
+3. **重新编译并烧录**：
+   ```bash
+   ./build_and_flash.sh
+   ```
+
+#### 验证
+
+烧录完成后，设备日志应显示：
+```
+I (xxxxx) Application: Network connected
+I (xxxxx) Ota: Current version: 2.x.x
+```
+且 `Ota: Check update response` 中应出现 `activation` 字段（说明 OTA 检查成功连到了 8091）。
+
+#### 当前 host IP 记录
+
+| 网络名称 | 网段 | 当前 host IP |
+|---------|------|------------|
+| HUAWEI-9YQAVW | 192.168.3.x | 192.168.3.33 |
+| REDMI Turbo 4 (热点) | 10.161.227.x | 10.161.227.170 |
+
+> **注意**：每次烧录前用 `ifconfig en0` 重新确认 IP，不要依赖上一次的记录。
+
+### 5. WiFi 凭据持久化（已实现）
+
+ESP32 设备**已经支持**保存最近成功连接的 WiFi 名（SSID）和密码到 NVS Flash，并在下次启动时自动连接。仅当以下情况才进入配网模式：
+
+1. **NVS 中无任何保存的 SSID**（首次开机或执行过 NVS 清除）
+2. **保存的 SSID 连接失败**（WiFi 名改了、密码改了、AP 不在了等）
+   - 触发机制：`OnWifiConnectTimeout` 超时回调 → `StartWifiConfigMode()`
+
+#### 实现位置
+
+- 凭据管理：`main/boards/m5stack-cardputer-adv/wifi_config_ui.cc:386` 调用 `SsidManager::AddSsid(ssid, password)` 同时保存 SSID 和密码
+- 自动连接判断：`main/boards/common/wifi_board.cc:93-100` 检查 `ssid_manager.GetSsidList().empty()` 后选择 `StartStation()` 或 `StartWifiConfigMode()`
+
+#### 何时需要重新配网？
+
+| 场景 | 是否需要重新配网 | 说明 |
+|------|---------------|------|
+| 换到同一 WiFi 的不同位置 | 否 | 自动重连 |
+| 换到已保存的不同 WiFi | 否 | 自动尝试该 WiFi |
+| 新增一个之前没连过的 WiFi | **是** | NVS 没保存，必须配网 |
+| 现有 WiFi 改了密码 | **是** | 旧密码连接失败，会自动进配网 |
+| 固件更新后 | 否 | NVS 数据保留 |
+| 改动了 partition table 重新烧录 | **是** | 改分区表会清 NVS（参考 rules v1.1） |
+| 主动清除 NVS | **是** | 通过 `/api/device/clear-nvs` 或长按 BOOT 等 |
+
+#### 如何强制进入配网模式？
+
+1. **HTTP API**（如果设备在线）：
+   ```bash
+   curl -X POST http://<device_ip>:8080/api/device/clear-nvs
+   ```
+   这会清除 NVS 全部配置（WiFi + OTA_URL + 设备ID），下次启动自动进配网。
+
+2. **物理操作**：在 `kDeviceStateStarting` 状态下单击 BOOT 键（参考 board.cc 按钮处理）。
 
 ---
 

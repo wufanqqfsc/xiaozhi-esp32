@@ -1,8 +1,10 @@
 # ESP-IDF Partition Table
-# Name,   Type, SubType, Offset,  Size, Flags
+# Name,   Type, SubType, Offset,   Size, Flags
 nvs,      data, nvs,     0x9000,    0x4000,
 otadata,  data, ota,     0xd000,    0x2000,
 phy_init, data, phy,     0xf000,    0x1000,
-ota_0,    app,  ota_0,   0x20000,   0x3f0000,
-ota_1,    app,  ota_1,   ,          0x3f0000,
-assets,   data, spiffs,  0x800000,  8M
+# 2026-06-26: ota_0/1 从 4MB 扩到 6MB，方便后续添加更多字库（如 font_puhui_20_4）
+# assets 缩到 4MB 留出空间（assets.bin 实际仅 2.7MB）
+ota_0,    app,  ota_0,   0x20000,   0x600000,
+ota_1,    app,  ota_1,   ,          0x600000,
+assets,   data, spiffs,  0xC20000,  0x3E0000,
