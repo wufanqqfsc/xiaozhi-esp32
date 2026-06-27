@@ -33,6 +33,8 @@
 
 #define TAG "SdCardLogHttp"
 
+extern "C" void init_music_player_view(void);  // music_player_view.cc 中实现（C linkage）
+
 static httpd_handle_t g_server = nullptr;
 static char g_mount_point[64] = {0};
 static uint16_t g_port = 0;
@@ -750,6 +752,195 @@ static esp_err_t handle_display_hide(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// 音频相关 handler
+static esp_err_t handle_audio_play(httpd_req_t* req) {
+    // 读取 body（JSON）
+    char buf[1024] = {0};
+    int recv_len = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (recv_len <= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"empty body\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+    buf[recv_len] = '\0';
+
+    cJSON* root = cJSON_Parse(buf);
+    if (root == nullptr) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"invalid json\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    // 解析可选 loop 字段
+    bool loop = false;
+    const cJSON* jloop = cJSON_GetObjectItem(root, "loop");
+    if (cJSON_IsBool(jloop)) {
+        loop = cJSON_IsTrue(jloop) ? true : false;
+    }
+
+    // path、url、playlist 三选一
+    char err[128] = {0};
+    bool ok = false;
+    const cJSON* jpath = cJSON_GetObjectItem(root, "path");
+    const cJSON* jurl = cJSON_GetObjectItem(root, "url");
+    const cJSON* jplaylist = cJSON_GetObjectItem(root, "playlist");
+    if (cJSON_IsArray(jplaylist) && cJSON_GetArraySize(jplaylist) > 0) {
+        // 播放列表：用 cJSON_ArrayForEach 收集 paths（C-style 数组）
+        const int pl_size = cJSON_GetArraySize(jplaylist);
+        std::vector<std::string> path_storage;
+        path_storage.reserve(pl_size);
+        cJSON* item = nullptr;
+        cJSON_ArrayForEach(item, jplaylist) {
+            if (cJSON_IsString(item) && item->valuestring != nullptr) {
+                path_storage.emplace_back(item->valuestring);
+            }
+        }
+        // 构造 C-style 数组（指针 + 长度）
+        std::vector<const char*> c_paths;
+        c_paths.reserve(path_storage.size());
+        for (auto& s : path_storage) c_paths.push_back(s.c_str());
+        ok = http_api_audio_play_playlist(c_paths.data(), (int)c_paths.size(), loop, err, sizeof(err));
+    } else if (cJSON_IsString(jpath) && jpath->valuestring != nullptr && jpath->valuestring[0] != '\0') {
+        ok = http_api_audio_play_file(jpath->valuestring, loop, err, sizeof(err));
+    } else if (cJSON_IsString(jurl) && jurl->valuestring != nullptr && jurl->valuestring[0] != '\0') {
+        ok = http_api_audio_play_url(jurl->valuestring, loop, err, sizeof(err));
+    } else {
+        snprintf(err, sizeof(err), "either 'path', 'url', or 'playlist' is required");
+        ok = false;
+    }
+
+    cJSON_Delete(root);
+
+    if (!ok) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        char resp[256];
+        snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"%s\"}", err);
+        httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true,\"state\":\"loading\"}", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+static esp_err_t handle_audio_control(httpd_req_t* req) {
+    char buf[256] = {0};
+    int recv_len = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (recv_len <= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"empty body\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+    buf[recv_len] = '\0';
+
+    cJSON* root = cJSON_Parse(buf);
+    if (root == nullptr) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"invalid json\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    const cJSON* jaction = cJSON_GetObjectItem(root, "action");
+    if (!cJSON_IsString(jaction) || jaction->valuestring == nullptr) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"action required\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    char err[128] = {0};
+    bool ok = http_api_audio_control(jaction->valuestring, err, sizeof(err));
+    cJSON_Delete(root);
+
+    if (!ok) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        char resp[256];
+        snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"%s\"}", err);
+        httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+static esp_err_t handle_audio_status(httpd_req_t* req) {
+    cJSON* root = http_api_audio_status();
+    if (root == nullptr) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+    char* json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (json == nullptr) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+    free(json);
+    return ESP_OK;
+}
+
+// 列出 SD 卡上的音乐文件
+//   query: ?path=/sdcard/music&recursive=0
+static esp_err_t handle_audio_list(httpd_req_t* req) {
+    // 解析 query
+    char query[256] = {0};
+    char path[128] = {0};
+    bool recursive = false;
+    if (httpd_req_get_url_query_len(req) > 0) {
+        httpd_req_get_url_query_str(req, query, sizeof(query));
+        if (httpd_query_key_value(query, "path", path, sizeof(path)) != ESP_OK) {
+            path[0] = '\0';
+        }
+        char rec_buf[4] = {0};
+        if (httpd_query_key_value(query, "recursive", rec_buf, sizeof(rec_buf)) == ESP_OK) {
+            recursive = (strcmp(rec_buf, "1") == 0 || strcmp(rec_buf, "true") == 0);
+        }
+    }
+
+    cJSON* arr = http_api_audio_list(path, recursive);
+    if (arr == nullptr) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"list failed\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    // 包成 {"ok":true, "count":N, "files":[...]} 便于客户端使用
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", 1);
+    cJSON_AddNumberToObject(root, "count", cJSON_GetArraySize(arr));
+    cJSON_AddItemToObject(root, "files", arr);  // 数组所有权转移
+    char* json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (json == nullptr) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+    free(json);
+    return ESP_OK;
+}
+
 // 截图相关 handler 声明
 static esp_err_t handle_shots_list(httpd_req_t* req);
 static esp_err_t handle_shots_capture(httpd_req_t* req);
@@ -806,6 +997,12 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     if (qret != ESP_OK) {
         ESP_LOGW(TAG, "Display request queue init failed; ?display=1 will not auto-show");
     }
+
+    // 初始化黑胶唱片音乐播放器 UI（MusicPlayerView）
+    //   - 在 attitude_container_ 之后的屏幕顶层创建
+    //   - 启动一个 LVGL timer 周期 tick（250ms 同步 progress + 消费 display request queue）
+    //   - 此处不 Show，只 Create；由 /api/audio/play 触发 Show
+    init_music_player_view();
 
     esp_err_t ret = httpd_start(&g_server, &config);
     if (ret != ESP_OK) {
@@ -1016,6 +1213,45 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_display_hide);
+
+    // ========== Audio 端点 ==========
+    // POST /api/audio/play - 播放本地或远程音乐
+    //   body: {"path":"/sdcard/x.mp3","loop":false} 或 {"url":"http://...","loop":false}
+    httpd_uri_t uri_audio_play = {
+        .uri = "/api/audio/play",
+        .method = HTTP_POST,
+        .handler = handle_audio_play,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_audio_play);
+
+    // POST /api/audio/control - 控制播放（pause/resume/stop）
+    //   body: {"action":"pause|resume|stop"}
+    httpd_uri_t uri_audio_control = {
+        .uri = "/api/audio/control",
+        .method = HTTP_POST,
+        .handler = handle_audio_control,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_audio_control);
+
+    // GET /api/audio/status - 查询当前播放状态
+    httpd_uri_t uri_audio_status = {
+        .uri = "/api/audio/status",
+        .method = HTTP_GET,
+        .handler = handle_audio_status,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_audio_status);
+
+    // GET /api/audio/list?path=&recursive= - 列出 SD 卡上的音乐文件
+    httpd_uri_t uri_audio_list = {
+        .uri = "/api/audio/list",
+        .method = HTTP_GET,
+        .handler = handle_audio_list,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_audio_list);
 
     ESP_LOGI(TAG, "HTTP server started on port %u, mount=%s", port, g_mount_point);
     return true;

@@ -33,8 +33,12 @@ set(SOURCES "audio/audio_codec.cc"
             "display/snapshot/snapshot_protocol.cc"
             "sdcard_log.cc"
             "sdcard_log_http.cc"
+            "http_api_unified.cc"
+            "wifi_config_backup.cc"
             "display/snapshot/snapshot_service.cc"
             "display/compass_taiji.cc"
+            "display/music_player_view.cc"
+            "audio/music_player.cc"
             "protocols/protocol.cc"
             "protocols/mqtt_protocol.cc"
             "protocols/websocket_protocol.cc"
@@ -1027,6 +1031,13 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT)
     )
 endif()
 
+# 黑胶唱片音乐播放器：依赖 esp_audio_codec（已通过 idf_component.yml 拉到 managed_components）
+#   - esp_audio_dec.h / esp_audio_dec_default.h
+#   - 注册后即可用 esp_audio_dec_open/process/close 流式解码 MP3/WAV/AAC/OGG/...
+list(APPEND MAIN_PRIV_REQUIRES_EXTRA
+    espressif__esp_audio_codec
+)
+
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
@@ -1051,6 +1062,7 @@ idf_component_register(SRCS ${SOURCES}
                         bt
                         fatfs
                         esp_http_server
+                        esp_http_client
                         ${MAIN_PRIV_REQUIRES_EXTRA}
                     )
 
