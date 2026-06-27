@@ -4,6 +4,7 @@
 #include "assets/lang_config.h"
 #include "board.h"
 #include "compass_taiji.h"
+#include <esp_lvgl_port.h>
 #include <esp_log.h>
 #include <esp_heap_caps.h>
 #include <cstdio>
@@ -204,6 +205,37 @@ void AttitudeDisplay::SetupUI()
     CreateFortuneMenuRingTouch();
     // 方位圆点已移除（v1.2+ 视觉简化，运势高亮见迭代 2 再定）
 
+    // ============================================================
+    // 图片浮层（仿 DebugInfoCard 风格）
+    //   image_overlay_card_  圆形深色面板（300x300，金色边框，圆形遮罩）
+    //   preview_image_       lv_image widget（用于 PNG / JPG / BIN 静态图）
+    //   preview_gif_         lv_gif widget（用于 GIF 动画，lv_gif 内部用 AnimatedGIF 库逐帧解码）
+    // ============================================================
+    image_overlay_card_ = lv_obj_create(screen);
+    lv_obj_set_size(image_overlay_card_, DEBUG_INFO_CARD_W, DEBUG_INFO_CARD_H);
+    lv_obj_set_pos(image_overlay_card_, DEBUG_INFO_CARD_X, DEBUG_INFO_CARD_Y);
+    lv_obj_set_style_radius(image_overlay_card_, DEBUG_INFO_CARD_RADIUS, 0);
+    lv_obj_set_style_clip_corner(image_overlay_card_, true, 0);
+    lv_obj_set_style_bg_color(image_overlay_card_, lv_color_hex(0x0A1414), 0);
+    lv_obj_set_style_bg_opa(image_overlay_card_, LV_OPA_90, 0);
+    lv_obj_set_style_border_color(image_overlay_card_, DEBUG_INFO_BORDER_COLOR, 0);
+    lv_obj_set_style_border_width(image_overlay_card_, 2, 0);
+    lv_obj_set_style_pad_all(image_overlay_card_, 0, 0);
+    lv_obj_clear_flag(image_overlay_card_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+
+    // 静态图 widget（PNG / JPG / BIN 等）
+    preview_image_ = lv_image_create(image_overlay_card_);
+    lv_obj_set_size(preview_image_, DEBUG_INFO_CARD_W, DEBUG_INFO_CARD_H);
+    lv_obj_center(preview_image_);
+    lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+
+    // 动画 widget（GIF）—— 与 preview_image_ 互斥显示
+    preview_gif_ = lv_gif_create(image_overlay_card_);
+    lv_obj_set_size(preview_gif_, DEBUG_INFO_CARD_W, DEBUG_INFO_CARD_H);
+    lv_obj_center(preview_gif_);
+    lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+
     // 首帧全屏铺深色底，避免 SPI 分块刷新露出开机白底
     lv_obj_invalidate(attitude_container_);
     if (display_ != nullptr) {
@@ -338,6 +370,95 @@ void AttitudeDisplay::ClearChatMessages()
     ESP_LOGD(TAG, "ClearChatMessages (no-op, attitude ui has no message bubbles)");
 }
 
+// 功能：在 AttitudeDisplay 上显示一张外部图片（PNG / JPG / GIF / BIN 等）
+//   - 隐藏在 attitude_container_ 之后的太极/鱼眼等 UI
+//   - 在 300x300 的 image_overlay_card_ 圆形浮层（仿 DebugInfoCard 样式）上居中渲染
+//   - 自动按格式分发：GIF → lv_gif widget（动画）；其它 → lv_image widget（静态）
+//   - image == nullptr 时隐藏浮层、恢复 attitude_container_
+// 参数：image 已构造好的 LvglImage；析构时由本对象接管（unique_ptr）
+// 线程：内部加 LVGL 互斥锁（lvgl_port_lock 100ms），可以从其他 task 安全调用
+void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
+{
+    if (!lvgl_port_lock(100)) {
+        ESP_LOGW(TAG, "SetPreviewImage: LVGL lock timeout, skipping");
+        return;
+    }
+
+    if (image == nullptr) {
+        if (preview_image_ != nullptr) {
+            lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (preview_gif_ != nullptr) {
+            lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (image_overlay_card_ != nullptr) {
+            lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+        }
+        preview_image_cache_.reset();
+        if (attitude_container_ != nullptr) {
+            lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+        lvgl_port_unlock();
+        return;
+    }
+
+    if (image_overlay_card_ == nullptr) {
+        ESP_LOGE(TAG, "SetPreviewImage: image_overlay_card_ not created (SetupUI not called?)");
+        lvgl_port_unlock();
+        return;
+    }
+
+    preview_image_cache_ = std::move(image);
+    auto img_dsc = preview_image_cache_->image_dsc();
+    bool is_gif = preview_image_cache_->IsGif();
+
+    ESP_LOGI(TAG, "SetPreviewImage: %dx%d cf=%d is_gif=%d",
+             img_dsc->header.w, img_dsc->header.h, (int)img_dsc->header.cf, is_gif ? 1 : 0);
+
+    if (is_gif) {
+        // GIF：交给 lv_gif widget（lv_gif 内部用 AnimatedGIF 库逐帧解码）
+        if (preview_gif_ == nullptr) {
+            ESP_LOGE(TAG, "SetPreviewImage: preview_gif_ not created");
+            preview_image_cache_.reset();
+            lvgl_port_unlock();
+            return;
+        }
+        lv_gif_set_src(preview_gif_, img_dsc);
+        lv_obj_remove_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+        if (preview_image_ != nullptr) {
+            lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else {
+        // 静态图（PNG / JPG / BIN）：用 lv_image widget（走 LVGL decoder chain）
+        if (preview_image_ == nullptr) {
+            ESP_LOGE(TAG, "SetPreviewImage: preview_image_ not created");
+            preview_image_cache_.reset();
+            lvgl_port_unlock();
+            return;
+        }
+        lv_image_set_src(preview_image_, img_dsc);
+        if (img_dsc->header.w > 0 && img_dsc->header.h > 0) {
+            lv_image_set_scale(preview_image_, 128 * DEBUG_INFO_CARD_W / img_dsc->header.w);
+        }
+        lv_obj_center(preview_image_);
+        lv_obj_remove_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+        if (preview_gif_ != nullptr) {
+            lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    // 显示浮层、隐藏主界面
+    lv_obj_remove_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+    if (attitude_container_ != nullptr) {
+        lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+    ESP_LOGI(TAG, "SetPreviewImage: displayed %s %dx%d",
+             is_gif ? "GIF" : "image",
+             img_dsc->header.w, img_dsc->header.h);
+
+    lvgl_port_unlock();
+}
+
 void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
 {
     current_pitch_ = pitch;
@@ -449,7 +570,7 @@ void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
         UpdateFortuneMenuItemVisual(prev, false);
     }
     UpdateFortuneMenuItemVisual(index, true);
-    // 功能区提示卡触发事件已全部移除（仅保留菜单选中态视觉切换）
+    // 功能区提示卡触发事件已全部移除（仅保留菜单环选中态视觉切换）
 
     ESP_LOGI(TAG, "Fortune menu select -> %d (%s)", index,
              kFortuneMenuDefs[index].func_label);
@@ -1158,4 +1279,3 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
 // =================================================================
 // 迷宫游戏实现（心情卦）
 // =================================================================
-

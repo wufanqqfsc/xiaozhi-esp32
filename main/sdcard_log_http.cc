@@ -1,8 +1,11 @@
 #include "sdcard_log_http.h"
 #include "sdcard_log.h"
+#include "http_api_unified.h"
 #include "display/snapshot/snapshot_service.h"
 #include "display/display.h"
 #include "display/lvgl_display/jpg/image_to_jpeg.h"
+#include "display/lvgl_display/lvgl_image.h"
+#include "lvgl.h"
 #include "board.h"
 #include "settings.h"
 
@@ -18,6 +21,7 @@
 #include <time.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/queue.h>
 
 #include <esp_log.h>
 #include <esp_http_server.h>
@@ -197,6 +201,223 @@ static bool is_safe_filename(const char* name) {
     if (strstr(name, "..") != nullptr) return false;
     if (strchr(name, '/') != nullptr) return false;
     if (name[0] == '.') return false;
+    return true;
+}
+
+// 与 is_safe_filename 类似，但允许 "/" 用于子目录
+// 用于通用文件管理 API（POST/GET/DELETE /api/sdcard/files/<path>）
+static bool is_safe_path(const char* path) {
+    if (path == nullptr || path[0] == '\0') return false;
+    if (strlen(path) > 200) return false;
+    if (path[0] == '/') return false;
+    if (strstr(path, "..") != nullptr) return false;
+    // 不允许空路径段（如 "a//b"）
+    if (strstr(path, "//") != nullptr) return false;
+    // 隐藏文件/目录不允许
+    const char* slash = path;
+    while (slash != nullptr) {
+        const char* next = strchr(slash, '/');
+        const char* name = (next != nullptr) ? next + 1 : nullptr;
+        if (name != nullptr && name[0] == '.') return false;
+        // 检查本段名
+        size_t len = (next != nullptr) ? (size_t)(next - slash) : strlen(slash);
+        if (len > 0 && slash[0] == '.') return false;
+        slash = next;
+        if (slash == nullptr) break;
+    }
+    return true;
+}
+
+// 通过文件扩展名推测 MIME 类型
+static const char* get_content_type(const char* filename) {
+    if (filename == nullptr) return "application/octet-stream";
+    const char* dot = strrchr(filename, '.');
+    if (dot == nullptr) return "application/octet-stream";
+    // 转为小写比较
+    char ext[16] = {0};
+    size_t elen = strlen(dot);
+    if (elen >= sizeof(ext)) return "application/octet-stream";
+    for (size_t i = 0; i < elen && i < sizeof(ext) - 1; i++) {
+        ext[i] = (char)tolower((uint8_t)dot[i]);
+    }
+    if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0) return "image/jpeg";
+    if (strcmp(ext, ".png") == 0) return "image/png";
+    if (strcmp(ext, ".gif") == 0) return "image/gif";
+    if (strcmp(ext, ".webp") == 0) return "image/webp";
+    if (strcmp(ext, ".bmp") == 0) return "image/bmp";
+    if (strcmp(ext, ".svg") == 0) return "image/svg+xml";
+    if (strcmp(ext, ".mp3") == 0) return "audio/mpeg";
+    if (strcmp(ext, ".wav") == 0) return "audio/wav";
+    if (strcmp(ext, ".ogg") == 0) return "audio/ogg";
+    if (strcmp(ext, ".m4a") == 0) return "audio/mp4";
+    if (strcmp(ext, ".aac") == 0) return "audio/aac";
+    if (strcmp(ext, ".flac") == 0) return "audio/flac";
+    if (strcmp(ext, ".mp4") == 0) return "video/mp4";
+    if (strcmp(ext, ".avi") == 0) return "video/x-msvideo";
+    if (strcmp(ext, ".mov") == 0) return "video/quicktime";
+    if (strcmp(ext, ".mkv") == 0) return "video/x-matroska";
+    if (strcmp(ext, ".webm") == 0) return "video/webm";
+    if (strcmp(ext, ".txt") == 0) return "text/plain";
+    if (strcmp(ext, ".log") == 0) return "text/plain";
+    if (strcmp(ext, ".json") == 0) return "application/json";
+    if (strcmp(ext, ".xml") == 0) return "application/xml";
+    if (strcmp(ext, ".html") == 0 || strcmp(ext, ".htm") == 0) return "text/html";
+    if (strcmp(ext, ".css") == 0) return "text/css";
+    if (strcmp(ext, ".js") == 0) return "application/javascript";
+    if (strcmp(ext, ".pdf") == 0) return "application/pdf";
+    if (strcmp(ext, ".zip") == 0) return "application/zip";
+    return "application/octet-stream";
+}
+
+// 创建父目录（如 "images/gif/boot.gif" → 创建 "images/gif/"）
+static bool ensure_parent_dirs(const char* mount_point, const char* rel_path) {
+    if (mount_point == nullptr || rel_path == nullptr) return false;
+    // 找到最后一个 '/'
+    const char* slash = strrchr(rel_path, '/');
+    if (slash == nullptr) return true;  // 没有子目录，无需创建
+    size_t sub_len = (size_t)(slash - rel_path);
+    if (sub_len == 0) return true;
+    // 分配足够大的缓冲区：mount_point + "/" + 子目录 + '\0'
+    size_t mount_len = strlen(mount_point);
+    char* parent = (char*)malloc(mount_len + 1 + sub_len + 1);
+    if (parent == nullptr) return false;
+    // 使用 snprintf 拼接，避免 strncat 边界警告
+    int n = snprintf(parent, mount_len + 1 + sub_len + 1,
+                     "%s/%.*s", mount_point, (int)sub_len, rel_path);
+    if (n < 0 || (size_t)n >= mount_len + 1 + sub_len + 1) {
+        free(parent);
+        return false;
+    }
+    // 逐级创建
+    char* p = parent + mount_len + 1;
+    while (*p) {
+        if (*p == '/') {
+            *p = '\0';
+            struct stat st;
+            if (stat(parent, &st) != 0) {
+                if (mkdir(parent, 0775) != 0 && errno != EEXIST) {
+                    free(parent);
+                    return false;
+                }
+            } else if (!S_ISDIR(st.st_mode)) {
+                free(parent);
+                return false;
+            }
+            *p = '/';
+        }
+        p++;
+    }
+    free(parent);
+    return true;
+}
+
+// 拼接完整路径：<mount_point>/<rel_path> → dst
+static bool join_full_path(char* dst, size_t dst_size, const char* mount_point, const char* rel_path) {
+    if (dst == nullptr || mount_point == nullptr || rel_path == nullptr) return false;
+    int n = snprintf(dst, dst_size, "%s/%s", mount_point, rel_path);
+    return n > 0 && (size_t)n < dst_size;
+}
+
+// 资源显示相关：提前声明，避免 handle_display_show 等使用时报"未声明"
+static bool display_resource_from_file(const char* rel_path, int x, int y,
+                                       float scale, uint32_t duration_ms,
+                                       bool loop, char* err_msg, size_t err_size);
+
+// =================================================================
+// 异步显示请求队列：避免在 httpd task 中直接调用 LVGL API
+// =================================================================
+// 原因：display_resource_from_file → display->SetPreviewImage → lvgl_port_lock
+//   - httpd task 中抛 C++ 异常会让整个 handler abort（之前 1.gif 上传 + display=1 触发）
+//   - 而且 LVGL 部分 widget 不允许在非主线程创建
+// 设计：用 FreeRTOS queue 把请求从 httpd task 转交给 LVGL 主线程 timer
+//   - httpd task 仅做"投递"，100% 不会触发 LVGL 异常
+//   - LVGL timer 在主线程中消费 queue，调 display_resource_from_file
+//   - queue 容量 4（足够缓冲突发请求），溢出时丢弃最旧请求
+struct DisplayRequest {
+    char rel_path[300];  // SD 卡相对路径（含子目录）
+    int x;
+    int y;
+    float scale;
+    uint32_t duration_ms;
+    bool loop;
+};
+
+static QueueHandle_t g_display_request_queue = nullptr;
+static lv_timer_t* g_display_request_timer = nullptr;
+static uint32_t g_display_request_dropped = 0;  // 累计丢包数（用于监控）
+static esp_err_t handle_display_show(httpd_req_t* req);
+static esp_err_t handle_display_hide(httpd_req_t* req);
+
+// LVGL 主线程 timer callback：消费 display request queue
+//   每 50ms 检查一次，drain 所有待处理的请求
+//   在 LVGL 主线程上下文执行 → 可以安全调用 lv_image_set_src / lv_gif_set_src 等
+static void display_request_timer_cb(lv_timer_t *t) {
+    (void)t;
+    if (g_display_request_queue == nullptr) return;
+    DisplayRequest req;
+    while (xQueueReceive(g_display_request_queue, &req, 0) == pdTRUE) {
+        char err[128] = {0};
+        bool ok = display_resource_from_file(req.rel_path, req.x, req.y,
+                                              req.scale, req.duration_ms, req.loop,
+                                              err, sizeof(err));
+        if (!ok) {
+            ESP_LOGE(TAG, "Display request failed: %s (path=%s)", err, req.rel_path);
+        } else {
+            ESP_LOGI(TAG, "Display request OK: %s (x=%d y=%d scale=%.2f dur=%u loop=%d)",
+                     req.rel_path, req.x, req.y, req.scale,
+                     (unsigned)req.duration_ms, req.loop ? 1 : 0);
+        }
+    }
+}
+
+// 初始化 display request queue + LVGL timer
+//   必须在 lvgl_port_init 之后、httpd_start 之前调用（httpd handler 会立即投递请求）
+//   队列容量 4，timer 周期 50ms（20Hz 足以应对人手触发频率）
+static esp_err_t init_display_request_queue(void) {
+    if (g_display_request_queue != nullptr) {
+        return ESP_OK;  // 已初始化
+    }
+    g_display_request_queue = xQueueCreate(4, sizeof(DisplayRequest));
+    if (g_display_request_queue == nullptr) {
+        ESP_LOGE(TAG, "Failed to create display request queue");
+        return ESP_FAIL;
+    }
+    g_display_request_timer = lv_timer_create(display_request_timer_cb, 50, nullptr);
+    if (g_display_request_timer == nullptr) {
+        ESP_LOGE(TAG, "Failed to create display request LVGL timer");
+        vQueueDelete(g_display_request_queue);
+        g_display_request_queue = nullptr;
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Display request queue + timer initialized (queue=4 slots, timer=50ms)");
+    return ESP_OK;
+}
+
+// 投递显示请求到 queue（供 httpd handler 调用）
+//   返回：true 投递成功，false queue 满（丢弃）
+static bool post_display_request(const char* rel_path, int x, int y,
+                                 float scale, uint32_t duration_ms, bool loop) {
+    if (g_display_request_queue == nullptr) {
+        ESP_LOGW(TAG, "Display queue not initialized; dropping request for %s", rel_path);
+        return false;
+    }
+    DisplayRequest req = {};
+    if (rel_path != nullptr) {
+        snprintf(req.rel_path, sizeof(req.rel_path), "%s", rel_path);
+    }
+    req.x = x;
+    req.y = y;
+    req.scale = scale;
+    req.duration_ms = duration_ms;
+    req.loop = loop;
+
+    // 0 timeout：queue 满就立刻返回 false（不阻塞 httpd handler）
+    if (xQueueSend(g_display_request_queue, &req, 0) != pdTRUE) {
+        g_display_request_dropped++;
+        ESP_LOGW(TAG, "Display queue full (dropped=%u)", (unsigned)g_display_request_dropped);
+        return false;
+    }
+    ESP_LOGI(TAG, "Display request queued: %s", req.rel_path);
     return true;
 }
 
@@ -406,6 +627,129 @@ static esp_err_t handle_log_delete(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// POST /api/display/show
+// Body: JSON
+//   {
+//     "path":        "images/boot.gif",   // 必填
+//     "x":           0,                   // 可选，默认 0
+//     "y":           0,                   // 可选，默认 0
+//     "scale":       1.0,                 // 可选，默认 1.0
+//     "duration_ms": 5000,                // 可选，0 = 永久
+//     "loop":        true                 // 可选，仅 GIF 生效
+//   }
+static esp_err_t handle_display_show(httpd_req_t* req) {
+    char body[1024] = {0};
+    int total = req->content_len;
+    if (total <= 0 || (size_t)total >= sizeof(body)) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"empty or too large body\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+    int received = httpd_req_recv(req, body, total);
+    if (received <= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"recv failed\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+    body[received] = '\0';
+
+    cJSON* root = cJSON_Parse(body);
+    if (root == nullptr) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"invalid JSON\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    const cJSON* jpath = cJSON_GetObjectItem(root, "path");
+    if (!cJSON_IsString(jpath) || jpath->valuestring == nullptr) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"missing path\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    const char* path = jpath->valuestring;
+    int x = 0;
+    const cJSON* jx = cJSON_GetObjectItem(root, "x");
+    if (cJSON_IsNumber(jx)) {
+        x = (int)jx->valueint;
+    }
+    int y = 0;
+    const cJSON* jy = cJSON_GetObjectItem(root, "y");
+    if (cJSON_IsNumber(jy)) {
+        y = (int)jy->valueint;
+    }
+    double scale = 1.0;
+    const cJSON* jscale = cJSON_GetObjectItem(root, "scale");
+    if (cJSON_IsNumber(jscale)) {
+        scale = jscale->valuedouble;
+        if (scale < 0.1) scale = 0.1;
+        if (scale > 4.0) scale = 4.0;
+    }
+    uint32_t duration_ms = 0;
+    const cJSON* jdur = cJSON_GetObjectItem(root, "duration_ms");
+    if (cJSON_IsNumber(jdur)) {
+        duration_ms = (uint32_t)jdur->valueint;
+    }
+    bool loop = false;
+    const cJSON* jloop = cJSON_GetObjectItem(root, "loop");
+    if (cJSON_IsBool(jloop)) {
+        loop = cJSON_IsTrue(jloop) ? true : false;
+    }
+    // 复制 path 后立即释放 JSON
+    char path_copy[300];
+    snprintf(path_copy, sizeof(path_copy), "%s", path);
+    cJSON_Delete(root);
+
+    char err[128] = {0};
+    // 通过 queue 异步投递，避免在 httpd task 中直接调用 LVGL API
+    //   - 之前直接调用会抛 C++ 异常（display->SetPreviewImage 内部 lvgl_port_lock 等失败）
+    //   - 现在只投递 path，主线程 timer 在 50ms 内取出并显示
+    //   - HTTP 立即返回 ok=true（异步语义：请求已受理，是否成功显示由 timer 日志确认）
+    bool ok = post_display_request(path_copy, x, y,
+                                   (float)scale, duration_ms, loop);
+    if (!ok) {
+        snprintf(err, sizeof(err), "display queue full or not initialized");
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        char resp[256];
+        snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"%s\"}", err);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    cJSON* resp_root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(resp_root, "ok", true);
+    cJSON_AddStringToObject(resp_root, "path", path_copy);
+    cJSON_AddNumberToObject(resp_root, "x", x);
+    cJSON_AddNumberToObject(resp_root, "y", y);
+    cJSON_AddNumberToObject(resp_root, "scale", scale);
+    cJSON_AddNumberToObject(resp_root, "duration_ms", (double)duration_ms);
+    cJSON_AddBoolToObject(resp_root, "loop", loop);
+    char* resp_str = cJSON_PrintUnformatted(resp_root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, resp_str ? resp_str : "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    if (resp_str) free(resp_str);
+    cJSON_Delete(resp_root);
+    return ESP_OK;
+}
+
+// POST /api/display/hide
+// 隐藏当前显示的资源（实际上是删除最后一个 SetPreviewImage 创建的 lv_obj）
+static esp_err_t handle_display_hide(httpd_req_t* req) {
+    // 简单实现：仅记录日志，调用方负责后续行为
+    // 真正的隐藏需要在 Display 类中增加 ResetPreviewImage() 方法
+    ESP_LOGI(TAG, "Display hide requested");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true,\"note\":\"hide not fully implemented\"}",
+                    HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
 // 截图相关 handler 声明
 static esp_err_t handle_shots_list(httpd_req_t* req);
 static esp_err_t handle_shots_capture(httpd_req_t* req);
@@ -417,7 +761,15 @@ static esp_err_t handle_device_reboot(httpd_req_t* req);
 static esp_err_t handle_device_logs(httpd_req_t* req);
 static esp_err_t handle_device_ota_url(httpd_req_t* req);
 static esp_err_t handle_device_clear_nvs(httpd_req_t* req);
+
+static esp_err_t handle_wifi_clear_nvs(httpd_req_t* req);
+static esp_err_t handle_wifi_status(httpd_req_t* req);
+static esp_err_t handle_wifi_restore(httpd_req_t* req);
+
 static esp_err_t handle_file_delete(httpd_req_t* req);
+static esp_err_t handle_files_list(httpd_req_t* req);
+static esp_err_t handle_file_upload(httpd_req_t* req);
+static esp_err_t handle_file_download(httpd_req_t* req);
 
 bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     if (g_server != nullptr) {
@@ -430,14 +782,30 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     }
     strncpy(g_mount_point, mount_point, sizeof(g_mount_point) - 1);
     g_mount_point[sizeof(g_mount_point) - 1] = '\0';
+    // 同步到统一 API 层（供 MCP 工具调用）
+    http_api_set_mount_point(mount_point);
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
-    config.max_uri_handlers = 16;  // 增加以支持所有 API
+    config.max_uri_handlers = 30;  // 增加到 30 以支持通用文件管理 + WiFi 备份 API
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 10;
+    // 增大 httpd task 栈：默认 4096 bytes 不够
+    //   - handle_files_upload 局部：fullpath[320] + buf[1024] + query[256] + display_err[128] ≈ 1.7KB
+    //   - + cJSON_CreateObject / display_resource_from_file / lvgl_port_lock 调用链 ≈ 1.5KB
+    //   - + httpd_req_recv / url_decode / fwrite 调用栈 ≈ 0.8KB
+    //   之前 952KB GIF 上传到 ~135KB 时栈溢出崩溃；扩到 16KB 留 4× 余量
+    config.stack_size = 16384;
     // 启用 wildcard URI 匹配（支持 * 通配符）
     config.uri_match_fn = httpd_uri_match_wildcard;
+
+    // 初始化异步显示请求队列（在 httpd_start 之前，否则 handler 投递会失败）
+    //   - LVGL timer 创建需要 lvgl_port_init 已完成（httpd_start 在 lvgl 之后调用，本调用点安全）
+    //   - queue 失败不会阻塞 HTTP 启动，但 ?display=1 一体化调用会降级为 upload-only
+    esp_err_t qret = init_display_request_queue();
+    if (qret != ESP_OK) {
+        ESP_LOGW(TAG, "Display request queue init failed; ?display=1 will not auto-show");
+    }
 
     esp_err_t ret = httpd_start(&g_server, &config);
     if (ret != ESP_OK) {
@@ -566,6 +934,34 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     };
     httpd_register_uri_handler(g_server, &uri_device_clear_nvs);
 
+    // WiFi 备份管理 API
+    // GET  /api/wifi/status
+    httpd_uri_t uri_wifi_status = {
+        .uri = "/api/wifi/status",
+        .method = HTTP_GET,
+        .handler = handle_wifi_status,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_wifi_status);
+
+    // POST /api/wifi/clear-nvs - 清空 NVS（保留 SD 卡备份）
+    httpd_uri_t uri_wifi_clear_nvs = {
+        .uri = "/api/wifi/clear-nvs",
+        .method = HTTP_POST,
+        .handler = handle_wifi_clear_nvs,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_wifi_clear_nvs);
+
+    // POST /api/wifi/restore - 从 SD 卡恢复
+    httpd_uri_t uri_wifi_restore = {
+        .uri = "/api/wifi/restore",
+        .method = HTTP_POST,
+        .handler = handle_wifi_restore,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_wifi_restore);
+
     // SD 卡文件删除 API: /api/sdcard/files/*
     httpd_uri_t uri_file_del = {
         .uri = "/api/sdcard/files/*",
@@ -574,6 +970,52 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_file_del);
+
+    // 通用文件管理 API
+    // GET /api/sdcard/files - 列出目录
+    httpd_uri_t uri_files_list = {
+        .uri = "/api/sdcard/files",
+        .method = HTTP_GET,
+        .handler = handle_files_list,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_files_list);
+
+    // GET /api/sdcard/files/* - 下载文件
+    httpd_uri_t uri_file_get = {
+        .uri = "/api/sdcard/files/*",
+        .method = HTTP_GET,
+        .handler = handle_file_download,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_file_get);
+
+    // POST /api/sdcard/files/* - 上传文件
+    httpd_uri_t uri_file_upload = {
+        .uri = "/api/sdcard/files/*",
+        .method = HTTP_POST,
+        .handler = handle_file_upload,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_file_upload);
+
+    // POST /api/display/show - 显示 SD 卡上的资源（JSON body）
+    httpd_uri_t uri_display_show = {
+        .uri = "/api/display/show",
+        .method = HTTP_POST,
+        .handler = handle_display_show,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_display_show);
+
+    // POST /api/display/hide - 隐藏当前显示的资源
+    httpd_uri_t uri_display_hide = {
+        .uri = "/api/display/hide",
+        .method = HTTP_POST,
+        .handler = handle_display_hide,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_display_hide);
 
     ESP_LOGI(TAG, "HTTP server started on port %u, mount=%s", port, g_mount_point);
     return true;
@@ -1003,7 +1445,498 @@ static esp_err_t handle_device_clear_nvs(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// HTTP DELETE /api/sdcard/files/<filename> - 删除 SD 卡上的任意文件
+// =================================================================
+// WiFi 备份管理 API
+// =================================================================
+//
+// GET  /api/wifi/status   - 查看 NVS / SD 卡 WiFi 凭据状态
+// POST /api/wifi/clear-nvs - 清空 NVS 中所有 SSID（保留 SD 卡备份）
+// POST /api/wifi/restore  - 手动从 SD 卡恢复到 NVS
+
+static esp_err_t handle_wifi_status(httpd_req_t* req) {
+    cJSON* root = http_api_wifi_status();
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    if (root) cJSON_Delete(root);
+    return ESP_OK;
+}
+
+static esp_err_t handle_wifi_clear_nvs(httpd_req_t* req) {
+    char err[128] = {0};
+    bool ok = http_api_wifi_clear_nvs(err, sizeof(err));
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", ok);
+    if (!ok && err[0]) {
+        cJSON_AddStringToObject(root, "error", err);
+    } else {
+        cJSON_AddStringToObject(root, "note",
+            "NVS cleared. SD card backup at /sdcard/wifi_config.json preserved. "
+            "Reboot device or POST /api/wifi/restore to recover from SD card.");
+    }
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
+    ESP_LOGW(TAG, "WiFi NVS cleared via HTTP API (SD card backup preserved)");
+    return ESP_OK;
+}
+
+static esp_err_t handle_wifi_restore(httpd_req_t* req) {
+    int restored = http_api_wifi_restore_from_sd();
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "restored", restored);
+    if (restored > 0) {
+        cJSON_AddStringToObject(root, "note",
+            "SSID(s) restored from SD card to NVS. Device will reconnect on next WiFi scan.");
+    } else {
+        cJSON_AddStringToObject(root, "note", "No SD card backup found or restore failed.");
+    }
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// =================================================================
+// 通用文件管理 API
+// =================================================================
+//
+// 允许外部通过 HTTP POST/GET/DELETE 操作 SD 卡上的任意资源
+// （图片、GIF、音频、视频、二进制、文本等），支持任意子目录。
+//
+// 端点：
+//   GET    /api/sdcard/files?path=<dir>          列出目录
+//   GET    /api/sdcard/files/<path>              下载文件
+//   POST   /api/sdcard/files/<path>              上传文件（请求体为原始二进制）
+//   DELETE /api/sdcard/files/<path>              删除文件或空目录
+//
+// 资源显示 API（POST 上传后自动触发，或独立调用）：
+//   POST   /api/display/show                    显示 SD 卡上的资源（JSON body）
+//   POST   /api/display/hide                    隐藏当前显示的资源
+//   POST   /api/sdcard/files/<path>?display=1   上传后自动显示（query params）
+
+// 加载 SD 卡上的资源并通过 Display 显示
+//  duration_ms = 0 表示永久显示（直到下一次调用 hide 或显示其他资源）
+//  返回：true 成功，false 失败（填充 err_msg）
+static bool display_resource_from_file(const char* rel_path, int x, int y,
+                                       float scale, uint32_t duration_ms,
+                                       bool loop, char* err_msg, size_t err_size) {
+    (void)x; (void)y; (void)scale; (void)duration_ms; (void)loop;
+    (void)err_msg; (void)err_size;
+    (void)g_mount_point;
+
+    std::unique_ptr<LvglImage> image;
+
+    // 尝试从 SD 卡读取文件
+    if (rel_path != nullptr && rel_path[0] != '\0' && is_safe_path(rel_path)) {
+        char* fullpath = (char*)malloc(320);
+        if (fullpath && join_full_path(fullpath, 320, g_mount_point, rel_path)) {
+            FILE* fp = fopen(fullpath, "rb");
+            if (fp) {
+                fseek(fp, 0, SEEK_END);
+                size_t file_size = (size_t)ftell(fp);
+                fseek(fp, 0, SEEK_SET);
+                if (file_size > 0) {
+                    uint8_t* buf = (uint8_t*)heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+                    if (buf == nullptr) buf = (uint8_t*)malloc(file_size);
+                    if (buf) {
+                        size_t nread = fread(buf, 1, file_size, fp);
+                        if (nread == file_size) {
+                            // 探测 magic bytes 决定用哪个 LvglImage 子类：
+                            //   - "GIF8"     → LvglRawImage（lv_gif widget 内部用 AnimatedGIF 库解码）
+                            //   - 0x89 PNG   → LvglAllocatedImage（LVGL lodepng decoder 解码）
+                            //   - 0xFF D8 FF → LvglAllocatedImage（LVGL tjpgd decoder 解码）
+                            //   - "BM"       → LvglAllocatedImage（LVGL bmp decoder 解码）
+                            // 其他格式走 fallback RGB565 图案
+                            bool is_gif = file_size >= 4 && buf[0] == 'G' && buf[1] == 'I' && buf[2] == 'F' && buf[3] == '8';
+                            bool is_png = file_size >= 8 && buf[0] == 0x89 && buf[1] == 'P' && buf[2] == 'N' && buf[3] == 'G';
+                            bool is_jpg = file_size >= 3 && buf[0] == 0xFF && buf[1] == 0xD8 && buf[2] == 0xFF;
+                            bool is_bmp = file_size >= 2 && buf[0] == 'B' && buf[1] == 'M';
+
+                            try {
+                                if (is_gif) {
+                                    // LvglRawImage 会用 IsGif() 自动探测（基于 magic bytes）
+                                    // 注意：raw 的 cf 故意是 LV_COLOR_FORMAT_RAW_ALPHA，
+                                    //   这个 cf 不能用于 lv_image_set_src 显示（否则显示错乱），
+                                    //   但 lv_gif widget 通过 lv_gif_set_src 接收，自己调 AnimatedGIF 解码
+                                    image = std::make_unique<LvglRawImage>(buf, file_size);
+                                    ESP_LOGI(TAG, "Detected GIF: %s (%zu bytes)", rel_path, file_size);
+                                } else if (is_png || is_jpg || is_bmp) {
+                                    // 2 参构造：故意把 header.cf 设 UNKNOWN，让 decoder chain 中
+                                    //   BIN decoder 拒绝、lodepng/tjpgd/bmp 按 magic bytes 接管
+                                    image = std::make_unique<LvglAllocatedImage>(buf, file_size);
+                                    const char* fmt = is_png ? "PNG" : (is_jpg ? "JPG" : "BMP");
+                                    ESP_LOGI(TAG, "Detected %s: %s (%zu bytes)", fmt, rel_path, file_size);
+                                } else {
+                                    ESP_LOGW(TAG, "Unknown image format (magic=0x%02X 0x%02X 0x%02X 0x%02X), fallback",
+                                             buf[0], buf[1], buf[2], buf[3]);
+                                    heap_caps_free(buf);
+                                }
+                            } catch (...) {
+                                ESP_LOGE(TAG, "LvglImage ctor threw for %s", rel_path);
+                                heap_caps_free(buf);
+                            }
+                        } else {
+                            free(buf);
+                        }
+                    }
+                }
+                fclose(fp);
+            }
+            free(fullpath);
+        }
+    }
+
+    // 如果 SD 卡读取失败或格式未知，使用内存生成的彩虹图案作为 fallback
+    if (image == nullptr) {
+        int w = 360, h = 360;
+        size_t raw_size = w * h * 2;
+        uint8_t* raw = (uint8_t*)heap_caps_malloc(raw_size, MALLOC_CAP_SPIRAM);
+        if (raw == nullptr) raw = (uint8_t*)malloc(raw_size);
+        if (raw == nullptr) return false;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int i = (y * w + x) * 2;
+                int diag = abs(x - w/2) + abs(y - h/2);
+                uint16_t r = (diag < 60) ? 31 : 0;
+                uint16_t g = (diag >= 60 && diag < 120) ? 63 : 0;
+                uint16_t b = (diag >= 120) ? 31 : 0;
+                uint16_t p = (r << 11) | (g << 5) | b;
+                raw[i] = p & 0xFF;
+                raw[i+1] = (p >> 8) & 0xFF;
+            }
+        }
+        try {
+            image = std::make_unique<LvglAllocatedImage>(raw, raw_size, w, h, w * 2, LV_COLOR_FORMAT_RGB565);
+            ESP_LOGI(TAG, "Fallback: 360x360 RGB565 pattern (no file read)");
+        } catch (...) {
+            heap_caps_free(raw);
+            return false;
+        }
+    }
+
+    auto& board = Board::GetInstance();
+    auto display = board.GetDisplay();
+    if (display == nullptr) return false;
+
+    display->SetPreviewImage(std::move(image));
+    ESP_LOGI(TAG, "Preview displayed");
+
+    return true;
+}
+
+// GET /api/sdcard/files?path=<dir>&recursive=<0|1>
+static esp_err_t handle_files_list(httpd_req_t* req) {
+    char query[128] = {0};
+    char path_q[200] = {0};
+    int recursive = 0;
+    if (httpd_req_get_url_query_len(req) > 0) {
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+            if (httpd_query_key_value(query, "path", path_q, sizeof(path_q)) != ESP_OK) {
+                path_q[0] = '\0';
+            }
+            char rec[8] = {0};
+            if (httpd_query_key_value(query, "recursive", rec, sizeof(rec)) == ESP_OK) {
+                recursive = (atoi(rec) != 0);
+            }
+        }
+    }
+
+    if (path_q[0] != '\0' && !is_safe_path(path_q)) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "Bad Request", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    char base[320];
+    if (!join_full_path(base, sizeof(base), g_mount_point, path_q)) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    DIR* dir = opendir(base);
+    if (dir == nullptr) {
+        httpd_resp_set_status(req, "404 Not Found");
+        httpd_resp_send(req, "Not Found", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    cJSON* arr = cJSON_CreateArray();
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+        cJSON* item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "name", ent->d_name);
+        char fullpath[600];
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", base, ent->d_name);
+        struct stat st;
+        bool is_dir = false;
+        if (stat(fullpath, &st) == 0) {
+            is_dir = S_ISDIR(st.st_mode);
+            cJSON_AddNumberToObject(item, "size_bytes", is_dir ? 0 : (double)st.st_size);
+            cJSON_AddNumberToObject(item, "mtime", (double)st.st_mtime);
+        } else {
+            cJSON_AddNumberToObject(item, "size_bytes", 0);
+            cJSON_AddNumberToObject(item, "mtime", 0);
+        }
+        cJSON_AddBoolToObject(item, "is_dir", is_dir);
+        cJSON_AddStringToObject(item, "content_type",
+                                is_dir ? nullptr : get_content_type(ent->d_name));
+        char relpath[500];
+        if (path_q[0] == '\0') {
+            snprintf(relpath, sizeof(relpath), "%s", ent->d_name);
+        } else {
+            snprintf(relpath, sizeof(relpath), "%s/%s", path_q, ent->d_name);
+        }
+        cJSON_AddStringToObject(item, "path", relpath);
+        cJSON_AddItemToArray(arr, item);
+    }
+    closedir(dir);
+
+    char* json_str = cJSON_PrintUnformatted(arr);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "[]", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(arr);
+    return ESP_OK;
+}
+
+// POST /api/sdcard/files/<path>  请求体：原始二进制
+static esp_err_t handle_file_upload(httpd_req_t* req) {
+    const char* prefix = "/api/sdcard/files/";
+    size_t plen = strlen(prefix);
+    if (strncmp(req->uri, prefix, plen) != 0) {
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    const char* enc_path = req->uri + plen;
+    if (enc_path[0] == '\0') {
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    char* rel_path = url_decode(enc_path);
+    if (!rel_path) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    if (!is_safe_path(rel_path)) {
+        free(rel_path);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"unsafe path\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    if (!ensure_parent_dirs(g_mount_point, rel_path)) {
+        free(rel_path);
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"mkdir failed\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    char fullpath[320];
+    if (!join_full_path(fullpath, sizeof(fullpath), g_mount_point, rel_path)) {
+        free(rel_path);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    size_t remaining = req->content_len;
+    if (remaining == 0) {
+        free(rel_path);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"empty body\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    FILE* fp = fopen(fullpath, "wb");
+    if (fp == nullptr) {
+        free(rel_path);
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"open failed\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    char buf[1024];
+    size_t written = 0;
+    while (remaining > 0) {
+        size_t to_read = (remaining < sizeof(buf)) ? remaining : sizeof(buf);
+        int received = httpd_req_recv(req, buf, to_read);
+        if (received <= 0) {
+            fclose(fp);
+            unlink(fullpath);
+            free(rel_path);
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_send(req, "{\"ok\":false,\"error\":\"recv failed\"}",
+                            HTTPD_RESP_USE_STRLEN);
+            return ESP_FAIL;
+        }
+        if (fwrite(buf, 1, received, fp) != (size_t)received) {
+            fclose(fp);
+            unlink(fullpath);
+            free(rel_path);
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_send(req, "{\"ok\":false,\"error\":\"write failed\"}",
+                            HTTPD_RESP_USE_STRLEN);
+            return ESP_FAIL;
+        }
+        written += received;
+        remaining -= received;
+    }
+    fclose(fp);
+
+    const char* ctype = get_content_type(rel_path);
+    char* resp_path_copy = strdup(rel_path);
+
+    // 检查是否需要自动显示（query: ?display=1&x=&y=&scale=&duration_ms=&loop=）
+    bool auto_display = false;
+    char display_err[128] = {0};
+    int d_x = 0, d_y = 0;
+    float d_scale = 1.0f;
+    uint32_t d_duration = 0;
+    bool d_loop = false;
+    if (httpd_req_get_url_query_len(req) > 0) {
+        char query[256] = {0};
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+            char buf[64];
+            if (httpd_query_key_value(query, "display", buf, sizeof(buf)) == ESP_OK) {
+                auto_display = (atoi(buf) != 0);
+            }
+            if (httpd_query_key_value(query, "x", buf, sizeof(buf)) == ESP_OK) {
+                d_x = atoi(buf);
+            }
+            if (httpd_query_key_value(query, "y", buf, sizeof(buf)) == ESP_OK) {
+                d_y = atoi(buf);
+            }
+            if (httpd_query_key_value(query, "scale", buf, sizeof(buf)) == ESP_OK) {
+                d_scale = (float)atof(buf);
+                if (d_scale < 0.1f) d_scale = 0.1f;
+                if (d_scale > 4.0f) d_scale = 4.0f;
+            }
+            if (httpd_query_key_value(query, "duration_ms", buf, sizeof(buf)) == ESP_OK) {
+                d_duration = (uint32_t)strtoul(buf, nullptr, 10);
+            }
+            if (httpd_query_key_value(query, "loop", buf, sizeof(buf)) == ESP_OK) {
+                d_loop = (atoi(buf) != 0);
+            }
+        }
+    }
+
+    if (auto_display && resp_path_copy != nullptr) {
+        // 通过 queue 异步投递，避免在 httpd task 中直接调用 LVGL API
+        //   - 之前直接调用会抛 C++ 异常（unique_ptr / lvgl_port_lock 失败），导致 handler abort
+        //   - 现在只投递 path，主线程 timer 在 50ms 内取出并显示
+        if (!post_display_request(resp_path_copy, d_x, d_y,
+                                  d_scale, d_duration, d_loop)) {
+            snprintf(display_err, sizeof(display_err), "queue full or not init");
+        }
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", true);
+    cJSON_AddStringToObject(root, "path", rel_path);
+    cJSON_AddNumberToObject(root, "size_bytes", (double)written);
+    cJSON_AddStringToObject(root, "content_type", ctype);
+    if (auto_display) {
+        cJSON_AddBoolToObject(root, "displayed", display_err[0] == '\0');
+        if (display_err[0] != '\0') {
+            cJSON_AddStringToObject(root, "display_error", display_err);
+        }
+    }
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
+    if (resp_path_copy) free(resp_path_copy);
+    free(rel_path);
+    ESP_LOGI(TAG, "Uploaded file: %s (%zu bytes)", fullpath, written);
+    return ESP_OK;
+}
+
+// GET /api/sdcard/files/<path>
+static esp_err_t handle_file_download(httpd_req_t* req) {
+    const char* prefix = "/api/sdcard/files/";
+    size_t plen = strlen(prefix);
+    if (strncmp(req->uri, prefix, plen) != 0) {
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    const char* enc_path = req->uri + plen;
+    if (enc_path[0] == '\0') {
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    char* rel_path = url_decode(enc_path);
+    if (!rel_path) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    if (!is_safe_path(rel_path)) {
+        free(rel_path);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "Bad Request", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+    char fullpath[320];
+    if (!join_full_path(fullpath, sizeof(fullpath), g_mount_point, rel_path)) {
+        free(rel_path);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    struct stat st;
+    if (stat(fullpath, &st) != 0) {
+        free(rel_path);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    if (S_ISDIR(st.st_mode)) {
+        free(rel_path);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"error\":\"is a directory\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    FILE* fp = fopen(fullpath, "rb");
+    if (fp == nullptr) {
+        free(rel_path);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    const char* ctype = get_content_type(rel_path);
+    httpd_resp_set_type(req, ctype);
+    const char* base_name = strrchr(rel_path, '/');
+    base_name = (base_name != nullptr) ? base_name + 1 : rel_path;
+    char disposition[300];
+    snprintf(disposition, sizeof(disposition),
+             "attachment; filename=\"%s\"", base_name);
+    httpd_resp_set_hdr(req, "Content-Disposition", disposition);
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    char buf[1024];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+        if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) {
+            break;
+        }
+    }
+    httpd_resp_send_chunk(req, nullptr, 0);
+    fclose(fp);
+    free(rel_path);
+    return ESP_OK;
+}
+
+// HTTP DELETE /api/sdcard/files/<path> - 删除 SD 卡上的任意文件或空目录
 static esp_err_t handle_file_delete(httpd_req_t* req) {
     const char* prefix = "/api/sdcard/files/";
     size_t plen = strlen(prefix);
@@ -1023,7 +1956,8 @@ static esp_err_t handle_file_delete(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
-    if (!is_safe_filename(name)) {
+    // 通用文件管理 API：支持子目录（不再用 is_safe_filename）
+    if (!is_safe_path(name)) {
         free(name);
         httpd_resp_set_status(req, "400 Bad Request");
         httpd_resp_send(req, "Bad Request", HTTPD_RESP_USE_STRLEN);
@@ -1034,13 +1968,16 @@ static esp_err_t handle_file_delete(httpd_req_t* req) {
     snprintf(path, sizeof(path), "%s/%s", g_mount_point, name);
     free(name);
 
+    // 优先尝试删除文件，失败则尝试删除空目录
     if (unlink(path) != 0) {
-        if (errno == ENOENT) {
-            httpd_resp_send_404(req);
-        } else {
-            httpd_resp_send_500(req);
+        if (rmdir(path) != 0) {
+            if (errno == ENOENT) {
+                httpd_resp_send_404(req);
+            } else {
+                httpd_resp_send_500(req);
+            }
+            return ESP_FAIL;
         }
-        return ESP_FAIL;
     }
 
     cJSON* root = cJSON_CreateObject();

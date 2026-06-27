@@ -2,7 +2,9 @@
 #define ATTITUDE_DISPLAY_H
 
 #include "lcd_display.h"
+#include "lvgl_image.h"
 #include <string>
+#include <lvgl.h>
 
 #define SCREEN_W              360
 #define SCREEN_H              360
@@ -118,6 +120,7 @@ public:
     virtual void SetEmotion(const char* emotion) override;
     virtual void SetChatMessage(const char* role, const char* content) override;
     virtual void ClearChatMessages() override;
+    virtual void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
 
     void SetAttitudeData(float pitch, float roll, float yaw);
     void SetInterpretation(const std::string& text);
@@ -187,6 +190,11 @@ private:
     lv_obj_t* ble_fisheye_canvas_ = nullptr;
     WifiStatus wifi_status_ = WifiStatus::DISCONNECTED;
     BleStatus ble_status_ = BleStatus::DISABLED;
+
+    lv_obj_t* preview_image_ = nullptr;
+    lv_obj_t* preview_gif_ = nullptr;
+    lv_obj_t* image_overlay_card_ = nullptr;
+    std::unique_ptr<LvglImage> preview_image_cache_;
 
     void CreateWifiFisheye();
     void CreateBleFisheye();
