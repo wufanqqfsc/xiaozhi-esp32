@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>钢铁侠 方舟反应堆</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            gap: 24px;
+        }
+
+        .page {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        /* 导出工具栏 */
+        .toolbar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .toolbar button {
+            padding: 10px 22px;
+            border: 1px solid rgba(0, 204, 255, 0.5);
+            border-radius: 6px;
+            background: rgba(0, 40, 60, 0.8);
+            color: #00e5ff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        .toolbar button:hover:not(:disabled) {
+            background: rgba(0, 80, 120, 0.9);
+            border-color: #00e5ff;
+        }
+
+        .toolbar button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .export-status {
+            min-height: 20px;
+            color: rgba(0, 229, 255, 0.75);
+            font-size: 13px;
+            letter-spacing: 0.02em;
+        }
+
+        .export-progress {
+            width: 220px;
+            height: 4px;
+            background: rgba(0, 204, 255, 0.15);
+            border-radius: 2px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .export-progress.active {
+            display: block;
+        }
+
+        .export-progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #0066ff, #00e5ff);
+            border-radius: 2px;
+            transition: width 0.15s ease;
+        }
+
+        /* 反应堆容器 */
+        .ark-reactor {
+            position: relative;
+            width: 360px;
+            height: 360px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .ark-reactor.exporting {
+            cursor: default;
+            pointer-events: none;
+        }
+
+        /* 导出截帧时关闭 filter，避免 html-to-image 报错 */
+        .ark-reactor.capture-mode .ring-3,
+        .ark-reactor.capture-mode .core-inner-glow,
+        .ark-reactor.capture-mode .core,
+        .ark-reactor.capture-mode .rainbow-ring {
+            filter: none !important;
+        }
+
+        .ark-reactor.capture-mode .ring-3 {
+            box-shadow: 0 0 32px rgba(0, 240, 255, 0.5), inset 0 0 36px rgba(0, 240, 255, 0.3);
+        }
+
+        .ark-reactor.capture-mode .core {
+            box-shadow:
+                0 0 58px rgba(0, 204, 255, 0.9),
+                0 0 105px rgba(0, 153, 255, 0.62),
+                0 0 165px rgba(0, 102, 255, 0.4);
+        }
+
+        /* 最外层光晕 */
+        .outer-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 360px;
+            height: 360px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,220,255,0.2) 0%, transparent 70%);
+            animation: outerBreath 3.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+
+        /* 旋转光环1 */
+        .ring-1 {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 288px;
+            height: 288px;
+            border-radius: 50%;
+            border: 3px solid #00ccff;
+            box-shadow: 0 0 20px #00ccff, inset 0 0 20px rgba(0,204,255,0.3);
+            animation: rotate 12s linear infinite;
+        }
+
+        /* 内层固定环 — 模糊光晕边界，无硬边 */
+        .ring-3 {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 144px;
+            height: 144px;
+            border-radius: 50%;
+            border: none;
+            background: radial-gradient(
+                circle,
+                transparent 58%,
+                rgba(0, 240, 255, 0.06) 68%,
+                rgba(0, 240, 255, 0.42) 80%,
+                rgba(0, 240, 255, 0.12) 92%,
+                transparent 100%
+            );
+            filter: blur(5px);
+            box-shadow: 0 0 28px rgba(0, 240, 255, 0.35), inset 0 0 32px rgba(0, 240, 255, 0.18);
+            animation: ringBreath 3.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+
+        /* 内核七彩光圈 — 语音唤醒时显示 */
+        .rainbow-rings {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120px;
+            height: 120px;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .rainbow-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            border-radius: 50%;
+            opacity: 0;
+            transform: translate(-50%, -50%) rotate(0deg);
+            transition: opacity 0.55s cubic-bezier(0.45, 0.05, 0.55, 0.95);
+            -webkit-mask: radial-gradient(circle, transparent 52%, #000 58%, #000 72%, transparent 78%);
+            mask: radial-gradient(circle, transparent 52%, #000 58%, #000 72%, transparent 78%);
+        }
+
+        .rainbow-ring-1 {
+            width: 112px;
+            height: 112px;
+            background: conic-gradient(
+                from 0deg,
+                #ff2d6a 0deg,
+                #ff8a00 51deg,
+                #ffe600 102deg,
+                #3dff7a 153deg,
+                #00e8ff 204deg,
+                #5b7fff 255deg,
+                #c44dff 306deg,
+                #ff2d6a 360deg
+            );
+            filter: blur(1.5px);
+        }
+
+        .rainbow-ring-2 {
+            width: 94px;
+            height: 94px;
+            background: conic-gradient(
+                from 120deg,
+                #00f0ff 0deg,
+                #7b5cff 60deg,
+                #ff3dac 120deg,
+                #ffb300 180deg,
+                #eeff00 240deg,
+                #00ff9d 300deg,
+                #00f0ff 360deg
+            );
+            filter: blur(1px);
+            -webkit-mask: radial-gradient(circle, transparent 50%, #000 56%, #000 70%, transparent 76%);
+            mask: radial-gradient(circle, transparent 50%, #000 56%, #000 70%, transparent 76%);
+        }
+
+        .rainbow-ring-3 {
+            width: 78px;
+            height: 78px;
+            background: conic-gradient(
+                from 240deg,
+                #ffffff 0deg,
+                #ff6bcb 40deg,
+                #ffd500 80deg,
+                #6bffb8 130deg,
+                #4dc4ff 190deg,
+                #9d7bff 250deg,
+                #ffffff 360deg
+            );
+            filter: blur(0.8px);
+            -webkit-mask: radial-gradient(circle, transparent 46%, #000 54%, #000 68%, transparent 74%);
+            mask: radial-gradient(circle, transparent 46%, #000 54%, #000 68%, transparent 74%);
+        }
+
+        .ark-reactor.wake-active .rainbow-ring {
+            opacity: 0.92;
+        }
+
+        .ark-reactor.wake-active .rainbow-ring-1 {
+            animation: rainbowSpinCW 2.8s linear infinite, rainbowPulse 3.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+
+        .ark-reactor.wake-active .rainbow-ring-2 {
+            animation: rainbowSpinCCW 2.1s linear infinite, rainbowPulse 3.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+
+        .ark-reactor.wake-active .rainbow-ring-3 {
+            animation: rainbowSpinCW 1.6s linear infinite, rainbowPulse 3.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+
+        .ark-reactor.wake-active .core-inner-glow {
+            background: radial-gradient(
+                circle,
+                rgba(255, 255, 255, 0.72) 0%,
+                rgba(180, 220, 255, 0.5) 20%,
+                rgba(0, 229, 255, 0.38) 40%,
+                rgba(160, 120, 255, 0.18) 62%,
+                rgba(255, 180, 100, 0.1) 78%,
+                transparent 100%
+            );
+        }
+
+        .ark-reactor.wake-active .core {
+            filter: blur(3px) brightness(1.12);
+            box-shadow:
+                0 0 52px rgba(0, 204, 255, 0.85),
+                0 0 100px rgba(0, 153, 255, 0.58),
+                0 0 165px rgba(0, 102, 255, 0.35),
+                0 0 40px rgba(255, 100, 200, 0.25);
+        }
+
+        @keyframes rainbowSpinCW {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        @keyframes rainbowSpinCCW {
+            from { transform: translate(-50%, -50%) rotate(360deg); }
+            to { transform: translate(-50%, -50%) rotate(0deg); }
+        }
+
+        @keyframes rainbowPulse {
+            0%, 100% { opacity: 0.72; }
+            50% { opacity: 1; }
+        }
+
+        /* 核心内部光晕层 */
+        .core-inner-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 152px;
+            height: 152px;
+            border-radius: 50%;
+            background: radial-gradient(
+                circle,
+                rgba(255, 255, 255, 0.58) 0%,
+                rgba(0, 229, 255, 0.42) 24%,
+                rgba(0, 180, 255, 0.22) 50%,
+                rgba(0, 150, 255, 0.1) 72%,
+                rgba(0, 130, 255, 0.04) 88%,
+                transparent 100%
+            );
+            pointer-events: none;
+            filter: blur(10px);
+            animation: innerGlowBreath 3.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+
+        /* 能量核心 — 边缘柔化，无清晰硬边界 */
+        .core {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            border: none;
+            background: radial-gradient(
+                circle,
+                #ffffff 0%,
+                #00e5ff 26%,
+                rgba(0, 150, 255, 0.9) 48%,
+                rgba(0, 120, 255, 0.5) 68%,
+                rgba(0, 200, 255, 0.16) 86%,
+                transparent 100%
+            );
+            filter: blur(3px);
+            box-shadow:
+                0 0 48px rgba(0, 204, 255, 0.78),
+                0 0 96px rgba(0, 153, 255, 0.52),
+                0 0 158px rgba(0, 102, 255, 0.3);
+            animation: coreBreath 3.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+            transition: box-shadow 0.3s ease, transform 0.3s ease, filter 0.3s ease;
+        }
+
+        /* 鼠标悬浮高亮 */
+        .ark-reactor:hover .core {
+            filter: blur(3px) brightness(1.2);
+            box-shadow:
+                0 0 68px rgba(0, 238, 255, 0.9),
+                0 0 135px rgba(0, 153, 255, 0.62),
+                0 0 220px rgba(0, 102, 255, 0.42);
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+
+        /* 旋转动画 */
+        @keyframes rotate {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        /* 外层呼吸 — 与核心同步 */
+        @keyframes outerBreath {
+            0%, 100% {
+                opacity: 0.48;
+                transform: translate(-50%, -50%) scale(0.97);
+            }
+            25% {
+                opacity: 0.58;
+                transform: translate(-50%, -50%) scale(0.99);
+            }
+            50% {
+                opacity: 0.74;
+                transform: translate(-50%, -50%) scale(1.03);
+            }
+            75% {
+                opacity: 0.58;
+                transform: translate(-50%, -50%) scale(0.99);
+            }
+        }
+
+        /* 内环呼吸 */
+        @keyframes ringBreath {
+            0%, 100% {
+                transform: translate(-50%, -50%) scale(0.98);
+                box-shadow: 0 0 20px rgba(0, 240, 255, 0.28), inset 0 0 22px rgba(0, 240, 255, 0.14);
+                opacity: 0.82;
+            }
+            25% {
+                transform: translate(-50%, -50%) scale(0.995);
+                box-shadow: 0 0 24px rgba(0, 240, 255, 0.36), inset 0 0 26px rgba(0, 240, 255, 0.2);
+                opacity: 0.9;
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.02);
+                box-shadow: 0 0 32px rgba(0, 240, 255, 0.48), inset 0 0 34px rgba(0, 240, 255, 0.28);
+                opacity: 1;
+            }
+            75% {
+                transform: translate(-50%, -50%) scale(0.995);
+                box-shadow: 0 0 24px rgba(0, 240, 255, 0.36), inset 0 0 26px rgba(0, 240, 255, 0.2);
+                opacity: 0.9;
+            }
+        }
+
+        /* 核心内部光晕呼吸 */
+        @keyframes innerGlowBreath {
+            0%, 100% {
+                transform: translate(-50%, -50%) scale(0.95);
+                opacity: 0.6;
+            }
+            25% {
+                transform: translate(-50%, -50%) scale(0.99);
+                opacity: 0.72;
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.08);
+                opacity: 0.92;
+            }
+            75% {
+                transform: translate(-50%, -50%) scale(0.99);
+                opacity: 0.72;
+            }
+        }
+
+        /* 核心呼吸 */
+        @keyframes coreBreath {
+            0%, 100% {
+                transform: translate(-50%, -50%) scale(0.96);
+                filter: blur(3px) brightness(0.92);
+                box-shadow:
+                    0 0 40px rgba(0, 204, 255, 0.58),
+                    0 0 76px rgba(0, 153, 255, 0.38),
+                    0 0 124px rgba(0, 102, 255, 0.2);
+            }
+            25% {
+                transform: translate(-50%, -50%) scale(0.99);
+                filter: blur(3px) brightness(0.98);
+                box-shadow:
+                    0 0 50px rgba(0, 204, 255, 0.68),
+                    0 0 90px rgba(0, 153, 255, 0.44),
+                    0 0 142px rgba(0, 102, 255, 0.24);
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.04);
+                filter: blur(3px) brightness(1.08);
+                box-shadow:
+                    0 0 60px rgba(0, 238, 255, 0.82),
+                    0 0 108px rgba(0, 170, 255, 0.52),
+                    0 0 175px rgba(0, 102, 255, 0.3);
+            }
+            75% {
+                transform: translate(-50%, -50%) scale(0.99);
+                filter: blur(3px) brightness(0.98);
+                box-shadow:
+                    0 0 50px rgba(0, 204, 255, 0.68),
+                    0 0 90px rgba(0, 153, 255, 0.44),
+                    0 0 142px rgba(0, 102, 255, 0.24);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="ark-reactor" id="reactor">
+            <div class="outer-glow"></div>
+            <div class="ring-1"></div>
+            <div class="ring-3"></div>
+            <div class="rainbow-rings" id="rainbowRings" aria-hidden="true">
+                <div class="rainbow-ring rainbow-ring-1"></div>
+                <div class="rainbow-ring rainbow-ring-2"></div>
+                <div class="rainbow-ring rainbow-ring-3"></div>
+            </div>
+            <div class="core-inner-glow" id="coreInnerGlow"></div>
+            <div class="core" id="core"></div>
+        </div>
+
+        <div class="toolbar">
+            <button type="button" id="wakeBtn">模拟语音唤醒</button>
+            <button type="button" id="exportBtn">导出 GIF</button>
+            <div class="export-progress" id="exportProgress">
+                <div class="export-progress-bar" id="exportProgressBar"></div>
+            </div>
+            <div class="export-status" id="exportStatus"></div>
+        </div>
+    </div>
+
+    <script src="lib/html-to-image.min.js"></script>
+    <script src="lib/gifenc-browser.js"></script>
+    <script src="lib/gifenc.js"></script>
+    <script>
+        const reactor = document.getElementById('reactor');
+        const core = document.getElementById('core');
+        const coreInnerGlow = document.getElementById('coreInnerGlow');
+        const ring3 = document.querySelector('.ring-3');
+        const exportBtn = document.getElementById('exportBtn');
+        const wakeBtn = document.getElementById('wakeBtn');
+        const exportStatus = document.getElementById('exportStatus');
+        const exportProgress = document.getElementById('exportProgress');
+        const exportProgressBar = document.getElementById('exportProgressBar');
+
+        const EXPORT = {
+            width: 360,
+            height: 360,
+            fps: 12,
+            duration: 3,
+            quality: 10,
+        };
+
+        function checkExportLibs() {
+            if (typeof htmlToImage === 'undefined') {
+                exportStatus.textContent = '截帧库未加载，请通过 http://localhost:8765/Reactor.html 打开';
+                exportBtn.disabled = true;
+                return false;
+            }
+            if (typeof gifenc === 'undefined' || typeof gifenc.GIFEncoder !== 'function') {
+                exportStatus.textContent = 'GIF 编码库未加载';
+                exportBtn.disabled = true;
+                return false;
+            }
+            return true;
+        }
+
+        const blueTheme = {
+            coreBg: 'radial-gradient(circle, #ffffff 0%, #00e5ff 28%, rgba(0,150,255,0.9) 52%, rgba(0,120,255,0.45) 72%, rgba(0,200,255,0.12) 88%, transparent 100%)',
+            innerGlow: 'radial-gradient(circle, rgba(255,255,255,0.58) 0%, rgba(0,229,255,0.42) 24%, rgba(0,180,255,0.22) 50%, rgba(0,150,255,0.1) 72%, rgba(0,130,255,0.04) 88%, transparent 100%)',
+            ring3Bg: 'radial-gradient(circle, transparent 58%, rgba(0,240,255,0.06) 68%, rgba(0,240,255,0.42) 80%, rgba(0,240,255,0.12) 92%, transparent 100%)',
+            outerGlow: 'radial-gradient(circle, rgba(0,220,255,0.2) 0%, transparent 70%)',
+            ringColor: '#00ccff',
+            ringGlow: '#00ccff',
+        };
+
+        const redTheme = {
+            coreBg: 'radial-gradient(circle, #ffffff 0%, #ff4444 28%, rgba(200,0,0,0.9) 52%, rgba(170,0,0,0.45) 72%, rgba(255,80,80,0.12) 88%, transparent 100%)',
+            innerGlow: 'radial-gradient(circle, rgba(255,255,255,0.58) 0%, rgba(255,68,68,0.42) 24%, rgba(255,40,40,0.22) 50%, rgba(255,60,60,0.1) 72%, rgba(255,50,50,0.04) 88%, transparent 100%)',
+            ring3Bg: 'radial-gradient(circle, transparent 58%, rgba(255,85,85,0.06) 68%, rgba(255,85,85,0.42) 80%, rgba(255,85,85,0.12) 92%, transparent 100%)',
+            outerGlow: 'radial-gradient(circle, rgba(255,34,34,0.2) 0%, transparent 70%)',
+            ringColor: '#ff3333',
+            ringGlow: '#ff2222',
+        };
+
+        function applyTheme(theme) {
+            core.style.background = theme.coreBg;
+            coreInnerGlow.style.background = theme.innerGlow;
+            ring3.style.background = theme.ring3Bg;
+            document.querySelector('.outer-glow').style.background = theme.outerGlow;
+            document.querySelectorAll('.ring-1').forEach(ring => {
+                ring.style.borderColor = theme.ringColor;
+                ring.style.boxShadow = `0 0 15px ${theme.ringGlow}`;
+            });
+        }
+
+        let isBlue = true;
+        let isExporting = false;
+        let isWakeActive = false;
+
+        const ArkReactor = {
+            /** AI 语音唤醒 — 显示七彩光圈 */
+            wake() {
+                isWakeActive = true;
+                reactor.classList.add('wake-active');
+                wakeBtn.textContent = '结束唤醒';
+                return true;
+            },
+            /** 结束唤醒 — 恢复常态 */
+            sleep() {
+                isWakeActive = false;
+                reactor.classList.remove('wake-active');
+                wakeBtn.textContent = '模拟语音唤醒';
+                return true;
+            },
+            /** 设置唤醒状态 */
+            setWake(active) {
+                return active ? this.wake() : this.sleep();
+            },
+            /** 切换唤醒状态 */
+            toggleWake() {
+                return isWakeActive ? this.sleep() : this.wake();
+            },
+            isWakeActive() {
+                return isWakeActive;
+            },
+        };
+        window.ArkReactor = ArkReactor;
+
+        wakeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            ArkReactor.toggleWake();
+        });
+
+        reactor.addEventListener('click', () => {
+            if (isExporting) return;
+            applyTheme(isBlue ? redTheme : blueTheme);
+            isBlue = !isBlue;
+        });
+
+        function wait(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function setExportProgress(ratio, text) {
+            exportProgress.classList.add('active');
+            exportProgressBar.style.width = `${Math.round(ratio * 100)}%`;
+            exportStatus.textContent = text;
+        }
+
+        function resetExportUI() {
+            exportProgress.classList.remove('active');
+            exportProgressBar.style.width = '0%';
+            exportBtn.disabled = false;
+            reactor.classList.remove('exporting');
+            isExporting = false;
+        }
+
+        async function captureFrame() {
+            return htmlToImage.toCanvas(reactor, {
+                backgroundColor: '#000000',
+                width: EXPORT.width,
+                height: EXPORT.height,
+                pixelRatio: 1,
+                cacheBust: true,
+                skipFonts: true,
+                includeQueryParams: true,
+            });
+        }
+
+        async function encodeGif(frames, frameDelay) {
+            const { GIFEncoder, quantize, applyPalette } = gifenc;
+            const encoder = GIFEncoder();
+            let sharedPalette = null;
+
+            for (let i = 0; i < frames.length; i++) {
+                setExportProgress(0.7 + (i / frames.length) * 0.3, `编码 GIF ${Math.round((i / frames.length) * 100)}%`);
+
+                const canvas = frames[i];
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                const imageData = ctx.getImageData(0, 0, EXPORT.width, EXPORT.height);
+
+                if (!sharedPalette) {
+                    sharedPalette = quantize(imageData.data, 256);
+                }
+
+                const index = applyPalette(imageData.data, sharedPalette);
+                encoder.writeFrame(index, EXPORT.width, EXPORT.height, {
+                    palette: sharedPalette,
+                    delay: frameDelay,
+                });
+
+                await wait(0);
+            }
+
+            encoder.finish();
+            return new Blob([encoder.bytes()], { type: 'image/gif' });
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        async function exportGif() {
+            if (isExporting) return;
+            if (!checkExportLibs()) return;
+
+            isExporting = true;
+            exportBtn.disabled = true;
+            reactor.classList.add('exporting', 'capture-mode');
+
+            const totalFrames = EXPORT.fps * EXPORT.duration;
+            const frameDelay = Math.round(1000 / EXPORT.fps);
+            const frames = [];
+
+            await wait(100);
+
+            try {
+                for (let i = 0; i < totalFrames; i++) {
+                    setExportProgress((i / totalFrames) * 0.7, `截帧中 ${i + 1} / ${totalFrames}`);
+                    const canvas = await captureFrame();
+                    frames.push(canvas);
+                    await wait(frameDelay);
+                }
+
+                const blob = await encodeGif(frames, frameDelay);
+                downloadBlob(blob, `ark-reactor-${Date.now()}.gif`);
+                setExportProgress(1, '导出完成');
+            } catch (err) {
+                console.error(err);
+                exportStatus.textContent = `导出失败: ${err.message || err}`;
+            } finally {
+                reactor.classList.remove('capture-mode');
+                resetExportUI();
+            }
+        }
+
+        exportBtn.addEventListener('click', exportGif);
+        checkExportLibs();
+    </script>
+</body>
+</html>
