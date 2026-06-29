@@ -1,5 +1,6 @@
 #include "wifi_board.h"
 #include "wifi_config_ui.h"
+#include "wifi_config_backup.h"
 #include "codecs/es8311_audio_codec.h"
 #include "display/lcd_display.h"
 #include "application.h"
@@ -271,6 +272,7 @@ private:
         // Add to SSID manager (will be saved and used for connection)
         auto& ssid_manager = SsidManager::GetInstance();
         ssid_manager.AddSsid(ssid, password);
+        WifiConfigBackup::GetInstance().BackupToSdCard();
 
         // Stop config AP mode and trigger reconnection with new credentials
         auto& wifi_manager = WifiManager::GetInstance();

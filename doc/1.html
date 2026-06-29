@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>反应堆GIF导出工具（Canvas版）</title>
+<!-- GIF 编码库 -->
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#020205;
+    display:flex;justify-content:center;align-items:center;
+    min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    color:#aef;
+    flex-direction:column;
+    gap:16px;
+  }
+  #stage{
+    width:360px;height:360px;
+    border-radius:50%;
+    position:relative;
+    overflow:hidden;
+    background:#020205;
+  }
+  #canvas{
+    display:block;
+    width:360px;height:360px;
+  }
+  .toolbar{
+    display:flex;gap:12px;align-items:center;
+  }
+  button{
+    padding:10px 20px;
+    border-radius:6px;
+    border:1px solid #00f5ff55;
+    background:#0a1822;
+    color:#aef;
+    cursor:pointer;
+    font-size:14px;
+    transition:all .15s;
+  }
+  button:hover:not(:disabled){
+    background:#0d2030;
+    border-color:#00f5ff;
+    box-shadow:0 0 12px #00f5ff55;
+  }
+  button:disabled{
+    opacity:.5;cursor:not-allowed;
+  }
+  #status{
+    font-size:12px;color:#7ad;
+    min-height:16px;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="canvas" width="360" height="360"></canvas>
+  </div>
+  <div class="toolbar">
+    <button id="exportBtn">导出 GIF</button>
+  </div>
+  <div id="status">点击"导出 GIF"开始录制 2.4 秒动画</div>
+
+<script>
+(function(){
+  'use strict';
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const exportBtn = document.getElementById('exportBtn');
+  const statusEl = document.getElementById('status');
+
+  const W = 360, H = 360;
+  const CX = W / 2, CY = H / 2;
+  const breatheCycle = 2200;
+
+  let animRunning = true;
+  let recordFlag = false;
+  let frameList = [];
+  let recordStartTime = 0;
+  const RECORD_DURATION = 2400;
+  const RECORD_FPS = 24;
+  const RECORD_FRAME_INTERVAL = 1000 / RECORD_FPS;
+  let lastRecordTime = 0;
+
+  function setStatus(text){
+    statusEl.textContent = text;
+  }
+
+  // 绘制单帧反应堆
+  function drawReactor(tick){
+    ctx.clearRect(0, 0, W, H);
+
+    const rad = (tick / breatheCycle) * Math.PI * 2;
+    const breathVal = (Math.sin(rad) + 1) / 2;
+    const coreScale = 0.88 + breathVal * 0.12;
+
+    // 外圈暗环
+    ctx.beginPath();
+    ctx.arc(CX, CY, W/2 - 6, 0, Math.PI * 2);
+    ctx.strokeStyle = '#303640';
+    ctx.lineWidth = 12;
+    ctx.stroke();
+
+    // 外圈光晕（阴影）
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CX, CY, W/2 - 6, 0, Math.PI * 2);
+    ctx.strokeStyle = '#00a8ff';
+    ctx.lineWidth = 1;
+    ctx.shadowColor = '#00a8ff';
+    ctx.shadowBlur = 50;
+    ctx.stroke();
+    ctx.restore();
+
+    // 中圈发光环（带模糊）
+    const ringInnerR = 24;
+    const ringBlur = 3 + breathVal * 8;
+    const ringOpacity = Math.min(1.1, 0.3 + breathVal * 0.8);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CX, CY, ringInnerR + (W/2 - 6 - 24), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0, 245, 255, ${ringOpacity})`;
+    ctx.lineWidth = 6;
+    ctx.shadowColor = '#00f5ff';
+    ctx.shadowBlur = ringBlur + breathVal * 120 / 10;
+    ctx.stroke();
+    ctx.restore();
+
+    // 核心（径向渐变）
+    const coreR = (W/2 - 60) * coreScale;
+    const glowIntensity = 80 + breathVal * 220;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CX, CY, coreR, 0, Math.PI * 2);
+
+    const gradient = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
+    gradient.addColorStop(0, '#fff');
+    gradient.addColorStop(0.22, '#00fbff');
+    gradient.addColorStop(0.45, '#00d8ff');
+    gradient.addColorStop(0.75, '#007ee8');
+    gradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = gradient;
+
+    ctx.shadowColor = '#00fbff';
+    ctx.shadowBlur = glowIntensity;
+    ctx.fill();
+    ctx.restore();
+
+    // 核心外发光层
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CX, CY, coreR * 1.15, 0, Math.PI * 2);
+    ctx.fillStyle = 'transparent';
+    ctx.shadowColor = '#00aaff';
+    ctx.shadowBlur = glowIntensity + 80;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 动画循环（独立于录制，使用 requestAnimationFrame 累加 tick）
+  let tick = 0;
+  let lastFrameTime = performance.now();
+
+  function animate(now){
+    const dt = now - lastFrameTime;
+    lastFrameTime = now;
+    tick += dt;
+
+    drawReactor(tick);
+
+    // 录制帧（节流到 RECORD_FPS）
+    if(recordFlag){
+      if(now - lastRecordTime >= RECORD_FRAME_INTERVAL){
+        lastRecordTime = now;
+        try{
+          frameList.push(ctx.getImageData(0, 0, W, H));
+        }catch(e){
+          console.error('capture frame failed', e);
+        }
+      }
+      const elapsed = now - recordStartTime;
+      const remain = Math.max(0, Math.ceil((RECORD_DURATION - elapsed) / 1000));
+      setStatus(`录制中...剩余 ${remain} 秒`);
+      if(elapsed >= RECORD_DURATION){
+        finishRecording();
+      }
+    }
+
+    if(animRunning){
+      requestAnimationFrame(animate);
+    }
+  }
+
+  function startRecording(){
+    if(typeof GIF !== 'function'){
+      setStatus('错误：gif.js 库未加载，请检查网络');
+      exportBtn.disabled = false;
+      return;
+    }
+    frameList = [];
+    recordFlag = true;
+    recordStartTime = performance.now();
+    lastRecordTime = recordStartTime;
+    exportBtn.disabled = true;
+    setStatus('录制中...剩余 3 秒');
+  }
+
+  function finishRecording(){
+    recordFlag = false;
+    exportBtn.disabled = true;
+
+    if(frameList.length === 0){
+      setStatus('未捕获到画面，请刷新页面重试');
+      exportBtn.disabled = false;
+      return;
+    }
+
+    setStatus(`正在编码 GIF（共 ${frameList.length} 帧）...`);
+
+    try{
+      const gif = new GIF({
+        workers: 2,
+        quality: 10,
+        width: W,
+        height: H,
+        workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+      });
+
+      frameList.forEach(img => gif.addFrame(img, {delay: 41}));
+
+      gif.on('progress', p => {
+        setStatus(`编码中... ${Math.round(p * 100)}%`);
+      });
+
+      gif.on('finished', blob => {
+        try{
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = '方舟反应堆_蓝色.gif';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          setStatus(`✓ 已导出 ${(blob.size/1024).toFixed(1)} KB GIF（${frameList.length} 帧）`);
+        }catch(e){
+          setStatus('下载失败：' + e.message);
+          console.error(e);
+        }
+        exportBtn.disabled = false;
+        frameList = [];
+      });
+
+      gif.on('abort', () => {
+        setStatus('GIF 编码已中止');
+        exportBtn.disabled = false;
+        frameList = [];
+      });
+
+      gif.render();
+    }catch(e){
+      setStatus('GIF 编码失败：' + e.message);
+      console.error(e);
+      exportBtn.disabled = false;
+      frameList = [];
+    }
+  }
+
+  exportBtn.addEventListener('click', () => {
+    if(recordFlag) return;
+    startRecording();
+  });
+
+  // 启动动画
+  requestAnimationFrame(animate);
+
+  // 检查 gif.js 是否加载
+  window.addEventListener('load', () => {
+    if(typeof GIF !== 'function'){
+      setStatus('警告：gif.js 库加载失败，请检查网络连接');
+    } else {
+      setStatus('就绪，点击"导出 GIF"开始录制 2.4 秒动画');
+    }
+  });
+})();
+</script>
+</body>
+</html>

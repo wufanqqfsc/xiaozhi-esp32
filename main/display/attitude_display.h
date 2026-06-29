@@ -147,6 +147,9 @@ public:
     // hold_ms: 显示持续时间；调用方若同步播放音频，应传入音频可覆盖的时长
     void ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms = 3000);
     void HideDebugInfo();
+    // 仅在卡片仍可见时刷新其隐藏计时器（hold_ms=0 使用默认 DEBUG_INFO_SHOW_MS）
+    // 用于"唤醒成功后保持至少 N 秒，有语音交互则重计时"场景
+    void RefreshDebugInfoTimer(uint32_t hold_ms = 0);
     /** Boot 短按：Idle 循环选中运势入口 */
     bool HandleBootKey();
     /** Boot 长按：Idle 触发当前选中运势（确定） */
@@ -234,6 +237,8 @@ private:
     lv_timer_t* debug_info_hide_timer_ = nullptr;
     uint32_t debug_info_last_show_ms_ = 0;
     std::string debug_info_last_title_;
+    lv_timer_t* preview_image_hide_timer_ = nullptr;
+    static void OnPreviewImageHideTimer(lv_timer_t* timer);
     void CreateDebugInfoCard();
     void DestroyDebugInfoCard();
     void ApplyDebugInfoCardLayout();

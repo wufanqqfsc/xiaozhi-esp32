@@ -2,6 +2,8 @@
 #include "audio_service.h"
 #include <esp_log.h>
 #include <sstream>
+#include <cmath>
+#include <algorithm>
 
 #define DETECTION_RUNNING_EVENT 1
 
@@ -76,9 +78,26 @@ bool AfeWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) {
     afe_config->afe_perferred_core = 1;
     afe_config->afe_perferred_priority = 1;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
-    
+    // 设置 VAD 为最低 aggressiveness（VAD_MODE_0），让 WakeNet 能接收更多音频
+    // 默认可能是 VAD_MODE_3/4，导致语音被过滤掉
+    afe_config->vad_mode = VAD_MODE_0;
+    // 降低 VAD 最小语音时长要求，更快检测到语音
+    afe_config->vad_min_speech_ms = 64;
+    // 启用 AGC 自动增益控制，放大麦克风输入（麦克风电平较低时自动增益）
+    afe_config->agc_init = true;
+    afe_config->agc_mode = AFE_AGC_MODE_WEBRTC;
+    afe_config->agc_target_level_dbfs = -3;
+    afe_config->agc_compression_gain_db = 15;
+
     afe_iface_ = esp_afe_handle_from_config(afe_config);
     afe_data_ = afe_iface_->create_from_config(afe_config);
+
+    // 降低 WakeNet 检测阈值（从默认 0.5 降到 0.4，最敏感，
+    // 解决 VAD 过滤后 WakeNet 检测不到语音的问题）
+    if (afe_iface_->set_wakenet_threshold != nullptr) {
+        int ret = afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.4f);
+        ESP_LOGI(TAG, "Set WakeNet threshold to 0.4: %s", ret > 0 ? "success" : "failed");
+    }
 
     xTaskCreate([](void* arg) {
         auto this_ = (AfeWakeWord*)arg;
@@ -110,6 +129,19 @@ void AfeWakeWord::Stop() {
 void AfeWakeWord::Feed(const std::vector<int16_t>& data) {
     if (afe_data_ == nullptr) {
         return;
+    }
+
+    // 诊断：每 10 秒计算一次音频 RMS 电平，确认麦克风有输入
+    static uint32_t feed_count = 0;
+    static int64_t last_rms_log = 0;
+    feed_count++;
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    if (now_ms - last_rms_log > 10000 && !data.empty()) {
+        int64_t sum_sq = 0;
+        for (int16_t s : data) sum_sq += (int64_t)s * s;
+        float rms = sqrtf((float)sum_sq / data.size());
+        ESP_LOGI(TAG, "[MicLevel] fed %u chunks RMS=%.1f (max=%d)", feed_count, rms, *std::max_element(data.begin(), data.end()));
+        last_rms_log = now_ms;
     }
 
     std::lock_guard<std::mutex> lock(input_buffer_mutex_);
@@ -148,6 +180,16 @@ void AfeWakeWord::AudioDetectionTask() {
 
         // Store the wake word data for voice recognition, like who is speaking
         StoreWakeWordData(res->data, res->data_size / sizeof(int16_t));
+
+        // 诊断日志：每 5 秒打印一次 fetch 状态，看 VAD 和 WakeNet 是否工作
+        static uint32_t fetch_count = 0;
+        static int64_t last_state_log = 0;
+        fetch_count++;
+        int64_t now_ms = esp_timer_get_time() / 1000;
+        if (now_ms - last_state_log > 5000) {
+            ESP_LOGI(TAG, "[WakeNet-Fetch] count=%u wakeup_state=%d wakenet_model_index=%d", fetch_count, res->wakeup_state, res->wakenet_model_index);
+            last_state_log = now_ms;
+        }
 
         if (res->wakeup_state == WAKENET_DETECTED) {
             Stop();

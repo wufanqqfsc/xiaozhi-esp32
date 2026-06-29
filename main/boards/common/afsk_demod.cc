@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "display.h"
 #include "ssid_manager.h"
+#include "wifi_config_backup.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -94,6 +95,7 @@ namespace audio_wifi_config
                     // Save WiFi credentials using SsidManager
                     auto& ssid_manager = SsidManager::GetInstance();
                     ssid_manager.AddSsid(wifi_ssid, wifi_password);
+                    WifiConfigBackup::GetInstance().BackupToSdCard();
                     ESP_LOGI(kLogTag, "WiFi credentials saved successfully");
                     
                     // Exit config mode (triggers ConfigModeExit event)

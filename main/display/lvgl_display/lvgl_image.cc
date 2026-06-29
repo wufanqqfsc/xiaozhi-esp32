@@ -34,8 +34,8 @@ LvglCBinImage::~LvglCBinImage() {
     }
 }
 
-// 2 参构造：从原始 buffer 构造，支持 PNG / JPG / BMP 等所有 LVGL 内置 decoder 支持的格式
-//   GIF 不要走这条路 —— 应该用 LvglRawImage + lv_gif widget（lv_gif 内置 AnimatedGIF 库解码）
+// 2 参构造：从原始 buffer 构造，支持 PNG / JPG / BMP / GIF 等
+//   GIF 通过 IsGif() 检测 magic bytes 后分发到 LvglGif widget
 // 关键设计：故意把 header.cf 设为 UNKNOWN：
 //   - LVGL 内置 BIN decoder 看到 UNKNOWN 直接拒绝（不会"赢"）
 //   - decoder chain 会继续交给 lodepng/tjpgd/bmp 等按 magic bytes 识别的 decoder
@@ -68,4 +68,9 @@ LvglAllocatedImage::~LvglAllocatedImage() {
         heap_caps_free((void*)image_dsc_.data);
         image_dsc_.data = nullptr;
     }
+}
+
+bool LvglAllocatedImage::IsGif() const {
+    auto ptr = (const uint8_t*)image_dsc_.data;
+    return ptr[0] == 'G' && ptr[1] == 'I' && ptr[2] == 'F';
 }

@@ -173,6 +173,12 @@ bool WebsocketProtocol::OpenAudioChannel() {
     });
 
     ESP_LOGI(TAG, "Connecting to websocket server: %s with version: %d", url.c_str(), version_);
+    std::string mac = SystemInfo::GetMacAddress();
+    if (!url.empty() && url.find("device-id=") == std::string::npos) {
+        char separator = (url.find('?') != std::string::npos) ? '&' : '?';
+        url += separator + std::string("device-id=") + mac;
+        ESP_LOGI(TAG, "Appended device-id to URL: %s", url.c_str());
+    }
     if (!websocket_->Connect(url.c_str())) {
         ESP_LOGE(TAG, "Failed to connect to websocket server, code=%d", websocket_->GetLastError());
         SetError(Lang::Strings::SERVER_NOT_CONNECTED);

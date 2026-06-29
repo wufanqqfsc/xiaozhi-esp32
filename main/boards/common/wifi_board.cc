@@ -5,6 +5,7 @@
 #include "system_info.h"
 #include "settings.h"
 #include "assets/lang_config.h"
+#include "wifi_config_backup.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -99,6 +100,14 @@ void WifiBoard::TryWifiConnect() {
         esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
         WifiManager::GetInstance().StartStation();
     } else {
+        // 先尝试从 SD 卡自动恢复 WiFi 配置
+        int restored = WifiConfigBackup::GetInstance().AutoRestore();
+        if (restored > 0) {
+            ESP_LOGI(TAG, "Auto-restored %d WiFi network(s) from SD card, connecting...", restored);
+            esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
+            WifiManager::GetInstance().StartStation();
+            return;
+        }
         // No SSID configured, enter config mode
         // Wait for the board version to be shown
         vTaskDelay(pdMS_TO_TICKS(1500));

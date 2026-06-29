@@ -14,6 +14,9 @@
 
 #include <string>
 #include <chrono>
+#include <memory>
+
+class LvglImage;
 
 class Theme {
 public:
@@ -39,6 +42,7 @@ public:
     virtual void SetTheme(Theme* theme);
     virtual Theme* GetTheme() { return current_theme_; }
     virtual void UpdateStatusBar(bool update_all = false);
+    virtual void SetPreviewImage(std::unique_ptr<LvglImage> image);
     virtual void SetPowerSaveMode(bool on);
     virtual void SetupUI() { 
         setup_ui_called_ = true;

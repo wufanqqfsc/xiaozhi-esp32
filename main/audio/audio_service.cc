@@ -268,15 +268,24 @@ void AudioService::AudioInputTask() {
         /* Feed the wake word and/or audio processor */
         if (bits & (AS_EVENT_WAKE_WORD_RUNNING | AS_EVENT_AUDIO_PROCESSOR_RUNNING)) {
             int samples = 160; // 10ms
+            static uint32_t wake_word_feed_count = 0;
             std::vector<int16_t> data;
             if (ReadAudioData(data, 16000, samples)) {
                 if (bits & AS_EVENT_WAKE_WORD_RUNNING) {
                     wake_word_->Feed(data);
+                    wake_word_feed_count++;
+                    // 每 5 秒（约 500 次 10ms 喂数据）打印一次进度
+                    if (wake_word_feed_count % 500 == 0) {
+                        ESP_LOGI(TAG, "[WakeWordFeed] fed %u chunks to wake word detector", wake_word_feed_count);
+                    }
                 }
                 if (bits & AS_EVENT_AUDIO_PROCESSOR_RUNNING) {
                     audio_processor_->Feed(std::move(data));
                 }
                 continue;
+            } else {
+                // 读取音频数据失败（codec input 未就绪）
+                ESP_LOGW(TAG, "[WakeWordFeed] ReadAudioData failed, codec input not ready");
             }
         }
 
@@ -561,11 +570,13 @@ std::unique_ptr<AudioStreamPacket> AudioService::PopWakeWordPacket() {
 }
 
 void AudioService::EnableWakeWordDetection(bool enable) {
+    ESP_LOGI(TAG, "EnableWakeWordDetection called: enable=%d wake_word_=%p", enable, (void*)wake_word_.get());
     if (!wake_word_) {
+        ESP_LOGW(TAG, "EnableWakeWordDetection: wake_word_ is nullptr, cannot enable");
         return;
     }
 
-    ESP_LOGD(TAG, "%s wake word detection", enable ? "Enabling" : "Disabling");
+    ESP_LOGI(TAG, "%s wake word detection (initialized=%d)", enable ? "Enabling" : "Disabling", wake_word_initialized_);
     if (enable) {
         if (!wake_word_initialized_) {
             if (!wake_word_->Initialize(codec_, models_list_)) {
@@ -584,6 +595,7 @@ void AudioService::EnableWakeWordDetection(bool enable) {
         }
         wake_word_->Start();
         xEventGroupSetBits(event_group_, AS_EVENT_WAKE_WORD_RUNNING);
+        ESP_LOGI(TAG, "Wake word detection started, AS_EVENT_WAKE_WORD_RUNNING set");
     } else {
         wake_word_->Stop();
         xEventGroupClearBits(event_group_, AS_EVENT_WAKE_WORD_RUNNING);

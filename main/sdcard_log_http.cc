@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <esp_vfs_fat.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -32,8 +33,6 @@
 #include <cJSON.h>
 
 #define TAG "SdCardLogHttp"
-
-extern "C" void init_music_player_view(void);  // music_player_view.cc 中实现（C linkage）
 
 static httpd_handle_t g_server = nullptr;
 static char g_mount_point[64] = {0};
@@ -477,9 +476,24 @@ static esp_err_t handle_root(httpd_req_t* req) {
 static esp_err_t handle_sdcard_info(httpd_req_t* req) {
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "mount_point", g_mount_point);
-    cJSON_AddNumberToObject(root, "total_bytes", 0);
-    cJSON_AddNumberToObject(root, "used_bytes", 0);
-    cJSON_AddNumberToObject(root, "free_bytes", 0);
+
+    DWORD free_clusters;
+    FATFS* fs;
+    FRESULT res = f_getfree(g_mount_point, &free_clusters, &fs);
+    if (res == FR_OK) {
+        uint64_t bps = fs->ssize ? fs->ssize : 512;
+        uint64_t free_bytes = (uint64_t)free_clusters * fs->csize * bps;
+        uint64_t total_bytes = (uint64_t)fs->n_fatent * fs->csize * bps;
+        uint64_t used_bytes = total_bytes > free_bytes ? total_bytes - free_bytes : 0;
+        cJSON_AddNumberToObject(root, "total_bytes", (double)total_bytes);
+        cJSON_AddNumberToObject(root, "used_bytes", (double)used_bytes);
+        cJSON_AddNumberToObject(root, "free_bytes", (double)free_bytes);
+    } else {
+        cJSON_AddNumberToObject(root, "total_bytes", 0);
+        cJSON_AddNumberToObject(root, "used_bytes", 0);
+        cJSON_AddNumberToObject(root, "free_bytes", 0);
+    }
+
     cJSON_AddBoolToObject(root, "log_active", SdCardLogIsActive());
 
     char* json_str = cJSON_PrintUnformatted(root);
@@ -997,12 +1011,6 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     if (qret != ESP_OK) {
         ESP_LOGW(TAG, "Display request queue init failed; ?display=1 will not auto-show");
     }
-
-    // 初始化黑胶唱片音乐播放器 UI（MusicPlayerView）
-    //   - 在 attitude_container_ 之后的屏幕顶层创建
-    //   - 启动一个 LVGL timer 周期 tick（250ms 同步 progress + 消费 display request queue）
-    //   - 此处不 Show，只 Create；由 /api/audio/play 触发 Show
-    init_music_player_view();
 
     esp_err_t ret = httpd_start(&g_server, &config);
     if (ret != ESP_OK) {

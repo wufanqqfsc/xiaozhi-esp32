@@ -46,17 +46,14 @@ void McpServer::AddCommonTools() {
     // Custom tools must be added in the board's InitializeTools function.
 
     AddTool("self.get_device_status",
-        "Provides the real-time information of the device, including the current status of the audio speaker, screen, battery, network, etc.\n"
-        "Use this tool for: \n"
-        "1. Answering questions about current condition (e.g. what is the current volume of the audio speaker?)\n"
-        "2. As the first step to control the device (e.g. turn up / down the volume of the audio speaker, etc.)",
+        "Get real-time device status: audio, display, battery, network. Call first before adjusting settings.",
         PropertyList(),
         [&board](const PropertyList& properties) -> ReturnValue {
             return board.GetDeviceStatusJson();
         });
 
     AddTool("self.audio_speaker.set_volume", 
-        "Set the volume of the audio speaker. If the current volume is unknown, you must call `self.get_device_status` tool first and then call this tool.",
+        "Set the audio speaker volume (0-100). Call get_device_status first if current volume is unknown.",
         PropertyList({
             Property("volume", kPropertyTypeInteger, 0, 100)
         }), 
@@ -100,60 +97,11 @@ void McpServer::AddCommonTools() {
             });
     }
 
-    // 太极图旋转控制 (用于按键触发, MCP 也可调用)
-    // 仅当 display 是 AttitudeDisplay 时可用
+    // 迭代 1: 鱼眼状态手动切换（验收测试用，迭代 3 接入真实 WiFi/BLE 驱动）
     auto attitude_display = dynamic_cast<AttitudeDisplay*>(display);
     if (attitude_display != nullptr) {
-        // 顺时针旋转 15° (按键按下)
-        AddTool("self.attitude.taiji_rotate_cw",
-            "Rotate the Taiji diagram clockwise by 15° (button trigger).",
-            PropertyList(),
-            [attitude_display](const PropertyList& properties) -> ReturnValue {
-                attitude_display->RotateTaiji();
-                return true;
-            });
-
-        // 逆时针旋转 15°
-        AddTool("self.attitude.taiji_rotate_ccw",
-            "Rotate the Taiji diagram counter-clockwise by 15°.",
-            PropertyList(),
-            [attitude_display](const PropertyList& properties) -> ReturnValue {
-                attitude_display->RotateTaijiCCW();
-                return true;
-            });
-
-        // 设置指定角度
-        AddTool("self.attitude.taiji_set_rotation",
-            "Set the Taiji diagram rotation angle. Angle is in 0.1° units (e.g., 15° = 150).",
-            PropertyList({
-                Property("angle", kPropertyTypeInteger, 0, 3600)
-            }),
-            [attitude_display](const PropertyList& properties) -> ReturnValue {
-                int angle = properties["angle"].value<int>();
-                attitude_display->SetTaijiRotation(angle);
-                return true;
-            });
-
-        // 获取当前角度
-        AddTool("self.attitude.taiji_get_rotation",
-            "Get the current Taiji diagram rotation angle (0.1° units).",
-            PropertyList(),
-            [attitude_display](const PropertyList& properties) -> ReturnValue {
-                return attitude_display->GetTaijiRotation();
-            });
-
-        // 重置旋转
-        AddTool("self.attitude.taiji_reset_rotation",
-            "Reset the Taiji diagram rotation to 0°.",
-            PropertyList(),
-            [attitude_display](const PropertyList& properties) -> ReturnValue {
-                attitude_display->ResetTaijiRotation();
-                return true;
-            });
-
-        // 迭代 1: 鱼眼状态手动切换（验收测试用，迭代 3 接入真实 WiFi/BLE 驱动）
         AddTool("self.attitude.set_wifi_fisheye",
-            "Set WiFi fisheye status: 0=DISCONNECTED, 1=CONNECTING, 2=CONNECTED.",
+            "Set WiFi fisheye: 0=DISCONNECTED, 1=CONNECTING, 2=CONNECTED.",
             PropertyList({
                 Property("status", kPropertyTypeInteger, 0, 2)
             }),
@@ -167,7 +115,7 @@ void McpServer::AddCommonTools() {
             });
 
         AddTool("self.attitude.set_ble_fisheye",
-            "Set BLE fisheye status: 0=DISABLED, 1=ADVERTISING, 2=CONNECTED.",
+            "Set BLE fisheye: 0=DISABLED, 1=ADVERTISING, 2=CONNECTED.",
             PropertyList({
                 Property("status", kPropertyTypeInteger, 0, 2)
             }),
@@ -186,11 +134,7 @@ void McpServer::AddCommonTools() {
     auto camera = board.GetCamera();
     if (camera) {
         AddTool("self.camera.take_photo",
-            "Always remember you have a camera. If the user asks you to see something, use this tool to take a photo and then explain it.\n"
-            "Args:\n"
-            "  `question`: The question that you want to ask about the photo.\n"
-            "Return:\n"
-            "  A JSON object that provides the photo information.",
+            "Take a photo and answer a question about what it shows.",
             PropertyList({
                 Property("question", kPropertyTypeString)
             }),
@@ -203,6 +147,47 @@ void McpServer::AddCommonTools() {
                 }
                 auto question = properties["question"].value<std::string>();
                 return camera->Explain(question);
+            });
+    }
+
+    if (display) {
+        AddTool("self.screen.display_gif",
+            "Display a GIF/image from a URL on the device screen. Supports PNG, JPG, and animated GIF.",
+            PropertyList({
+                Property("url", kPropertyTypeString)
+            }),
+            [display](const PropertyList& properties) -> ReturnValue {
+                auto url = properties["url"].value<std::string>();
+                auto http = Board::GetInstance().GetNetwork()->CreateHttp(3);
+
+                if (!http->Open("GET", url)) {
+                    throw std::runtime_error("Failed to open URL: " + url);
+                }
+                int status_code = http->GetStatusCode();
+                if (status_code != 200) {
+                    throw std::runtime_error("Unexpected status code: " + std::to_string(status_code));
+                }
+
+                size_t content_length = http->GetBodyLength();
+                char* data = (char*)heap_caps_malloc(content_length, MALLOC_CAP_8BIT);
+                if (data == nullptr) {
+                    throw std::runtime_error("Failed to allocate memory for image: " + url);
+                }
+                size_t total_read = 0;
+                while (total_read < content_length) {
+                    int ret = http->Read(data + total_read, content_length - total_read);
+                    if (ret < 0) {
+                        heap_caps_free(data);
+                        throw std::runtime_error("Failed to download image: " + url);
+                    }
+                    if (ret == 0) break;
+                    total_read += ret;
+                }
+                http->Close();
+
+                auto image = std::make_unique<LvglAllocatedImage>(data, content_length);
+                display->SetPreviewImage(std::move(image));
+                return true;
             });
     }
 #endif
@@ -235,7 +220,7 @@ void McpServer::AddUserOnlyTools() {
         });
 
     // Firmware upgrade
-    AddUserOnlyTool("self.upgrade_firmware", "Upgrade firmware from a specific URL. This will download and install the firmware, then reboot the device.",
+    AddUserOnlyTool("self.upgrade_firmware", "Upgrade firmware from a URL. Downloads and installs then reboots.",
         PropertyList({
             Property("url", kPropertyTypeString, "The URL of the firmware binary file to download and install")
         }),
@@ -497,231 +482,6 @@ void McpServer::ParseCapabilities(const cJSON* capabilities) {
             return true;
         });
 
-    // -------- WiFi Backup API --------
-
-    AddUserOnlyTool("self.wifi.get_status",
-        "查询 NVS 和 SD 卡中的 WiFi 凭据状态。返回 nvs_count / sd_card_count / sd_card_has_backup / nvs_networks。\n"
-        "Equivalent to HTTP GET /api/wifi/status.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            cJSON* root = http_api_wifi_status();
-            char* json_str = cJSON_PrintUnformatted(root);
-            cJSON_Delete(root);
-            return std::string(json_str ? json_str : "{}");
-        });
-
-    AddUserOnlyTool("self.wifi.clear_nvs",
-        "清空 NVS 中所有保存的 WiFi 凭据（SSID + 密码）。\n"
-        "**注意**: SD 卡 /sdcard/wifi_config.json 备份会被保留，设备下次启动时会自动从 SD 卡恢复。\n"
-        "用途：模拟 NVS 丢失场景，验证三级回退（NVS → SD 卡 → AP 配网）。\n"
-        "Equivalent to HTTP POST /api/wifi/clear-nvs.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            char err[128] = {0};
-            bool ok = http_api_wifi_clear_nvs(err, sizeof(err));
-            if (!ok) throw std::runtime_error(err);
-            return true;
-        });
-
-    AddUserOnlyTool("self.wifi.restore_from_sd",
-        "手动触发从 SD 卡备份文件 (/sdcard/wifi_config.json) 恢复所有 WiFi 凭据到 NVS。\n"
-        "返回恢复的网络数量；0 表示无 SD 卡备份或恢复失败。\n"
-        "Equivalent to HTTP POST /api/wifi/restore.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            int restored = http_api_wifi_restore_from_sd();
-            return restored;
-        });
-
-    // self.reboot 已经存在，下面改用统一实现
-    // （保留原始 Application::Reboot 路径以确保事件循环正确处理）
-
-    // -------- SdCard API --------
-
-    AddUserOnlyTool("self.sdcard.get_info",
-        "Get SD card info (mount point/log status/HTTP status). "
-        "Equivalent to HTTP GET /api/sdcard/info.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            cJSON* root = http_api_sdcard_info();
-            char* json = cJSON_PrintUnformatted(root);
-            std::string result = json ? json : "{}";
-            if (json) free(json);
-            cJSON_Delete(root);
-            return result;
-        });
-
-    AddUserOnlyTool("self.sdcard.list_logs",
-        "List all log files on SD card. "
-        "Equivalent to HTTP GET /api/sdcard/logs.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            cJSON* root = http_api_sdcard_logs_list();
-            char* json = cJSON_PrintUnformatted(root);
-            std::string result = json ? json : "[]";
-            if (json) free(json);
-            cJSON_Delete(root);
-            return result;
-        });
-
-    AddUserOnlyTool("self.sdcard.list_shots",
-        "List all screenshot files on SD card. "
-        "Equivalent to HTTP GET /api/sdcard/shots.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            cJSON* root = http_api_sdcard_shots_list();
-            char* json = cJSON_PrintUnformatted(root);
-            std::string result = json ? json : "[]";
-            if (json) free(json);
-            cJSON_Delete(root);
-            return result;
-        });
-
-    AddUserOnlyTool("self.sdcard.delete_log",
-        "Delete a specific log file. "
-        "Equivalent to HTTP DELETE /api/sdcard/logs/<name>.",
-        PropertyList({
-            Property("name", kPropertyTypeString)
-        }),
-        [](const PropertyList& properties) -> ReturnValue {
-            auto name = properties["name"].value<std::string>();
-            char err[128] = {0};
-            if (!http_api_sdcard_delete_log(name.c_str(), err, sizeof(err))) {
-                throw std::runtime_error(err);
-            }
-            return true;
-        });
-
-    AddUserOnlyTool("self.sdcard.delete_shot",
-        "Delete a specific screenshot file. "
-        "Equivalent to HTTP DELETE /api/sdcard/shots/<name>.",
-        PropertyList({
-            Property("name", kPropertyTypeString)
-        }),
-        [](const PropertyList& properties) -> ReturnValue {
-            auto name = properties["name"].value<std::string>();
-            char err[128] = {0};
-            if (!http_api_sdcard_delete_shot(name.c_str(), err, sizeof(err))) {
-                throw std::runtime_error(err);
-            }
-            return true;
-        });
-
-    AddUserOnlyTool("self.sdcard.trigger_snapshot",
-        "Trigger a screen snapshot and save to SD card. "
-        "Equivalent to HTTP POST /api/sdcard/shots.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            char name[64] = {0};
-            char err[128] = {0};
-            if (!http_api_sdcard_trigger_snapshot(name, sizeof(name), err, sizeof(err))) {
-                throw std::runtime_error(err);
-            }
-            std::string result = R"({"ok":true,"name":")" + std::string(name) + R"("})";
-            return result;
-        });
-
-    // -------- Files API --------
-
-    AddUserOnlyTool("self.files.list",
-        "List files on SD card (supports subdirectories). "
-        "Equivalent to HTTP GET /api/sdcard/files?path=&recursive=.",
-        PropertyList({
-            Property("path", kPropertyTypeString, ""),
-            Property("recursive", kPropertyTypeBoolean, false)
-        }),
-        [](const PropertyList& properties) -> ReturnValue {
-            auto path = properties["path"].value<std::string>();
-            bool recursive = properties["recursive"].value<bool>();
-            cJSON* root = http_api_files_list(path.c_str(), recursive);
-            char* json = cJSON_PrintUnformatted(root);
-            std::string result = json ? json : "[]";
-            if (json) free(json);
-            cJSON_Delete(root);
-            return result;
-        });
-
-    AddUserOnlyTool("self.files.upload",
-        "Upload a file (image/GIF/audio/video/text/binary) to SD card. "
-        "Supports auto-display after upload via 'display' parameter. "
-        "Equivalent to HTTP POST /api/sdcard/files/<path>?display=1...",
-        PropertyList({
-            Property("path", kPropertyTypeString),
-            Property("data_base64", kPropertyTypeString,
-                     "Base64-encoded raw binary content of the file"),
-            Property("display", kPropertyTypeBoolean, false),
-            Property("x", kPropertyTypeInteger, 0),
-            Property("y", kPropertyTypeInteger, 0),
-            Property("scale", kPropertyTypeInteger, 100, 10, 400),
-            Property("duration_ms", kPropertyTypeInteger, 0, 0, 600000),
-            Property("loop", kPropertyTypeBoolean, false)
-        }),
-        [](const PropertyList& properties) -> ReturnValue {
-            auto path = properties["path"].value<std::string>();
-            auto data_b64 = properties["data_base64"].value<std::string>();
-            bool display = properties["display"].value<bool>();
-            int x = properties["x"].value<int>();
-            int y = properties["y"].value<int>();
-            int scale_pct = properties["scale"].value<int>();
-            int duration = properties["duration_ms"].value<int>();
-            bool loop = properties["loop"].value<bool>();
-            float scale = (float)scale_pct / 100.0f;
-
-            // Base64 解码
-            // 简化：调用方必须提供 base64；ESP-IDF 提供 mbedtls base64
-            // 这里使用一个轻量级 base64 解码
-            size_t b64_len = data_b64.size();
-            if (b64_len == 0) {
-                throw std::runtime_error("data_base64 is empty");
-            }
-            std::vector<uint8_t> raw;
-            raw.reserve((b64_len / 4 + 1) * 3);
-            const char* s = data_b64.c_str();
-            int val = 0, valb = -8;
-            for (size_t i = 0; i < b64_len; i++) {
-                unsigned char c = (unsigned char)s[i];
-                if (c == '=' || c == '\n' || c == '\r' || c == ' ') continue;
-                const char* p = strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", c);
-                if (p == nullptr) continue;
-                val = (val << 6) | (int)(p - "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
-                valb += 6;
-                if (valb >= 0) {
-                    raw.push_back((uint8_t)((val >> valb) & 0xFF));
-                    valb -= 8;
-                }
-            }
-
-            char err[128] = {0};
-            cJSON* result_json = http_api_files_upload(path.c_str(),
-                                                       raw.data(), raw.size(),
-                                                       display, x, y, scale,
-                                                       (uint32_t)duration, loop,
-                                                       err, sizeof(err));
-            if (result_json == nullptr) {
-                throw std::runtime_error(err);
-            }
-            char* json = cJSON_PrintUnformatted(result_json);
-            std::string result = json ? json : "{}";
-            if (json) free(json);
-            cJSON_Delete(result_json);
-            return result;
-        });
-
-    AddUserOnlyTool("self.files.delete",
-        "Delete a file or empty directory on SD card. "
-        "Equivalent to HTTP DELETE /api/sdcard/files/<path>.",
-        PropertyList({
-            Property("path", kPropertyTypeString)
-        }),
-        [](const PropertyList& properties) -> ReturnValue {
-            auto path = properties["path"].value<std::string>();
-            char err[128] = {0};
-            if (!http_api_files_delete(path.c_str(), err, sizeof(err))) {
-                throw std::runtime_error(err);
-            }
-            return true;
-        });
-
     // -------- Display API --------
 
     AddUserOnlyTool("self.display.show",
@@ -761,150 +521,6 @@ void McpServer::ParseCapabilities(const cJSON* capabilities) {
             return true;
         });
 
-    // -------- Audio API --------
-
-    // self.audio.play
-    //   path、url、playlist 三选一
-    AddUserOnlyTool("self.audio.play",
-        "Play an audio file (MP3/AAC/FLAC/Opus/WAV) on the device's speaker. "
-        "Provide ONE of: `path` (SD card absolute path), `url` (HTTP/HTTPS URL, auto-downloads to /sdcard/tmp/), "
-        "or `playlist` (array of paths for sequential playback). "
-        "`loop` applies to single-file playback. "
-        "Equivalent to HTTP POST /api/audio/play.",
-        PropertyList({
-            Property("path", kPropertyTypeString, ""),
-            Property("url", kPropertyTypeString, ""),
-            Property("playlist", kPropertyTypeString, ""),  // JSON 字符串数组（逗号分隔）
-            Property("loop", kPropertyTypeBoolean, false)
-        }),
-        [](const PropertyList& properties) -> ReturnValue {
-            auto path = properties["path"].value<std::string>();
-            auto url = properties["url"].value<std::string>();
-            auto playlist_str = properties["playlist"].value<std::string>();
-            bool loop = properties["loop"].value<bool>();
-            char err[128] = {0};
-            bool ok = false;
-            if (!path.empty()) {
-                ok = http_api_audio_play_file(path.c_str(), loop, err, sizeof(err));
-            } else if (!url.empty()) {
-                ok = http_api_audio_play_url(url.c_str(), loop, err, sizeof(err));
-            } else if (!playlist_str.empty()) {
-                // 解析逗号分隔的路径列表（简化版，避免传数组）
-                std::vector<std::string> paths;
-                std::string current;
-                for (char c : playlist_str) {
-                    if (c == ',' || c == ';') {
-                        if (!current.empty()) {
-                            paths.push_back(current);
-                            current.clear();
-                        }
-                    } else {
-                        current += c;
-                    }
-                }
-                if (!current.empty()) paths.push_back(current);
-                std::vector<const char*> c_paths;
-                for (auto& s : paths) c_paths.push_back(s.c_str());
-                ok = http_api_audio_play_playlist(c_paths.data(), (int)c_paths.size(), loop, err, sizeof(err));
-            } else {
-                throw std::runtime_error("path, url, or playlist is required");
-            }
-            if (!ok) {
-                throw std::runtime_error(err);
-            }
-            return true;
-        });
-
-    // self.audio.control
-    AddUserOnlyTool("self.audio.control",
-        "Control playback: action = 'pause' | 'resume' | 'stop'. "
-        "Equivalent to HTTP POST /api/audio/control.",
-        PropertyList({
-            Property("action", kPropertyTypeString)
-        }),
-        [](const PropertyList& properties) -> ReturnValue {
-            auto action = properties["action"].value<std::string>();
-            char err[128] = {0};
-            if (!http_api_audio_control(action.c_str(), err, sizeof(err))) {
-                throw std::runtime_error(err);
-            }
-            return true;
-        });
-
-    // self.audio.status
-    AddUserOnlyTool("self.audio.status",
-        "Get the current audio playback status as a JSON object: "
-        "{state, progress, file, error, playlist_index, playlist_total}. "
-        "Equivalent to HTTP GET /api/audio/status.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            (void)properties;
-            cJSON* root = http_api_audio_status();
-            if (root == nullptr) {
-                throw std::runtime_error("status not available");
-            }
-            char* json = cJSON_PrintUnformatted(root);
-            cJSON_Delete(root);
-            if (json == nullptr) {
-                throw std::runtime_error("status serialization failed");
-            }
-            // cJSON_PrintUnformatted 返回 const char*（实际是 malloc，需要 free）
-            // ReturnValue 接受 std::string
-            std::string result(json);
-            free(json);
-            return result;
-        });
-
-    // self.audio.next
-    AddUserOnlyTool("self.audio.next",
-        "Skip to the next track in the playlist. "
-        "Returns true on success, false if no playlist is active. "
-        "If at end of playlist, wraps to the first track.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            (void)properties;
-            return MusicPlayer::GetInstance().PlayNext();
-        });
-
-    // self.audio.prev
-    AddUserOnlyTool("self.audio.prev",
-        "Skip to the previous track in the playlist. "
-        "Returns true on success, false if no playlist is active. "
-        "If at start of playlist, wraps to the last track.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ReturnValue {
-            (void)properties;
-            return MusicPlayer::GetInstance().PlayPrev();
-        });
-
-    // self.audio.list
-    AddUserOnlyTool("self.audio.list",
-        "List music files (mp3/aac/flac/opus/wav) on the SD card. "
-        "`path` is the directory to scan (default '/sdcard'), "
-        "`recursive` searches subdirectories. "
-        "Returns a JSON string: {ok, count, files:[{name, path, size}]}. "
-        "Equivalent to HTTP GET /api/audio/list.",
-        PropertyList({
-            Property("path", kPropertyTypeString, "/sdcard"),
-            Property("recursive", kPropertyTypeBoolean, false)
-        }),
-        [](const PropertyList& properties) -> ReturnValue {
-            auto path = properties["path"].value<std::string>();
-            bool recursive = properties["recursive"].value<bool>();
-            cJSON* arr = http_api_audio_list(path.c_str(), recursive);
-            cJSON* root = cJSON_CreateObject();
-            cJSON_AddBoolToObject(root, "ok", 1);
-            cJSON_AddNumberToObject(root, "count", cJSON_GetArraySize(arr));
-            cJSON_AddItemToObject(root, "files", arr);
-            char* json = cJSON_PrintUnformatted(root);
-            cJSON_Delete(root);
-            if (json == nullptr) {
-                throw std::runtime_error("list serialization failed");
-            }
-            std::string result(json);
-            free(json);
-            return result;
-        });
 }
 
 void McpServer::ParseMessage(const cJSON* json) {
@@ -1010,15 +626,17 @@ void McpServer::ReplyError(int id, const std::string& message) {
 }
 
 void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_only_tools) {
-    const int max_payload_size = 8000;
+    const int max_payload_size = 10000;
     std::string json = "{\"tools\":[";
     
     bool found_cursor = cursor.empty();
     auto it = tools_.begin();
     std::string next_cursor = "";
     
+    ESP_LOGI(TAG, "tools/list: cursor='%s' user_only=%d tools=%zu",
+             cursor.c_str(), list_user_only_tools, tools_.size());
+    
     while (it != tools_.end()) {
-        // 如果我们还没有找到起始位置，继续搜索
         if (!found_cursor) {
             if ((*it)->name() == cursor) {
                 found_cursor = true;
@@ -1033,10 +651,8 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
             continue;
         }
         
-        // 添加tool前检查大小
         std::string tool_json = (*it)->to_json() + ",";
         if (json.length() + tool_json.length() + 30 > max_payload_size) {
-            // 如果添加这个tool会超出大小限制，设置next_cursor并退出循环
             next_cursor = (*it)->name();
             break;
         }
@@ -1050,8 +666,8 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
     }
     
     if (json.back() == '[' && !tools_.empty()) {
-        // 如果没有添加任何tool，返回错误
-        ESP_LOGE(TAG, "tools/list: Failed to add tool %s because of payload size limit", next_cursor.c_str());
+        ESP_LOGE(TAG, "tools/list: FAILED cursor='%s' found=%d tools=%zu json_len=%zu json='%.500s'",
+                 cursor.c_str(), found_cursor, tools_.size(), json.length(), json.c_str());
         ReplyError(id, "Failed to add tool " + next_cursor + " because of payload size limit");
         return;
     }

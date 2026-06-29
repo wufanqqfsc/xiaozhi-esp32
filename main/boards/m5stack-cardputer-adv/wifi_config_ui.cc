@@ -3,6 +3,7 @@
 #include <esp_wifi.h>
 #include <wifi_manager.h>
 #include <ssid_manager.h>
+#include <wifi_config_backup.h>
 #include <cstring>
 
 #define TAG "WifiConfigUI"
@@ -385,6 +386,7 @@ void WifiConfigUI::SaveWifiCredentials(const std::string& ssid, const std::strin
     auto& ssid_manager = SsidManager::GetInstance();
     ssid_manager.AddSsid(ssid, password);
     ESP_LOGI(TAG, "Saved WiFi credentials for: %s", ssid.c_str());
+    WifiConfigBackup::GetInstance().BackupToSdCard();
 }
 
 void WifiConfigUI::DeleteSavedWifi(int index) {

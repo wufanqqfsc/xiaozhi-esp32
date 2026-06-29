@@ -209,7 +209,7 @@ void AttitudeDisplay::SetupUI()
     // 图片浮层（仿 DebugInfoCard 风格）
     //   image_overlay_card_  圆形深色面板（300x300，金色边框，圆形遮罩）
     //   preview_image_       lv_image widget（用于 PNG / JPG / BIN 静态图）
-    //   preview_gif_         lv_gif widget（用于 GIF 动画，lv_gif 内部用 AnimatedGIF 库逐帧解码）
+    //   preview_gif_         lv_image widget（用于 GIF/PNG/JPG 静态预览，LVGL 9.x 已移除 lv_gif，改用 lv_image）
     // ============================================================
     image_overlay_card_ = lv_obj_create(screen);
     lv_obj_set_size(image_overlay_card_, DEBUG_INFO_CARD_W, DEBUG_INFO_CARD_H);
@@ -230,8 +230,8 @@ void AttitudeDisplay::SetupUI()
     lv_obj_center(preview_image_);
     lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
 
-    // 动画 widget（GIF）—— 与 preview_image_ 互斥显示
-    preview_gif_ = lv_gif_create(image_overlay_card_);
+    // 静态图 widget（GIF/PNG/JPG）—— 与 preview_image_ 互斥显示
+    preview_gif_ = lv_image_create(image_overlay_card_);
     lv_obj_set_size(preview_gif_, DEBUG_INFO_CARD_W, DEBUG_INFO_CARD_H);
     lv_obj_center(preview_gif_);
     lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
@@ -373,7 +373,7 @@ void AttitudeDisplay::ClearChatMessages()
 // 功能：在 AttitudeDisplay 上显示一张外部图片（PNG / JPG / GIF / BIN 等）
 //   - 隐藏在 attitude_container_ 之后的太极/鱼眼等 UI
 //   - 在 300x300 的 image_overlay_card_ 圆形浮层（仿 DebugInfoCard 样式）上居中渲染
-//   - 自动按格式分发：GIF → lv_gif widget（动画）；其它 → lv_image widget（静态）
+//   - 自动按格式分发：GIF → lv_image widget（显示首帧）；其它 → lv_image widget（静态）
 //   - image == nullptr 时隐藏浮层、恢复 attitude_container_
 // 参数：image 已构造好的 LvglImage；析构时由本对象接管（unique_ptr）
 // 线程：内部加 LVGL 互斥锁（lvgl_port_lock 100ms），可以从其他 task 安全调用
@@ -385,6 +385,10 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
     }
 
     if (image == nullptr) {
+        if (preview_image_hide_timer_ != nullptr) {
+            lv_timer_del(preview_image_hide_timer_);
+            preview_image_hide_timer_ = nullptr;
+        }
         if (preview_image_ != nullptr) {
             lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -416,14 +420,14 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
              img_dsc->header.w, img_dsc->header.h, (int)img_dsc->header.cf, is_gif ? 1 : 0);
 
     if (is_gif) {
-        // GIF：交给 lv_gif widget（lv_gif 内部用 AnimatedGIF 库逐帧解码）
+        // GIF：改用 lv_image widget 显示第一帧（LVGL 9.x 已移除 lv_gif，暂不支持动画）
         if (preview_gif_ == nullptr) {
             ESP_LOGE(TAG, "SetPreviewImage: preview_gif_ not created");
             preview_image_cache_.reset();
             lvgl_port_unlock();
             return;
         }
-        lv_gif_set_src(preview_gif_, img_dsc);
+        lv_image_set_src(preview_gif_, img_dsc);
         lv_obj_remove_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
         if (preview_image_ != nullptr) {
             lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
@@ -455,6 +459,12 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
     ESP_LOGI(TAG, "SetPreviewImage: displayed %s %dx%d",
              is_gif ? "GIF" : "image",
              img_dsc->header.w, img_dsc->header.h);
+
+    // 图片显示 10s 后自动隐藏并返回罗盘
+    if (preview_image_hide_timer_ != nullptr) {
+        lv_timer_del(preview_image_hide_timer_);
+    }
+    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, 10000, this);
 
     lvgl_port_unlock();
 }
@@ -1108,6 +1118,10 @@ void AttitudeDisplay::DestroyDebugInfoCard()
         lv_timer_delete(debug_info_hide_timer_);
         debug_info_hide_timer_ = nullptr;
     }
+    if (preview_image_hide_timer_ != nullptr) {
+        lv_timer_delete(preview_image_hide_timer_);
+        preview_image_hide_timer_ = nullptr;
+    }
     if (function_area_card_ != nullptr) {
         lv_obj_del(function_area_card_);
         function_area_card_ = nullptr;
@@ -1194,6 +1208,27 @@ void AttitudeDisplay::OnDebugInfoHideTimer(lv_timer_t* timer)
     lv_timer_pause(timer);
 }
 
+void AttitudeDisplay::OnPreviewImageHideTimer(lv_timer_t* timer) {
+    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+    if (self == nullptr) {
+        return;
+    }
+    DisplayLockGuard lock(self);
+    if (self->preview_image_ != nullptr) {
+        lv_obj_add_flag(self->preview_image_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (self->preview_gif_ != nullptr) {
+        lv_obj_add_flag(self->preview_gif_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (self->image_overlay_card_ != nullptr) {
+        lv_obj_add_flag(self->image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+    }
+    self->preview_image_cache_.reset();
+    if (self->attitude_container_ != nullptr) {
+        lv_obj_remove_flag(self->attitude_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms)
 {
     DisplayLockGuard lock(this);
@@ -1236,6 +1271,22 @@ void AttitudeDisplay::HideDebugInfo()
 {
     DisplayLockGuard lock(this);
     HideDebugInfoUnlocked();
+}
+
+void AttitudeDisplay::RefreshDebugInfoTimer(uint32_t hold_ms)
+{
+    DisplayLockGuard lock(this);
+    if (debug_info_hide_timer_ == nullptr || function_area_card_ == nullptr) {
+        return;
+    }
+    // 卡片已隐藏则不重置，避免 LVGL 对隐藏对象计时
+    if (lv_obj_has_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    const uint32_t actual_hold = (hold_ms == 0) ? DEBUG_INFO_SHOW_MS : hold_ms;
+    lv_timer_set_period(debug_info_hide_timer_, actual_hold);
+    lv_timer_reset(debug_info_hide_timer_);
+    lv_timer_resume(debug_info_hide_timer_);
 }
 
 bool AttitudeDisplay::HandleBootKey()

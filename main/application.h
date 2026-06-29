@@ -170,6 +170,9 @@ private:
     bool wifi_connected_debug_shown_ = false;  // WiFi 连接成功提示卡仅显示一次（断线后重置）
     bool internet_failed_shown_ = false;        // 联网失败提示卡仅显示一次（重连成功后重置）
     int clock_ticks_ = 0;
+    // 进入 listening 状态的时刻（以 clock_ticks_ 为单位），0 表示未在超时监控中
+    // 用于：30s 内若无 TTS 响应则自动回 Idle
+    int listening_started_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
 

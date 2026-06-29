@@ -33,6 +33,57 @@ AttitudeDisplay* GetAttitudeDisplay()
     return dynamic_cast<AttitudeDisplay*>(Board::GetInstance().GetDisplay());
 }
 
+// 去除 LLM 输出中的 <think>...</think> 推理块
+// - 支持多个块、按出现顺序剔除
+// - 若只有开始标签（流式截断），则丢弃该标签到末尾的所有内容
+// - 同步处理英文小写 "think" 与首字母大写 "Think"，并兼容 "</think>" 不带斜杠的写法
+std::string StripThinkBlocks(const std::string& text)
+{
+    static const char* kStartTag = "<think>";
+    static const char* kEndTag   = "</think>";
+    const size_t start_len = strlen(kStartTag);
+    const size_t end_len   = strlen(kEndTag);
+
+    std::string out;
+    out.reserve(text.size());
+
+    size_t pos = 0;
+    while (pos < text.size()) {
+        // 不区分大小写查找开始标签
+        size_t start = std::string::npos;
+        for (size_t i = pos; i + start_len <= text.size(); ++i) {
+            bool match = true;
+            for (size_t k = 0; k < start_len; ++k) {
+                char c = text[i + k];
+                char s = kStartTag[k];
+                if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
+                if (s >= 'A' && s <= 'Z') s = s - 'A' + 'a';
+                if (c != s) { match = false; break; }
+            }
+            if (match) { start = i; break; }
+        }
+
+        if (start == std::string::npos) {
+            out.append(text, pos, std::string::npos);
+            break;
+        }
+
+        out.append(text, pos, start - pos);
+        size_t end = text.find(kEndTag, start + start_len);
+        if (end == std::string::npos) {
+            // 仅有开始标签（流式截断），丢弃到末尾
+            break;
+        }
+        pos = end + end_len;
+    }
+
+    // 去除首尾空白字符
+    auto is_ws = [](unsigned char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; };
+    while (!out.empty() && is_ws((unsigned char)out.front())) out.erase(out.begin());
+    while (!out.empty() && is_ws((unsigned char)out.back()))  out.pop_back();
+    return out;
+}
+
 WifiStatus NetworkEventToWifiFisheyeStatus(NetworkEvent event)
 {
     switch (event) {
@@ -327,6 +378,12 @@ void Application::Run() {
             if (GetDeviceState() == kDeviceStateListening) {
                 auto led = Board::GetInstance().GetLed();
                 led->OnStateChanged();
+                // VAD 检测到用户说话：刷新"唤醒成功"调试卡计时器，保持显示
+                if (audio_service_.IsVoiceDetected()) {
+                    if (auto* attitude = GetAttitudeDisplay()) {
+                        attitude->RefreshDebugInfoTimer(30000);
+                    }
+                }
             }
         }
 
@@ -343,7 +400,28 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
-        
+
+            // Listening 超时保护：进入 listening 状态后 5s 内若没有 TTS 响应
+            // （服务端 STT 持续超时或网络异常），自动回 Idle 并恢复唤醒词监听
+            constexpr int LISTENING_TIMEOUT_SEC = 5;
+            DeviceState curr_state = GetDeviceState();
+            if (curr_state == kDeviceStateListening) {
+                // 诊断日志：每 5 个 tick（5s）在 listening 时打印状态
+                if (clock_ticks_ % 5 == 0) {
+                    ESP_LOGI(TAG, "[LISTEN-DBG] state=listening clock=%d started=%d diff=%d timeout=%d",
+                             clock_ticks_, listening_started_ticks_,
+                             clock_ticks_ - listening_started_ticks_, LISTENING_TIMEOUT_SEC);
+                }
+                if (listening_started_ticks_ > 0 &&
+                    clock_ticks_ - listening_started_ticks_ > LISTENING_TIMEOUT_SEC) {
+                    ESP_LOGW(TAG, "Listening timeout (no TTS response in %ds), back to idle",
+                             LISTENING_TIMEOUT_SEC);
+                    listening_started_ticks_ = 0;
+                    SetDeviceState(kDeviceStateIdle);
+                    audio_service_.EnableWakeWordDetection(true);
+                }
+            }
+
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
@@ -613,9 +691,7 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
-        if (GetDeviceState() == kDeviceStateSpeaking) {
-            audio_service_.PushPacketToDecodeQueue(std::move(packet));
-        }
+        audio_service_.PushPacketToDecodeQueue(std::move(packet));
     });
     
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
@@ -658,35 +734,60 @@ void Application::InitializeProtocol() {
         if (strcmp(type->valuestring, "tts") == 0) {
             auto state = cJSON_GetObjectItem(root, "state");
             if (strcmp(state->valuestring, "start") == 0) {
-                Schedule([this]() {
-                    aborted_ = false;
-                    SetDeviceState(kDeviceStateSpeaking);
-                });
-            } else if (strcmp(state->valuestring, "stop") == 0) {
+            Schedule([this]() {
+                aborted_ = false;
+                // TTS 开始时自动把音量调到最大，保证回放声音足够响
+                Board::GetInstance().GetAudioCodec()->SetOutputVolume(100);
+                // 若"唤醒成功"调试卡仍可见，重置其隐藏计时器（持续显示）
+                if (auto* attitude = GetAttitudeDisplay()) {
+                    attitude->RefreshDebugInfoTimer(30000);
+                }
+                // TTS 响应到达，清除 listening 超时监控
+                listening_started_ticks_ = 0;
+                SetDeviceState(kDeviceStateSpeaking);
+            });
+        } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
                     if (GetDeviceState() == kDeviceStateSpeaking) {
                         if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
+                            listening_started_ticks_ = 0;
                         } else {
                             SetDeviceState(kDeviceStateListening);
+                            // 进入 listening，启动超时监控（30s 内若无新 TTS 则回 idle）
+                            listening_started_ticks_ = clock_ticks_;
                         }
+                    }
+                    // TTS 完整播放结束：隐藏"识别到"/"AI 回复"调试卡
+                    // （这是用户要求的：回复完毕之后才消失）
+                    if (auto* attitude = GetAttitudeDisplay()) {
+                        attitude->HideDebugInfo();
                     }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
-                    ESP_LOGI(TAG, "<< %s", text->valuestring);
-                    Schedule([display, message = std::string(text->valuestring)]() {
+                    std::string raw(text->valuestring);
+                    ESP_LOGI(TAG, "<< %s", raw.c_str());
+                    // 过滤掉 <think>...</think> 等推理块，避免在屏幕上泄漏给用户
+                    std::string cleaned = StripThinkBlocks(raw);
+                    Schedule([display, message = cleaned]() {
                         display->SetChatMessage("assistant", message.c_str());
                     });
-                    // 调试卡：TTS 即将朗读的文本（已在 Speaking 状态，不播本地音避免与远端冲突）
-                    if (auto* attitude = GetAttitudeDisplay()) {
-                        std::string preview = text->valuestring;
-                        if (preview.size() > 28) preview = preview.substr(0, 28) + "...";
-                        Schedule([attitude, preview]() {
-                            // hold_ms 较长以覆盖 TTS 整段朗读
-                            attitude->ShowDebugInfo("TTS 朗读", preview, 6000);
-                        });
+                    // 调试卡：完整显示 LLM 回复文本（已被 LVGL 自动换行至 5 行）
+                    // 标题用单调递增序号绕过 ShowDebugInfo 的 1.5s 同标题去重
+                    // 让流式到达的每一句都能被看到
+                    if (!cleaned.empty()) {
+                        if (auto* attitude = GetAttitudeDisplay()) {
+                            static uint32_t s_llm_seq = 0;
+                            uint32_t seq = ++s_llm_seq;
+                            Schedule([attitude, cleaned, seq]() {
+                                char title[24];
+                                snprintf(title, sizeof(title), "AI 回复 #%u", (unsigned)seq);
+                                // hold_ms 较长以覆盖整段朗读
+                                attitude->ShowDebugInfo(title, cleaned, 8000);
+                            });
+                        }
                     }
                 }
             }
@@ -697,12 +798,14 @@ void Application::InitializeProtocol() {
                 Schedule([display, message = std::string(text->valuestring)]() {
                     display->SetChatMessage("user", message.c_str());
                 });
-                // 调试卡：ASR 识别结果（已在 Listening 状态，不播本地音避免与远端冲突）
+                // 调试卡：显示 ASR 识别结果。
+                // 不在这里 HideDebugInfo，改为：tts:start 重置计时器，tts:stop 才隐藏。
+                // 这样设备会一直展示用户的话，直到 LLM 完整回答完。
                 if (auto* attitude = GetAttitudeDisplay()) {
                     std::string preview = text->valuestring;
-                    if (preview.size() > 28) preview = preview.substr(0, 28) + "...";
+                    if (preview.size() > 40) preview = preview.substr(0, 40) + "...";
                     Schedule([attitude, preview]() {
-                        attitude->ShowDebugInfo("识别结果", preview, 2500);
+                        attitude->ShowDebugInfo("识别到", preview, 5000);
                     });
                 }
             }
@@ -1009,8 +1112,8 @@ void Application::HandleWakeWordDetectedEvent() {
     if (auto* attitude = GetAttitudeDisplay()) {
         std::string detail = wake_word.empty() ? std::string("(无)") : wake_word;
         Schedule([this, attitude, detail]() {
-            // 短促本地提示音 + 显示卡（由播放完成回调隐藏）
-            attitude->ShowDebugInfo("唤醒成功", detail, 5000);
+            // 短促本地提示音 + 显示卡（默认 30s，有语音交互则由 RefreshDebugInfoTimer 重计时）
+            attitude->ShowDebugInfo("唤醒成功", detail, 30000);
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
         });
     }
@@ -1032,20 +1135,33 @@ void Application::HandleWakeWordDetectedEvent() {
         // Channel already opened, continue directly
         ContinueWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
+        // 后续唤醒：先打断当前对话，再通知服务端触发 LLM 问候 + TTS
+        // 不切换状态机（kDeviceStateListening/Speaking 无合法路径到 Connecting），
+        // 改用协议层的 SendWakeWordDetected 让服务端走 handleWakeWord 路径
         AbortSpeaking(kAbortReasonWakeWordDetected);
         // Clear send queue to avoid sending residues to server
         while (audio_service_.PopPacketFromSendQueue());
 
+        // 显式停止本地 TTS 播放，确保新的语音能立即开始
+        audio_service_.Stop();
+
+        // 通知服务端检测到唤醒词：服务端会调 handleWakeWord → LLM 问候 + TTS
+        audio_service_.EncodeWakeWord();
+        const std::string& wake_word_text = audio_service_.GetLastWakeWord();
+        if (!wake_word_text.empty() && protocol_->IsAudioChannelOpened()) {
+            protocol_->SendWakeWordDetected(wake_word_text);
+        }
+
         if (state == kDeviceStateListening) {
-            protocol_->SendStartListening(GetDefaultListeningMode());
             audio_service_.ResetDecoder();
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
         } else {
-            // Play popup sound and start listening again
+            // speaking 状态：标记在回 listening 时播放提示音
             play_popup_on_listening_ = true;
-            SetListeningMode(GetDefaultListeningMode());
+            audio_service_.Start();
+            audio_service_.EnableWakeWordDetection(true);
         }
     } else if (state == kDeviceStateActivating) {
         // Restart the activation check if the wake word is detected during activation
@@ -1144,6 +1260,9 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
 
+            if (!audio_service_.IsRunning()) {
+                audio_service_.Start();
+            }
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
                 // Only AFE wake word can be detected in speaking mode
@@ -1179,6 +1298,11 @@ void Application::AbortSpeaking(AbortReason reason) {
 
 void Application::SetListeningMode(ListeningMode mode) {
     listening_mode_ = mode;
+    // 只有在之前不在 listening 状态时才启动超时计时
+    // 避免 EnableWakeWordDetection 触发 SetListeningMode 时重复重置计时器
+    if (GetDeviceState() != kDeviceStateListening) {
+        listening_started_ticks_ = clock_ticks_;
+    }
     SetDeviceState(kDeviceStateListening);
 }
 

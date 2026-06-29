@@ -1,6 +1,7 @@
 #include <esp_log.h>
 #include <esp_err.h>
 #include <string>
+#include <memory>
 #include <cstdlib>
 #include <cstring>
 #include <font_awesome.h>
@@ -47,6 +48,10 @@ void Display::SetChatMessage(const char* role, const char* content) {
 
 void Display::ClearChatMessages() {
     // Default empty implementation, override in subclasses if needed
+}
+
+void Display::SetPreviewImage(std::unique_ptr<LvglImage> image) {
+    ESP_LOGW(TAG, "SetPreviewImage not implemented by this Display subclass");
 }
 
 void Display::SetTheme(Theme* theme) {
