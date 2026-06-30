@@ -29,6 +29,10 @@
 #include "wifi_config_backup.h"
 #include <ssid_manager.h>
 
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+#include "ble/ble_server.h"
+#endif
+
 #define TAG "HttpApiUnified"
 
 // =================================================================
@@ -640,6 +644,40 @@ extern "C" cJSON* http_api_wifi_status(void) {
         cJSON_AddItemToArray(networks, net);
     }
     cJSON_AddItemToObject(root, "nvs_networks", networks);
+    return root;
+}
+
+// =================================================================
+// BLE API
+// =================================================================
+
+extern "C" cJSON* http_api_ble_status(void) {
+    cJSON* root = cJSON_CreateObject();
+
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    auto& ble = BleServer::GetInstance();
+    cJSON_AddBoolToObject(root, "ble_enabled", ble.IsRunning());
+    cJSON_AddBoolToObject(root, "ble_paused", ble.IsPaused());
+    cJSON_AddNumberToObject(root, "ble_status", static_cast<int>(ble.GetStatus()));
+    // 0=disabled, 1=advertising, 2=connected
+    const char* status_str = "disabled";
+    if (ble.IsPaused()) {
+        status_str = "paused";
+    } else {
+        switch (ble.GetStatus()) {
+            case BleStatus::ADVERTISING: status_str = "advertising"; break;
+            case BleStatus::CONNECTED:   status_str = "connected";   break;
+            default:                      status_str = "disabled";    break;
+        }
+    }
+    cJSON_AddStringToObject(root, "ble_status_text", status_str);
+#else
+    cJSON_AddBoolToObject(root, "ble_enabled", false);
+    cJSON_AddBoolToObject(root, "ble_paused", false);
+    cJSON_AddNumberToObject(root, "ble_status", 0);
+    cJSON_AddStringToObject(root, "ble_status_text", "not_supported");
+#endif
+
     return root;
 }
 

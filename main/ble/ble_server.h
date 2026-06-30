@@ -17,9 +17,13 @@ public:
     esp_err_t Start();
     esp_err_t Stop();
 
+    void Pause();
+    void Resume();
+
     void SetStatusCallback(StatusCallback callback);
     BleStatus GetStatus() const { return status_; }
     bool IsRunning() const { return running_; }
+    bool IsPaused() const { return paused_; }
 
     /** Called from NimBLE GAP callbacks (not for external use). */
     void NotifyStatus(BleStatus status);
@@ -34,4 +38,5 @@ private:
     StatusCallback status_callback_;
     BleStatus status_ = BleStatus::DISABLED;
     bool running_ = false;
+    bool paused_ = false;
 };

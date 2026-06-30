@@ -125,7 +125,7 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             Blufi::GetInstance().deinit();
 #endif
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
-            // 热点配网期间会 Stop()；连上 WiFi 后恢复 BLE 鱼眼
+            // WiFi 连接成功后启动 BLE
             BleServer::GetInstance().Start();
 #endif
             in_config_mode_ = false;
@@ -135,6 +135,10 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             ESP_LOGI(TAG, "WiFi scanning");
             break;
         case NetworkEvent::Connecting:
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+            // WiFi 开始连接时就启动 BLE（在连接超时进入配网模式之前）
+            BleServer::GetInstance().Start();
+#endif
             ESP_LOGI(TAG, "WiFi connecting to %s", data.c_str());
             break;
         case NetworkEvent::Disconnected:
@@ -178,8 +182,8 @@ void WifiBoard::StartWifiConfigMode() {
     Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
-    // BLE 与 SoftAP 共存会导致 beacon 分配失败并崩溃，配网前须释放 BT 控制器
-    BleServer::GetInstance().Stop();
+    // BLE 与 SoftAP 共存会导致 beacon 分配失败并崩溃，配网前暂停广播
+    BleServer::GetInstance().Pause();
 #endif
     auto& wifi_manager = WifiManager::GetInstance();
 
@@ -196,7 +200,7 @@ void WifiBoard::StartWifiConfigMode() {
     });
 #elif CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
-    BleServer::GetInstance().Stop();
+    BleServer::GetInstance().Pause();
 #endif
     auto &blufi = Blufi::GetInstance();
     // initialize esp-blufi protocol

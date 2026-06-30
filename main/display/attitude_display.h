@@ -25,6 +25,9 @@
 #define COLOR_STATE_HEAVY     lv_color_hex(0xE67E22)
 #define COLOR_STATE_DANGER    lv_color_hex(0xB82601)
 
+#define COLOR_BT_BLUE         lv_color_hex(0x2196F3)
+#define COLOR_WIFI_GREEN      lv_color_hex(0x00C8C8)
+
 #define LAYER4_BOUNDARY_RADIUS (SCREEN_W / 2 - GOLD_RING_ARC_WIDTH / 2)  // 贴屏幕圆边
 #define LAYER4_OUTER_SIZE      (LAYER4_BOUNDARY_RADIUS * 2)
 
@@ -140,6 +143,9 @@ public:
     WifiStatus GetWifiFisheyeStatus() const { return wifi_status_; }
     BleStatus GetBleFisheyeStatus() const { return ble_status_; }
 
+    void SetGoldElementsColor(bool is_bt_connected);
+    void UpdateOuterRingColor();
+
     // 运势菜单（短按选中、长按确认；结果卡 Plan A 已彻底删除）
     void EnterIdleState();
 
@@ -214,6 +220,9 @@ private:
     void ApplyBleFisheyeStyle(BleStatus status);
     void UpdateWifiFisheyeBorderColor(WifiStatus status);
     void UpdateBleFisheyeBorderColor(BleStatus status);
+
+    void ApplyGoldColorToElements(lv_color_t color);
+    void UpdateTaijiGoldRingColor(lv_color_t color);
 
     void CreateBackground();
     void CreateLayer0Taiji();

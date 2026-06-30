@@ -11,6 +11,7 @@
 #include "assets.h"
 #include "settings.h"
 #include "sdcard_log_http.h"
+#include "lvgl_image.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -291,8 +292,9 @@ void Application::Initialize() {
             ApplyBleFisheyeStatus(status);
         });
     });
-    // BLE 在 WiFi 连上后由 WifiBoard::OnNetworkEvent(Connected) 启动；
-    // 开机即启会与热点配网 SoftAP 争用内存导致 AP 起不来。
+    // BLE 在 StartNetwork 完成后由 WifiBoard::OnNetworkEvent(Connected) 启动，
+    // 或者在 StartWifiConfigMode 时暂停。
+    // 注意：如果要开机即启 BLE，需确保 WiFi 初始化成功，否则会因内存不足导致 ESP_ERR_NO_MEM。
 #endif
 
     // Start network asynchronously
@@ -434,12 +436,12 @@ void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
     auto state = GetDeviceState();
 
-    // SD 卡已挂载时启动 HTTP 服务，便于 host 端下载日志和截图
-    // 端口固定 8080，访问地址: http://<device_ip>:8080/
-    struct stat st;
-    if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
-        if (!SdCardLogHttpIsRunning()) {
+    if (!SdCardLogHttpIsRunning()) {
+        struct stat st;
+        if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
             SdCardLogHttpStart("/sdcard", 8080);
+        } else {
+            SdCardLogHttpStart("/tmp", 8080);
         }
     }
 
@@ -1115,6 +1117,21 @@ void Application::HandleWakeWordDetectedEvent() {
             // 短促本地提示音 + 显示卡（默认 30s，有语音交互则由 RefreshDebugInfoTimer 重计时）
             attitude->ShowDebugInfo("唤醒成功", detail, 30000);
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+
+            // 显示 GIF 背景（ark-reactor-normal.gif）
+            void* gif_data = nullptr;
+            size_t gif_size = 0;
+            if (Assets::GetInstance().GetAssetData("ark-reactor-normal.gif", gif_data, gif_size)) {
+                auto gif_image = std::make_unique<LvglRawImage>(gif_data, gif_size);
+                if (gif_image->IsGif()) {
+                    attitude->SetPreviewImage(std::move(gif_image));
+                    ESP_LOGI(TAG, "Wakeup GIF displayed: %zu bytes", gif_size);
+                } else {
+                    ESP_LOGW(TAG, "Wakeup GIF has invalid magic bytes");
+                }
+            } else {
+                ESP_LOGW(TAG, "Wakeup GIF not found in assets");
+            }
         });
     }
     // 不在此处触发服务端 TTS：唤醒词后 LLM 即将开始接管对话，避免双声道冲突

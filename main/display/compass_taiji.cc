@@ -518,3 +518,18 @@ void CompassTaiji::SetStudyRingMode(bool ring_only)
     study_ring_mode_active_ = ring_only;
     lv_obj_invalidate(canvas_);
 }
+
+void CompassTaiji::UpdateGoldRingColor(lv_color_t color)
+{
+    if (canvas_ == nullptr || taiji_radius_ <= 0) {
+        return;
+    }
+
+    const int r = taiji_radius_;
+    const float fr = static_cast<float>(r);
+
+    DrawRingAA(canvas_, r, r, fr - static_cast<float>(TAIJI_GOLD_RING_WIDTH) * 0.5f,
+               static_cast<float>(TAIJI_GOLD_RING_WIDTH), color, false);
+
+    lv_obj_invalidate(canvas_);
+}

@@ -695,7 +695,7 @@ void AttitudeDisplay::CreateFortuneMenuRingTouch()
 
 void AttitudeDisplay::PlayFortuneMenuSelectSound()
 {
-    // 环上运势图标选中静音（学业子功能仍可直接 PlayUiSound）
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
 }
 
 void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
@@ -709,6 +709,9 @@ void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
     fortune_menu_selected_index_ = index;
     if (was_active && prev != index) {
         UpdateFortuneMenuItemVisual(prev, false);
+        PlayFortuneMenuSelectSound();
+    } else if (!was_active) {
+        PlayFortuneMenuSelectSound();
     }
     UpdateFortuneMenuItemVisual(index, true);
     // 通过 DebugInfo 卡展示当前主功能的一级分类（Boot 选中/循环选中均触发）
@@ -739,7 +742,6 @@ void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
     if (index < 0 || index >= FORTUNE_MENU_COUNT || fortune_menu_labels_[index] == nullptr) {
         return;
     }
-    const auto& c = GetAttitudeColors();
     const int scale = (selected && fortune_menu_selection_active_)
         ? FORTUNE_MENU_ICON_SCALE_SELECTED
         : FORTUNE_MENU_ICON_SCALE;
@@ -751,8 +753,9 @@ void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
         fortune_menu_applied_scale_[index] = scale;
         lv_obj_update_layout(fortune_menu_labels_[index]);
     }
+    lv_color_t normal_color = (ble_status_ == BleStatus::CONNECTED) ? COLOR_BT_BLUE : COLOR_TEXT_MAIN;
     lv_obj_set_style_text_color(fortune_menu_labels_[index],
-        selected ? c.text_high : c.text_main, 0);
+        selected ? COLOR_TEXT_HIGH : normal_color, 0);
     const int w = lv_obj_get_width(fortune_menu_labels_[index]);
     const int h = lv_obj_get_height(fortune_menu_labels_[index]);
     lv_obj_set_pos(fortune_menu_labels_[index], cx - w / 2, cy - h / 2);
@@ -771,6 +774,7 @@ void AttitudeDisplay::CycleFortuneMenuSelectionUnlocked()
     fortune_menu_selected_index_ = (prev + 1) % FORTUNE_MENU_COUNT;
     UpdateFortuneMenuItemVisual(prev, false);
     UpdateFortuneMenuItemVisual(fortune_menu_selected_index_, true);
+    PlayFortuneMenuSelectSound();
     // 循环选中同样展示当前主功能的一级分类
     ShowFortuneFeatureCategoryUnlocked(fortune_menu_selected_index_);
     ESP_LOGI(TAG, "Fortune menu selected -> %d (%s)",
@@ -1108,6 +1112,7 @@ void AttitudeDisplay::UpdateWifiFisheye(WifiStatus status)
     DisplayLockGuard lock(this);
     wifi_status_ = status;
     ApplyWifiFisheyeStyle(status);
+    UpdateOuterRingColor();
     ESP_LOGI(TAG, "WiFi fisheye status -> %d", static_cast<int>(status));
 }
 
@@ -1116,7 +1121,59 @@ void AttitudeDisplay::UpdateBleFisheye(BleStatus status)
     DisplayLockGuard lock(this);
     ble_status_ = status;
     ApplyBleFisheyeStyle(status);
+    SetGoldElementsColor(status == BleStatus::CONNECTED);
+    UpdateOuterRingColor();
     ESP_LOGI(TAG, "BLE fisheye status -> %d", static_cast<int>(status));
+}
+
+void AttitudeDisplay::SetGoldElementsColor(bool is_bt_connected)
+{
+    lv_color_t color = is_bt_connected ? COLOR_BT_BLUE : COLOR_TEXT_MAIN;
+    ApplyGoldColorToElements(color);
+    UpdateTaijiGoldRingColor(color);
+}
+
+void AttitudeDisplay::UpdateOuterRingColor()
+{
+    if (layer4_outer_ring_ == nullptr) {
+        return;
+    }
+    lv_color_t color = COLOR_TEXT_MAIN;
+    if (wifi_status_ == WifiStatus::CONNECTED) {
+        color = COLOR_WIFI_GREEN;
+    } else if (ble_status_ == BleStatus::CONNECTED) {
+        color = COLOR_BT_BLUE;
+    }
+    lv_obj_set_style_arc_color(layer4_outer_ring_, color, LV_PART_INDICATOR);
+}
+
+void AttitudeDisplay::ApplyGoldColorToElements(lv_color_t color)
+{
+    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
+        if (fortune_menu_labels_[i] != nullptr) {
+            bool is_selected = fortune_menu_selection_active_ && (i == fortune_menu_selected_index_);
+            lv_obj_set_style_text_color(fortune_menu_labels_[i],
+                is_selected ? COLOR_TEXT_HIGH : color, 0);
+        }
+    }
+
+    if (debug_info_title_ != nullptr) {
+        lv_obj_set_style_text_color(debug_info_title_, color, 0);
+    }
+
+    auto screen = lv_screen_active();
+    if (screen != nullptr) {
+        lv_obj_set_style_text_color(screen, color, 0);
+    }
+
+    if (wifi_fisheye_icon_ != nullptr) {
+        lv_obj_set_style_text_color(wifi_fisheye_icon_, color, 0);
+    }
+}
+
+void AttitudeDisplay::UpdateTaijiGoldRingColor(lv_color_t color)
+{
+    CompassTaiji::UpdateGoldRingColor(color);
 }
 
 // ---------------------------------------------------------------------------

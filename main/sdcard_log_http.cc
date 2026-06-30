@@ -9,6 +9,10 @@
 #include "board.h"
 #include "settings.h"
 
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+#include "ble/ble_server.h"
+#endif
+
 #include <string.h>
 #include <stdio.h>
 #include <dirent.h>
@@ -971,12 +975,19 @@ static esp_err_t handle_wifi_clear_nvs(httpd_req_t* req);
 static esp_err_t handle_wifi_status(httpd_req_t* req);
 static esp_err_t handle_wifi_restore(httpd_req_t* req);
 
+// BLE handler 声明
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+static esp_err_t handle_ble_status(httpd_req_t* req);
+#endif
+
 static esp_err_t handle_file_delete(httpd_req_t* req);
 static esp_err_t handle_files_list(httpd_req_t* req);
 static esp_err_t handle_file_upload(httpd_req_t* req);
 static esp_err_t handle_file_download(httpd_req_t* req);
 
 bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
+    ESP_LOGI(TAG, "===== HTTP Server Start =====");
+
     if (g_server != nullptr) {
         ESP_LOGW(TAG, "server already running on port %u", g_port);
         return true;
@@ -985,11 +996,15 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         ESP_LOGE(TAG, "invalid mount_point");
         return false;
     }
+
+    ESP_LOGI(TAG, "[1/5] Configuring mount point: %s", mount_point);
     strncpy(g_mount_point, mount_point, sizeof(g_mount_point) - 1);
     g_mount_point[sizeof(g_mount_point) - 1] = '\0';
     // 同步到统一 API 层（供 MCP 工具调用）
     http_api_set_mount_point(mount_point);
+    ESP_LOGI(TAG, "  OK: Mount point set");
 
+    ESP_LOGI(TAG, "[2/5] Configuring HTTP server (port=%u)...", port);
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
     config.max_uri_handlers = 30;  // 增加到 30 以支持通用文件管理 + WiFi 备份 API
@@ -1003,22 +1018,32 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     config.stack_size = 16384;
     // 启用 wildcard URI 匹配（支持 * 通配符）
     config.uri_match_fn = httpd_uri_match_wildcard;
+    ESP_LOGI(TAG, "  OK: Config ready (max_uri_handlers=%d, stack_size=%d, timeout=%ds)",
+             config.max_uri_handlers, config.stack_size, config.recv_wait_timeout);
 
     // 初始化异步显示请求队列（在 httpd_start 之前，否则 handler 投递会失败）
     //   - LVGL timer 创建需要 lvgl_port_init 已完成（httpd_start 在 lvgl 之后调用，本调用点安全）
     //   - queue 失败不会阻塞 HTTP 启动，但 ?display=1 一体化调用会降级为 upload-only
+    ESP_LOGI(TAG, "[3/5] Initializing display request queue...");
     esp_err_t qret = init_display_request_queue();
     if (qret != ESP_OK) {
-        ESP_LOGW(TAG, "Display request queue init failed; ?display=1 will not auto-show");
+        ESP_LOGW(TAG, "  WARN: Display request queue init failed; ?display=1 will not auto-show");
+    } else {
+        ESP_LOGI(TAG, "  OK: Display request queue ready");
     }
 
+    ESP_LOGI(TAG, "[4/5] Starting HTTP server...");
     esp_err_t ret = httpd_start(&g_server, &config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "httpd_start failed: %s (port=%u)", esp_err_to_name(ret), port);
+        ESP_LOGE(TAG, "  FAILED: httpd_start: %s (port=%u)", esp_err_to_name(ret), port);
         g_server = nullptr;
         return false;
     }
     g_port = port;
+    ESP_LOGI(TAG, "  OK: Server started on port %u", port);
+
+    ESP_LOGI(TAG, "[5/5] Registering URI handlers...");
+    int handler_count = 0;
 
     httpd_uri_t uri_root = {
         .uri = "/",
@@ -1027,6 +1052,8 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_root);
+    handler_count++;
+    ESP_LOGI(TAG, "  [GET] /  -> Web UI");
 
     httpd_uri_t uri_info = {
         .uri = "/api/sdcard/info",
@@ -1035,6 +1062,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_info);
+    handler_count++;
 
     httpd_uri_t uri_list = {
         .uri = "/api/sdcard/logs",
@@ -1043,6 +1071,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_list);
+    handler_count++;
 
     // wildcard: /api/sdcard/logs/<filename>
     httpd_uri_t uri_get = {
@@ -1052,6 +1081,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_get);
+    handler_count++;
 
     httpd_uri_t uri_del = {
         .uri = "/api/sdcard/logs/*",
@@ -1060,6 +1090,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_del);
+    handler_count++;
 
     // 截图 API: /api/sdcard/shots
     httpd_uri_t uri_shots_list = {
@@ -1069,6 +1100,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_shots_list);
+    handler_count++;
 
     httpd_uri_t uri_shots_capture = {
         .uri = "/api/sdcard/shots",
@@ -1077,6 +1109,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_shots_capture);
+    handler_count++;
 
     httpd_uri_t uri_shot_get = {
         .uri = "/api/sdcard/shots/*",
@@ -1085,6 +1118,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_shot_get);
+    handler_count++;
 
     httpd_uri_t uri_shot_del = {
         .uri = "/api/sdcard/shots/*",
@@ -1093,6 +1127,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_shot_del);
+    handler_count++;
 
     // 设备状态 API: /api/device/status
     httpd_uri_t uri_device_status = {
@@ -1102,6 +1137,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_status);
+    handler_count++;
 
     // 设备重启 API: /api/device/reboot
     httpd_uri_t uri_device_reboot = {
@@ -1111,6 +1147,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_reboot);
+    handler_count++;
 
     // 设备日志 API: /api/device/logs
     httpd_uri_t uri_device_logs = {
@@ -1120,6 +1157,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_logs);
+    handler_count++;
 
     // OTA URL 查询 API: GET /api/device/ota-url
     httpd_uri_t uri_device_ota_url = {
@@ -1129,6 +1167,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_ota_url);
+    handler_count++;
 
     // 清除 NVS ota_url API: POST /api/device/clear-nvs
     httpd_uri_t uri_device_clear_nvs = {
@@ -1138,6 +1177,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_clear_nvs);
+    handler_count++;
 
     // WiFi 备份管理 API
     // GET  /api/wifi/status
@@ -1148,6 +1188,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_wifi_status);
+    handler_count++;
 
     // POST /api/wifi/clear-nvs - 清空 NVS（保留 SD 卡备份）
     httpd_uri_t uri_wifi_clear_nvs = {
@@ -1157,6 +1198,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_wifi_clear_nvs);
+    handler_count++;
 
     // POST /api/wifi/restore - 从 SD 卡恢复
     httpd_uri_t uri_wifi_restore = {
@@ -1166,6 +1208,19 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_wifi_restore);
+    handler_count++;
+
+    // BLE 状态 API: /api/ble/status
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    httpd_uri_t uri_ble_status = {
+        .uri = "/api/ble/status",
+        .method = HTTP_GET,
+        .handler = handle_ble_status,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_ble_status);
+    handler_count++;
+#endif
 
     // SD 卡文件删除 API: /api/sdcard/files/*
     httpd_uri_t uri_file_del = {
@@ -1175,6 +1230,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_file_del);
+    handler_count++;
 
     // 通用文件管理 API
     // GET /api/sdcard/files - 列出目录
@@ -1185,6 +1241,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_files_list);
+    handler_count++;
 
     // GET /api/sdcard/files/* - 下载文件
     httpd_uri_t uri_file_get = {
@@ -1194,6 +1251,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_file_get);
+    handler_count++;
 
     // POST /api/sdcard/files/* - 上传文件
     httpd_uri_t uri_file_upload = {
@@ -1203,6 +1261,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_file_upload);
+    handler_count++;
 
     // POST /api/display/show - 显示 SD 卡上的资源（JSON body）
     httpd_uri_t uri_display_show = {
@@ -1212,6 +1271,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_display_show);
+    handler_count++;
 
     // POST /api/display/hide - 隐藏当前显示的资源
     httpd_uri_t uri_display_hide = {
@@ -1221,6 +1281,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_display_hide);
+    handler_count++;
 
     // ========== Audio 端点 ==========
     // POST /api/audio/play - 播放本地或远程音乐
@@ -1232,6 +1293,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_audio_play);
+    handler_count++;
 
     // POST /api/audio/control - 控制播放（pause/resume/stop）
     //   body: {"action":"pause|resume|stop"}
@@ -1242,6 +1304,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_audio_control);
+    handler_count++;
 
     // GET /api/audio/status - 查询当前播放状态
     httpd_uri_t uri_audio_status = {
@@ -1251,6 +1314,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_audio_status);
+    handler_count++;
 
     // GET /api/audio/list?path=&recursive= - 列出 SD 卡上的音乐文件
     httpd_uri_t uri_audio_list = {
@@ -1260,8 +1324,13 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_audio_list);
+    handler_count++;
 
-    ESP_LOGI(TAG, "HTTP server started on port %u, mount=%s", port, g_mount_point);
+    ESP_LOGI(TAG, "  OK: %d URI handlers registered", handler_count);
+    ESP_LOGI(TAG, "===== HTTP Server Ready =====");
+    ESP_LOGI(TAG, "  Port: %u", port);
+    ESP_LOGI(TAG, "  Mount: %s", g_mount_point);
+    ESP_LOGI(TAG, "  Handlers: %d", handler_count);
     return true;
 }
 
@@ -1745,6 +1814,24 @@ static esp_err_t handle_wifi_restore(httpd_req_t* req) {
     cJSON_Delete(root);
     return ESP_OK;
 }
+
+// =================================================================
+// BLE API
+// =================================================================
+//
+// GET /api/ble/status - 获取 BLE 蓝牙状态
+
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+static esp_err_t handle_ble_status(httpd_req_t* req) {
+    cJSON* root = http_api_ble_status();
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    if (root) cJSON_Delete(root);
+    return ESP_OK;
+}
+#endif
 
 // =================================================================
 // 通用文件管理 API

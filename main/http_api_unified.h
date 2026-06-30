@@ -138,6 +138,9 @@ int http_api_wifi_restore_from_sd(void);
 // 查看 WiFi 配置状态（NVS 条数 + SD 卡备份条数 + 备份路径）
 cJSON* http_api_wifi_status(void);
 
+// 查看 BLE 蓝牙状态
+cJSON* http_api_ble_status(void);
+
 // ---------------- Helpers ----------------
 
 // 检查文件路径是否安全（防路径遍历）

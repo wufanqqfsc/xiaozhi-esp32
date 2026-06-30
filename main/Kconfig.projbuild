@@ -15,13 +15,13 @@ endchoice
 if SERVER_MODE_LOCAL
     config OTA_URL
         string "Local OTA URL"
-        default "http://192.168.3.24:8003/xiaozhi/ota/"
+        default "http://172.20.10.3:8091/api/device/ota"
         help
             Local development server OTA URL.
 
     config LOCAL_WEBSOCKET_URL
         string "Local WebSocket URL"
-        default "ws://192.168.3.24:8000/xiaozhi/v1/"
+        default "ws://172.20.10.3:8092/ws/xiaozhi/v1/"
         help
             Local development server WebSocket URL.
 endif

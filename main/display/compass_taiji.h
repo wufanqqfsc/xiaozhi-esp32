@@ -88,6 +88,11 @@ public:
     static int GetRadius();
 
     /**
+     * 更新太极外圈鎏金环颜色（重绘 canvas 金环部分）
+     */
+    static void UpdateGoldRingColor(lv_color_t color);
+
+    /**
      * 鱼眼小圆盘：实心填色 + 抗锯齿描边（外缘向 bg 混合，避免透明叠底产生杂色）
      * @param bg 与所在鱼体底色一致（白鱼眼位=白 / 黑鱼眼位=黑），方形 canvas 外缘与 AA 向此色混合
      */
