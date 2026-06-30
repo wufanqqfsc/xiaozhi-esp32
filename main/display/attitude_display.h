@@ -156,6 +156,10 @@ public:
     bool HandleFortuneBootLongPress();
     /** 电源键短按：返回/取消 - 取消选中、隐藏功能区 */
     bool HandlePowerKey();
+    /** 选中指定运势菜单项（触摸点击使用） */
+    void SelectFortuneMenuItem(int index);
+    /** 循环选中下一个运势菜单项 */
+    void CycleFortuneMenuSelection();
 
 private:
     lv_obj_t* attitude_container_ = nullptr;
@@ -217,14 +221,14 @@ private:
     void CreateFortuneMenuRing();
     void CreateFortuneMenuRingTouch();
     void SetFortuneMenuVisible(bool visible);
-    void SelectFortuneMenuItem(int index);
     void SelectFortuneMenuItemUnlocked(int index);
     void DeselectFortuneMenuItemUnlocked();
     void UpdateFortuneMenuSelection();
     void UpdateFortuneMenuItemVisual(int index, bool selected);
-    void CycleFortuneMenuSelection();
     void CycleFortuneMenuSelectionUnlocked();
     void PlayFortuneMenuSelectSound();
+    // 在 DebugInfo 卡上展示指定索引主功能的一级分类（持锁状态下调用）
+    void ShowFortuneFeatureCategoryUnlocked(int index);
 
     void SetTaijiCoreVisible(bool visible);
 

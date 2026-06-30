@@ -92,8 +92,6 @@ BoxAudioCodec::~BoxAudioCodec() {
 }
 
 void BoxAudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din) {
-    assert(input_sample_rate_ == output_sample_rate_);
-
     i2s_chan_config_t chan_cfg = {
         .id = I2S_NUM_0,
         .role = I2S_ROLE_MASTER,

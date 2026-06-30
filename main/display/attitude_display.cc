@@ -109,6 +109,112 @@ static const FortuneMenuItemDef kFortuneMenuDefs[FORTUNE_MENU_COUNT] = {
     {FONT_AWESOME_STAR, "贵人运势", 11, 3},
 };
 
+// =================================================================
+// 一级功能分类内容（用于 DebugInfo 视图展示）
+// 来源：doc/ai_compass_feature_expansion.md v1.18
+// 索引与 kFortuneMenuDefs 一一对应（FortuneMenuType 0..11）
+// 展示策略：
+//   - title    = "图标 + 主功能名"（如 "🧮 财运"）
+//   - details  = 一级功能分类列表（每行一类）
+// =================================================================
+struct FortuneMenuFeatureCategory {
+    const char* title;   // DebugInfo 标题
+    const char* details; // DebugInfo 详情（一级分类文本）
+};
+
+static const FortuneMenuFeatureCategory kFortuneMenuFeatureCategories[FORTUNE_MENU_COUNT] = {
+    // 0 · 今日运势
+    {
+        FONT_AWESOME_SUN " 今日运势",
+        "1. 信息聚合\n"
+        "2. 运势延伸\n"
+        "3. 互动延伸"
+    },
+    // 1 · 财运 — 财富罗盘
+    {
+        FONT_AWESOME_CALCULATOR " 财运",
+        "1. 股票预测\n"
+        "2. 理财延伸\n"
+        "3. 传统财运"
+    },
+    // 2 · 事业运势 — 职场指南针
+    {
+        FONT_AWESOME_GEAR " 事业运势",
+        "1. 职场情报\n"
+        "2. 职场建议\n"
+        "3. 自我提升"
+    },
+    // 3 · 感情运势 — 情感罗盘
+    {
+        FONT_AWESOME_HEART " 感情运势",
+        "1. 情感状态\n"
+        "2. 互动内容\n"
+        "3. 心理健康\n"
+        "4. 社交延伸"
+    },
+    // 4 · 心情卦 — 内心卦象 & 放松娱乐
+    {
+        FONT_AWESOME_MUSIC " 心情卦",
+        "1. 娱乐节奏\n"
+        "2. 卦象互动\n"
+        "3. 深度心理\n"
+        "4. 情绪复盘"
+    },
+    // 5 · 黄历宜忌 — 万年历助手
+    {
+        FONT_AWESOME_CALENDAR " 黄历宜忌",
+        "1. 传统历法\n"
+        "2. 核心历法"
+    },
+    // 6 · 节气提示 — 时节养生
+    {
+        FONT_AWESOME_CLOUD_SUN " 节气提示",
+        "1. 节气核心\n"
+        "2. 养生建议\n"
+        "3. 气候数据\n"
+        "4. 节气文化"
+    },
+    // 7 · 系统设置 — 设备管家 & YIXING 控制台
+    {
+        FONT_AWESOME_LOCK " 系统设置",
+        "1. YIXING AI 配置\n"
+        "2. 配网与连接\n"
+        "3. 音频设置\n"
+        "4. 设备管理"
+    },
+    // 8 · 健康运势 — 健康助手
+    {
+        FONT_AWESOME_TEMPERATURE_HALF " 健康运势",
+        "1. 身体状态\n"
+        "2. 中医养生\n"
+        "3. 健康资讯"
+    },
+    // 9 · 学业运势 — 学习罗盘
+    {
+        FONT_AWESOME_GLASSES " 学业运势",
+        "1. 专注计时\n"
+        "2. 学习建议\n"
+        "3. 考试辅助\n"
+        "4. 趣味学习"
+    },
+    // 10 · 出行吉日 — 出行助手
+    {
+        FONT_AWESOME_GLOBE " 出行吉日",
+        "1. 吉日查询\n"
+        "2. 出行必备\n"
+        "3. 行程助手\n"
+        "4. 安全提示"
+    },
+    // 11 · 贵人运势 — 人际罗盘
+    {
+        FONT_AWESOME_STAR " 贵人运势",
+        "1. 贵人信息\n"
+        "2. 人脉管理\n"
+        "3. 社交建议\n"
+        "4. 人际关系"
+    },
+};
+
 static const lv_font_t* GetFortuneMenuIconFont()
 {
     return &font_awesome_30_4;
@@ -536,6 +642,35 @@ void AttitudeDisplay::CreateFortuneMenuRing()
              FORTUNE_MENU_TOUCH_OUTER_R);
 }
 
+static void OnFortuneMenuRingTouched(lv_event_t* e)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
+    if (self == nullptr) return;
+
+    lv_indev_t* indev = lv_indev_get_act();
+    if (indev == nullptr) return;
+
+    lv_point_t pt;
+    lv_indev_get_point(indev, &pt);
+
+    const int dx = pt.x - ATTITUDE_CENTER_X;
+    const int dy = pt.y - ATTITUDE_CENTER_Y;
+
+    const int r = static_cast<int>(sqrt(dx * dx + dy * dy));
+    if (r < FORTUNE_MENU_TOUCH_INNER_R || r > FORTUNE_MENU_TOUCH_OUTER_R) {
+        return;
+    }
+
+    double angle = atan2(dy, dx) * 180.0 / M_PI;
+    angle -= FORTUNE_MENU_START_ANGLE_DEG;
+    if (angle < 0) angle += 360.0;
+
+    const double step = 360.0 / FORTUNE_MENU_COUNT;
+    int index = static_cast<int>(angle / step) % FORTUNE_MENU_COUNT;
+
+    self->SelectFortuneMenuItem(index);
+}
+
 void AttitudeDisplay::CreateFortuneMenuRingTouch()
 {
     fortune_menu_ring_touch_ = lv_obj_create(attitude_container_);
@@ -544,11 +679,9 @@ void AttitudeDisplay::CreateFortuneMenuRingTouch()
     lv_obj_set_style_bg_opa(fortune_menu_ring_touch_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(fortune_menu_ring_touch_, 0, 0);
     lv_obj_set_style_pad_all(fortune_menu_ring_touch_, 0, 0);
-    // 菜单环触摸事件已禁用（功能区提示卡触发事件已全部移除）
-    lv_obj_clear_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(fortune_menu_ring_touch_, OnFortuneMenuRingTouched, LV_EVENT_CLICKED, this);
 
-    // 图标仍展示，但不拦截触摸
     for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
         if (fortune_menu_labels_[i] != nullptr) {
             lv_obj_move_foreground(fortune_menu_labels_[i]);
@@ -559,8 +692,6 @@ void AttitudeDisplay::CreateFortuneMenuRingTouch()
     ESP_LOGI(TAG, "Fortune menu ring touch layer ready (annulus %d~%d)",
              FORTUNE_MENU_TOUCH_INNER_R, FORTUNE_MENU_TOUCH_OUTER_R);
 }
-
-// FortuneMenuIndexFromPoint 已彻底删除：菜单环触摸事件已禁用，扇区坐标→索引映射不再需要
 
 void AttitudeDisplay::PlayFortuneMenuSelectSound()
 {
@@ -580,7 +711,8 @@ void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
         UpdateFortuneMenuItemVisual(prev, false);
     }
     UpdateFortuneMenuItemVisual(index, true);
-    // 功能区提示卡触发事件已全部移除（仅保留菜单环选中态视觉切换）
+    // 通过 DebugInfo 卡展示当前主功能的一级分类（Boot 选中/循环选中均触发）
+    ShowFortuneFeatureCategoryUnlocked(index);
 
     ESP_LOGI(TAG, "Fortune menu select -> %d (%s)", index,
              kFortuneMenuDefs[index].func_label);
@@ -639,7 +771,8 @@ void AttitudeDisplay::CycleFortuneMenuSelectionUnlocked()
     fortune_menu_selected_index_ = (prev + 1) % FORTUNE_MENU_COUNT;
     UpdateFortuneMenuItemVisual(prev, false);
     UpdateFortuneMenuItemVisual(fortune_menu_selected_index_, true);
-    // 功能区提示卡触发事件已全部移除（仅保留菜单环选中态视觉切换）
+    // 循环选中同样展示当前主功能的一级分类
+    ShowFortuneFeatureCategoryUnlocked(fortune_menu_selected_index_);
     ESP_LOGI(TAG, "Fortune menu selected -> %d (%s)",
              fortune_menu_selected_index_,
              kFortuneMenuDefs[fortune_menu_selected_index_].func_label);
@@ -677,6 +810,29 @@ void AttitudeDisplay::SetFortuneMenuVisible(bool visible)
 
 // ShowFortuneMenuFeatureCardUnlocked 已彻底删除：功能区提示卡触发事件已全部移除
 // ShowFortuneMenuFeatureCard 已彻底删除：公共 API 已被下游禁用
+
+// 在 DebugInfo 卡上展示指定索引主功能的一级分类（持锁状态下调用）
+// 调用前必须已持有 DisplayLockGuard（外部调用方 SelectFortuneMenuItemUnlocked
+// / CycleFortuneMenuSelectionUnlocked / HandleFortuneBootLongPress 均已加锁）
+// 注意：直接走 PresentDebugInfoCardUnlocked，绕过 ShowDebugInfo 的
+// "fortune_menu_selection_active_ 时被短路"的逻辑，确保选中态也能展示
+void AttitudeDisplay::ShowFortuneFeatureCategoryUnlocked(int index)
+{
+    if (index < 0 || index >= FORTUNE_MENU_COUNT) {
+        return;
+    }
+    // 清掉上一次的"通知/状态"去重上下文，避免本卡被同标题抑制
+    debug_info_last_title_.clear();
+    debug_info_last_show_ms_ = 0;
+
+    DebugInfoPresentOpts opts;
+    // 长按确认场景会在调用方覆盖为 persistent；此处默认 transient（5s 后自动收）
+    PresentDebugInfoCardUnlocked(
+        kFortuneMenuFeatureCategories[index].title,
+        kFortuneMenuFeatureCategories[index].details,
+        /*hold_ms=*/0,
+        opts);
+}
 
 bool AttitudeDisplay::HandlePowerKey()
 {
@@ -993,9 +1149,9 @@ void AttitudeDisplay::CreateDebugInfoCard()
     const int text_x = 20;
     // 20px 字体行高 ~24px：
     //   - 标题 1 行 → row_h = 32（24+8 缓冲）
-    //   - 详情 5 行 → detail_h = 144（5*24+24 缓冲），避免第 3 行被截断
+    //   - 详情 4 行 → detail_h = 120（4*24+24 缓冲）
     const int row_h = 32;
-    const int detail_h = 144;
+    const int detail_h = 120;
     // 标题位置（用户要求：原 y=82 上移 50 → y=32）
     const int y_title = 32;
     // 详情中心放在卡片直径位置 y=150
@@ -1075,9 +1231,9 @@ void AttitudeDisplay::ApplyDebugInfoCardLayout()
     const int card_w = DEBUG_INFO_CARD_W;
     const int text_w = card_w - 40;
     const int text_x = 20;
-    // 必须与 CreateDebugInfoCard 保持一致：row_h=32, detail_h=144
+    // 必须与 CreateDebugInfoCard 保持一致：row_h=32, detail_h=120
     const int row_h = 32;
-    const int detail_h = 144;
+    const int detail_h = 120;
     // 标题 y=32（偏上 50px），详情中心 y=150（卡片直径位置）
     const int y_title = 32;
     const int y_detail = 150 - detail_h / 2;

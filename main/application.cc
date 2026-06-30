@@ -1120,10 +1120,11 @@ void Application::HandleWakeWordDetectedEvent() {
     // 不在此处触发服务端 TTS：唤醒词后 LLM 即将开始接管对话，避免双声道冲突
 
     if (state == kDeviceStateIdle) {
-        audio_service_.EncodeWakeWord();
-        auto wake_word = audio_service_.GetLastWakeWord();
-
         if (!protocol_->IsAudioChannelOpened()) {
+            // 首次唤醒：channel 未打开，走 OpenAudioChannel + Listen 完整路径
+            audio_service_.EncodeWakeWord();
+            auto wake_word = audio_service_.GetLastWakeWord();
+
             SetDeviceState(kDeviceStateConnecting);
             // Schedule to let the state change be processed first (UI update),
             // then continue with OpenAudioChannel which may block for ~1 second
@@ -1132,8 +1133,19 @@ void Application::HandleWakeWordDetectedEvent() {
             });
             return;
         }
-        // Channel already opened, continue directly
-        ContinueWakeWordInvoke(wake_word);
+        // 二次/连续唤醒：channel 仍处于打开状态（典型场景是 listening 超时后回到 idle，
+        // 此时 ContinueWakeWordInvoke 内部会因为 state != kDeviceStateConnecting 而提前 return，
+        // 导致 ESP32 检测到唤醒词后什么也不做）。这里直接走协议层的 SendWakeWordDetected，
+        // 让服务端 handleWakeWord 路径生成问候 + TTS，再切到 listening 继续接收用户后续话语。
+        audio_service_.EncodeWakeWord();
+        const std::string& wake_word_text = audio_service_.GetLastWakeWord();
+        if (!wake_word_text.empty()) {
+            protocol_->SendWakeWordDetected(wake_word_text);
+        }
+        SetListeningMode(GetDefaultListeningMode());
+        play_popup_on_listening_ = true;
+        audio_service_.EnableWakeWordDetection(true);
+        return;
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
         // 后续唤醒：先打断当前对话，再通知服务端触发 LLM 问候 + TTS
         // 不切换状态机（kDeviceStateListening/Speaking 无合法路径到 Connecting），

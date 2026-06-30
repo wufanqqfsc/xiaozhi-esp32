@@ -490,7 +490,6 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
 
     auto codec = Board::GetInstance().GetAudioCodec();
     if (decoder_sample_rate_ != codec->output_sample_rate()) {
-        ESP_LOGI(TAG, "Resampling audio from %d to %d", decoder_sample_rate_, codec->output_sample_rate());
         if (output_resampler_ != nullptr) {
             esp_ae_rate_cvt_close(output_resampler_);
             output_resampler_ = nullptr;
@@ -498,8 +497,16 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
         esp_ae_rate_cvt_cfg_t output_resampler_cfg = RATE_CVT_CFG(
             decoder_sample_rate_, codec->output_sample_rate(), ESP_AUDIO_MONO);
         auto resampler_ret = esp_ae_rate_cvt_open(&output_resampler_cfg, &output_resampler_);
-        if (output_resampler_ == nullptr) {
-            ESP_LOGE(TAG, "Failed to create output resampler, error code: %d", resampler_ret);
+        if (output_resampler_ != nullptr) {
+            ESP_LOGI(TAG, "Resampling audio from %d to %d", decoder_sample_rate_, codec->output_sample_rate());
+        } else {
+            ESP_LOGW(TAG, "Output resampler failed (code=%d), playing at native %d Hz (audio will be slightly faster)",
+                     resampler_ret, decoder_sample_rate_);
+        }
+    } else {
+        if (output_resampler_ != nullptr) {
+            esp_ae_rate_cvt_close(output_resampler_);
+            output_resampler_ = nullptr;
         }
     }
 }

@@ -100,31 +100,22 @@ void McpServer::AddCommonTools() {
     // 迭代 1: 鱼眼状态手动切换（验收测试用，迭代 3 接入真实 WiFi/BLE 驱动）
     auto attitude_display = dynamic_cast<AttitudeDisplay*>(display);
     if (attitude_display != nullptr) {
-        AddTool("self.attitude.set_wifi_fisheye",
-            "Set WiFi fisheye: 0=DISCONNECTED, 1=CONNECTING, 2=CONNECTED.",
+        AddTool("self.attitude.select_fortune",
+            "Select a fortune menu item by index. 0=今日运势, 1=财运, 2=事业运势, 3=感情运势, 4=心情卦, 5=黄历宜忌, 6=节气提示, 7=系统设置, 8=健康运势, 9=学业运势, 10=出行吉日, 11=贵人运势. Shows the feature categories in DebugInfo.",
             PropertyList({
-                Property("status", kPropertyTypeInteger, 0, 2)
+                Property("index", kPropertyTypeInteger, 0, 11)
             }),
             [attitude_display](const PropertyList& properties) -> ReturnValue {
-                int status = properties["status"].value<int>();
-                if (status < 0 || status > 2) {
-                    return false;
-                }
-                attitude_display->UpdateWifiFisheye(static_cast<WifiStatus>(status));
+                int index = properties["index"].value<int>();
+                attitude_display->SelectFortuneMenuItem(index);
                 return true;
             });
 
-        AddTool("self.attitude.set_ble_fisheye",
-            "Set BLE fisheye: 0=DISABLED, 1=ADVERTISING, 2=CONNECTED.",
-            PropertyList({
-                Property("status", kPropertyTypeInteger, 0, 2)
-            }),
+        AddTool("self.attitude.cycle_fortune",
+            "Cycle to the next fortune menu item. Shows the feature categories of the newly selected item in DebugInfo.",
+            PropertyList(),
             [attitude_display](const PropertyList& properties) -> ReturnValue {
-                int status = properties["status"].value<int>();
-                if (status < 0 || status > 2) {
-                    return false;
-                }
-                attitude_display->UpdateBleFisheye(static_cast<BleStatus>(status));
+                attitude_display->CycleFortuneMenuSelection();
                 return true;
             });
 
@@ -257,61 +248,6 @@ void McpServer::AddUserOnlyTools() {
                 return json;
             });
 
-#if CONFIG_LV_USE_SNAPSHOT
-        AddUserOnlyTool("self.screen.snapshot", "Snapshot the screen and upload it to a specific URL",
-            PropertyList({
-                Property("url", kPropertyTypeString),
-                Property("quality", kPropertyTypeInteger, 80, 1, 100)
-            }),
-            [display](const PropertyList& properties) -> ReturnValue {
-                auto url = properties["url"].value<std::string>();
-                auto quality = properties["quality"].value<int>();
-
-                std::string jpeg_data;
-                if (!display->SnapshotToJpeg(jpeg_data, quality)) {
-                    throw std::runtime_error("Failed to snapshot screen");
-                }
-
-                ESP_LOGI(TAG, "Upload snapshot %u bytes to %s", jpeg_data.size(), url.c_str());
-                
-                // 构造multipart/form-data请求体
-                std::string boundary = "----ESP32_SCREEN_SNAPSHOT_BOUNDARY";
-                
-                auto http = Board::GetInstance().GetNetwork()->CreateHttp(3);
-                http->SetHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
-                if (!http->Open("POST", url)) {
-                    throw std::runtime_error("Failed to open URL: " + url);
-                }
-                {
-                    // 文件字段头部
-                    std::string file_header;
-                    file_header += "--" + boundary + "\r\n";
-                    file_header += "Content-Disposition: form-data; name=\"file\"; filename=\"screenshot.jpg\"\r\n";
-                    file_header += "Content-Type: image/jpeg\r\n";
-                    file_header += "\r\n";
-                    http->Write(file_header.c_str(), file_header.size());
-                }
-
-                // JPEG数据
-                http->Write((const char*)jpeg_data.data(), jpeg_data.size());
-
-                {
-                    // multipart尾部
-                    std::string multipart_footer;
-                    multipart_footer += "\r\n--" + boundary + "--\r\n";
-                    http->Write(multipart_footer.c_str(), multipart_footer.size());
-                }
-                http->Write("", 0);
-
-                if (http->GetStatusCode() != 200) {
-                    throw std::runtime_error("Unexpected status code: " + std::to_string(http->GetStatusCode()));
-                }
-                std::string result = http->ReadAll();
-                http->Close();
-                ESP_LOGI(TAG, "Snapshot screen result: %s", result.c_str());
-                return true;
-            });
-        
         AddUserOnlyTool("self.screen.preview_image", "Preview an image on the screen",
             PropertyList({
                 Property("url", kPropertyTypeString)
@@ -351,7 +287,6 @@ void McpServer::AddUserOnlyTools() {
                 display->SetPreviewImage(std::move(image));
                 return true;
             });
-#endif // CONFIG_LV_USE_SNAPSHOT
     }
 #endif // HAVE_LVGL
 
