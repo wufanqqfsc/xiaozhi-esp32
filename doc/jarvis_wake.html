@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>JARVIS Wake Sequence - 方舟反应堆唤醒动画</title>
+<!-- GIF 编码库 -->
+<script src="lib/gif.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#000;
+    display:flex;justify-content:center;align-items:center;
+    min-height:100vh;
+    font-family:'Courier New',monospace;
+    color:#0ff;
+    flex-direction:column;
+    gap:20px;
+  }
+  #stage{
+    width:360px;height:360px;
+    border-radius:50%;
+    position:relative;
+    overflow:hidden;
+    background:radial-gradient(circle, #020a12 0%, #000 70%);
+    box-shadow:0 0 60px rgba(0,255,255,0.1), inset 0 0 45px rgba(0,0,0,0.8);
+  }
+  #canvas{display:block;width:360px;height:360px;}
+  .controls{
+    display:flex;gap:10px;align-items:center;
+    flex-wrap:wrap;justify-content:center;
+    max-width:360px;
+  }
+  button{
+    padding:6px 14px;
+    border:1px solid #0ff5;
+    background:#021018;
+    color:#0ff;
+    cursor:pointer;
+    font-family:'Courier New',monospace;
+    font-size:11px;
+    letter-spacing:1px;
+    transition:all .2s;
+    text-transform:uppercase;
+  }
+  button:hover{
+    background:#042030;
+    border-color:#0ff;
+    box-shadow:0 0 15px #0ff5;
+    text-shadow:0 0 8px #0ff;
+  }
+  #status{
+    font-size:10px;
+    color:#0ff8;
+    letter-spacing:2px;
+    text-align:center;
+    width:100%;
+  }
+  #readout{
+    font-size:9px;
+    color:#0ff6;
+    font-family:'Courier New',monospace;
+    text-align:left;
+    background:#001122;
+    padding:8px 12px;
+    border:1px solid #0ff3;
+    border-radius:4px;
+    width:360px;
+    line-height:1.7;
+  }
+  .label{color:#0ff9;}
+  .value{color:#0ff;text-shadow:0 0 5px #0ff8;}
+  .warn{color:#fa0;text-shadow:0 0 5px #fa08;}
+  .ok{color:#0f0;text-shadow:0 0 5px #0f08;}
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="canvas" width="360" height="360"></canvas>
+  </div>
+  <div id="status">JARVIS REACTOR CONTROL SYSTEM v3.2.1</div>
+  <div class="controls">
+    <button id="wakeBtn">▶ WAKE</button>
+    <button id="sleepBtn">■ SLEEP</button>
+    <button id="pulseBtn">⚡ PULSE</button>
+    <button id="listenBtn">👂 LISTEN</button>
+    <button id="speakBtn">💬 SPEAK</button>
+    <button id="gifBtn">⬇ GIF</button>
+    <button id="pngBtn">🖼️ PNG</button>
+  </div>
+  <div id="readout">
+    <div><span class="label">STATE:</span> <span id="stateVal" class="value">STANDBY</span></div>
+    <div><span class="label">POWER:</span> <span id="powerVal" class="value">0.00 TW</span></div>
+    <div><span class="label">CORE TEMP:</span> <span id="tempVal" class="value">0 K</span></div>
+    <div><span class="label">STABILITY:</span> <span id="stabVal" class="value">--</span></div>
+    <div><span class="label">FIELD:</span> <span id="fieldVal" class="value">0 T</span></div>
+  </div>
+
+<script>
+(function(){
+  'use strict';
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const W = 360, H = 360;
+  const CX = W/2, CY = H/2;
+
+  // 状态机
+  const STATE = {
+    SLEEP: 0,
+    STARTING: 1,
+    CALIBRATING: 2,
+    ACTIVE: 3,
+    LISTENING: 4,
+    SPEAKING: 5
+  };
+  let currentState = STATE.SLEEP;
+  let stateTime = 0;
+  let wakeStartTime = 0;
+
+  // 参数
+  let globalEnergy = 0;       // 0~1 全局能量水平
+  let targetEnergy = 0;
+  let breathPhase = 0;
+  let pulseWaves = [];        // 脉冲波纹
+
+  // 环形层配置（适配 360×360 圆形屏幕）
+  const rings = [
+    { r: 158, speed: 0.3,  dir: 1,  width: 1.5, hue: 180, name: 'outer', segments: 36 },
+    { r: 110, speed: 0.8,  dir: 1,  width: 1,   hue: 170, name: 'mid',   segments: 22 },
+    { r: 95,  speed: -1.2, dir: -1, width: 2,   hue: 200, name: 'inner', segments: 16 },
+  ];
+  let ringAngles = [0, 0, 0];
+  let ringIntensity = [0, 0, 0]; // 每层环的强度 0~1
+
+  // 粒子系统
+  let particles = [];
+  const MAX_PARTICLES = 45;
+
+  // 刻度标记
+  const tickCount = 60;
+  const majorTicks = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+
+  // GIF 录制
+  let recordFlag = false;
+  let frameList = [];
+  let recordStartTime = 0;
+  const RECORD_DURATION = 3000;
+  const RECORD_FPS = 24;
+  const RECORD_FRAME_INTERVAL = 1000 / RECORD_FPS;
+  let lastRecordTime = 0;
+  const gifBtn = document.getElementById('gifBtn');
+
+  // 初始化粒子
+  function initParticles() {
+    particles = [];
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      particles.push(createParticle());
+    }
+  }
+
+  function createParticle() {
+    const ringIdx = Math.floor(Math.random() * rings.length);
+    const ring = rings[ringIdx];
+    return {
+      ringIdx: ringIdx,
+      angle: Math.random() * Math.PI * 2,
+      speed: (0.002 + Math.random() * 0.006) * ring.dir,
+      size: 0.5 + Math.random() * 1.5,
+      brightness: 0.3 + Math.random() * 0.7,
+      drift: (Math.random() - 0.5) * 0.3,
+      life: 1,
+      flicker: Math.random() * Math.PI * 2
+    };
+  }
+
+  // 获取颜色
+  function glowColor(hue, alpha) {
+    return `hsla(${hue}, 100%, 60%, ${alpha})`;
+  }
+
+  // 绘制刻度环
+  function drawTickMarks(energy) {
+    if (energy < 0.1) return;
+
+    ctx.save();
+    ctx.translate(CX, CY);
+
+    for (let i = 0; i < tickCount; i++) {
+      const angle = (i / tickCount) * Math.PI * 2;
+      const isMajor = majorTicks.some(t => Math.abs(i - t * tickCount / 360) < 0.5 || Math.abs(i - t * tickCount / 360 + tickCount) < 0.5);
+      const len = isMajor ? 8 : 4;
+      const innerR = 165;
+      const outerR = innerR + len;
+      const alpha = energy * (isMajor ? 1.0 : 0.6);
+
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * innerR, Math.sin(angle) * innerR);
+      ctx.lineTo(Math.cos(angle) * outerR, Math.sin(angle) * outerR);
+      ctx.strokeStyle = glowColor(180, Math.min(alpha, 1));
+      ctx.lineWidth = isMajor ? 2 : 1;
+      ctx.stroke();
+    }
+
+    // 12个主刻度位置的小圆点
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const r1 = 176;
+      ctx.beginPath();
+      ctx.arc(Math.cos(angle) * r1, Math.sin(angle) * r1, 2, 0, Math.PI * 2);
+      ctx.fillStyle = glowColor(180, energy * 0.9);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // 绘制能量环
+  function drawEnergyRing(ringIdx, energy) {
+    const ring = rings[ringIdx];
+    const intensity = ringIntensity[ringIdx] * energy;
+    if (intensity < 0.01) return;
+
+    const angle = ringAngles[ringIdx];
+    const r = ring.r;
+
+    ctx.save();
+    ctx.translate(CX, CY);
+    ctx.rotate(angle);
+
+    // 主体光环（带光晕）
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.strokeStyle = glowColor(ring.hue, 0.15 * intensity);
+    ctx.lineWidth = ring.width + 6;
+    ctx.shadowColor = glowColor(ring.hue, 1);
+    ctx.shadowBlur = 15 * intensity;
+    ctx.stroke();
+    ctx.restore();
+
+    // 亮环主体
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.strokeStyle = glowColor(ring.hue, 0.6 * intensity);
+    ctx.lineWidth = ring.width;
+    ctx.stroke();
+    ctx.restore();
+
+    // 分段亮区
+    const segs = ring.segments;
+    for (let i = 0; i < segs; i++) {
+      const segAngle = (i / segs) * Math.PI * 2;
+      const segWidth = 0.04;
+      const wave = Math.sin(segAngle * 3 + breathPhase * 2 + ringIdx) * 0.5 + 0.5;
+      const segAlpha = intensity * (0.3 + wave * 0.7);
+
+      ctx.beginPath();
+      ctx.arc(0, 0, r, segAngle - segWidth, segAngle + segWidth);
+      ctx.strokeStyle = glowColor(ring.hue, segAlpha);
+      ctx.lineWidth = ring.width * 1.5;
+      ctx.shadowColor = glowColor(ring.hue, 1);
+      ctx.shadowBlur = 8 * intensity;
+      ctx.stroke();
+    }
+
+    // 明亮节点
+    const nodeCount = 3 + ringIdx;
+    for (let i = 0; i < nodeCount; i++) {
+      const nodeAngle = (i / nodeCount) * Math.PI * 2 + breathPhase * 0.5 * ring.dir;
+      const pulse = Math.sin(breathPhase * 3 + i * 1.5) * 0.2 + 0.8;
+      const nodeAlpha = intensity * pulse;
+
+      ctx.beginPath();
+      ctx.arc(Math.cos(nodeAngle) * r, Math.sin(nodeAngle) * r, ring.width * 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = glowColor(ring.hue, nodeAlpha);
+      ctx.shadowColor = glowColor(ring.hue, 1);
+      ctx.shadowBlur = 18 * intensity;
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // 绘制粒子
+  function drawParticles(energy) {
+    if (energy < 0.2) return;
+
+    ctx.save();
+    ctx.translate(CX, CY);
+
+    for (const p of particles) {
+      const ring = rings[p.ringIdx];
+      const flicker = Math.sin(p.flicker + breathPhase * 5) * 0.3 + 0.7;
+      const alpha = p.brightness * flicker * energy * 0.8;
+
+      const r = ring.r + p.drift * 15;
+      const x = Math.cos(p.angle) * r;
+      const y = Math.sin(p.angle) * r;
+
+      ctx.beginPath();
+      ctx.arc(x, y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = glowColor(ring.hue, alpha);
+      ctx.shadowColor = glowColor(ring.hue, 1);
+      ctx.shadowBlur = 6 * alpha;
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // 更新粒子
+  function updateParticles(dt, energy) {
+    if (energy < 0.1) return;
+
+    for (const p of particles) {
+      p.angle += p.speed * (1 + energy * 2);
+      p.flicker += 0.05;
+    }
+  }
+
+  // 绘制核心（放大至第三层环大小）
+  function drawCore(energy) {
+    const breath = Math.sin(breathPhase) * 0.5 + 0.5;
+    const coreR = 78 + breath * 5 + energy * 5;
+
+    ctx.save();
+    ctx.translate(CX, CY);
+
+    // 核心外晕
+    const outerGlow = ctx.createRadialGradient(0, 0, coreR * 0.5, 0, 0, coreR * 1.5);
+    outerGlow.addColorStop(0, `hsla(190, 100%, 70%, ${0.25 * energy})`);
+    outerGlow.addColorStop(0.5, `hsla(180, 100%, 50%, ${0.1 * energy})`);
+    outerGlow.addColorStop(1, 'hsla(180, 100%, 50%, 0)');
+    ctx.beginPath();
+    ctx.arc(0, 0, coreR * 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = outerGlow;
+    ctx.fill();
+
+    // 核心主体（多层渐变）
+    const coreGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
+    coreGrad.addColorStop(0, `hsla(200, 100%, 95%, ${0.95 * energy})`);
+    coreGrad.addColorStop(0.2, `hsla(190, 100%, 75%, ${0.9 * energy})`);
+    coreGrad.addColorStop(0.4, `hsla(185, 100%, 60%, ${0.85 * energy})`);
+    coreGrad.addColorStop(0.65, `hsla(180, 100%, 45%, ${0.8 * energy})`);
+    coreGrad.addColorStop(0.85, `hsla(195, 100%, 30%, ${0.7 * energy})`);
+    coreGrad.addColorStop(1, `hsla(210, 100%, 15%, ${0.5 * energy})`);
+
+    ctx.beginPath();
+    ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+    ctx.fillStyle = coreGrad;
+    ctx.shadowColor = `hsla(180, 100%, 60%, ${0.6 * energy})`;
+    ctx.shadowBlur = 20 * energy;
+    ctx.fill();
+
+    // 核心边缘环
+    ctx.beginPath();
+    ctx.arc(0, 0, coreR - 2, 0, Math.PI * 2);
+    ctx.strokeStyle = `hsla(190, 100%, 80%, ${0.7 * energy})`;
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = `hsla(180, 100%, 80%, 1)`;
+    ctx.shadowBlur = 4 * energy;
+    ctx.stroke();
+
+    // 核心内部结构 - 十字
+    if (energy > 0.5) {
+      const crossAlpha = (energy - 0.5) * 2;
+      ctx.save();
+      ctx.rotate(breathPhase * 0.3);
+
+      ctx.strokeStyle = `hsla(200, 100%, 90%, ${0.4 * crossAlpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-coreR * 0.6, 0);
+      ctx.lineTo(coreR * 0.6, 0);
+      ctx.moveTo(0, -coreR * 0.6);
+      ctx.lineTo(0, coreR * 0.6);
+      ctx.stroke();
+
+      // 内部六边形
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const x = Math.cos(a) * coreR * 0.4;
+        const y = Math.sin(a) * coreR * 0.4;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = `hsla(190, 100%, 85%, ${0.5 * crossAlpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    ctx.restore();
+
+    // 脉冲波纹
+    for (let i = pulseWaves.length - 1; i >= 0; i--) {
+      const wave = pulseWaves[i];
+      const waveR = wave.r + wave.speed * (Date.now() - wave.start);
+      const waveAlpha = wave.alpha * (1 - (waveR - wave.startR) / (wave.maxR - wave.startR));
+
+      if (waveR > wave.maxR) {
+        pulseWaves.splice(i, 1);
+        continue;
+      }
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(CX, CY, waveR, 0, Math.PI * 2);
+      ctx.strokeStyle = glowColor(wave.hue, Math.max(0, waveAlpha));
+      ctx.lineWidth = wave.width;
+      ctx.shadowColor = glowColor(wave.hue, 1);
+      ctx.shadowBlur = 8;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // 触发脉冲
+  function triggerPulse(hue, count) {
+    count = count || 1;
+    for (let i = 0; i < count; i++) {
+      setTimeout(() => {
+        pulseWaves.push({
+          r: 45,
+          startR: 45,
+          maxR: 175,
+          speed: 0.15,
+          start: Date.now(),
+          alpha: 0.6,
+          width: 1.5,
+          hue: hue || 180
+        });
+      }, i * 200);
+    }
+  }
+
+  // 绘制聆听状态特效（声波扩散）
+  function drawListeningEffect(energy) {
+    if (currentState !== STATE.LISTENING) return;
+
+    ctx.save();
+    ctx.translate(CX, CY);
+
+    const centerR = 45;
+    const maxR = 170;
+    const waveCount = 4;
+
+    for (let i = 0; i < waveCount; i++) {
+      const wavePhase = (stateTime * 0.001 + i * 0.5) % 1;
+      const waveR = centerR + wavePhase * (maxR - centerR);
+      const waveAlpha = (1 - wavePhase) * 0.6 * energy;
+      const waveWidth = 1 + wavePhase * 1.5;
+
+      ctx.beginPath();
+      ctx.arc(0, 0, waveR, 0, Math.PI * 2);
+      ctx.strokeStyle = `hsla(180, 100%, 70%, ${waveAlpha})`;
+      ctx.lineWidth = waveWidth;
+      ctx.shadowColor = `hsla(180, 100%, 60%, ${waveAlpha})`;
+      ctx.shadowBlur = 12;
+      ctx.stroke();
+    }
+
+    // 中心呼吸效果
+    const breathScale = 1 + Math.sin(stateTime * 0.003) * 0.08;
+    ctx.beginPath();
+    ctx.arc(0, 0, centerR * breathScale, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(180, 100%, 70%, ${0.15 * energy})`;
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // 绘制说话状态特效（内核能量脉动）
+  function drawSpeakingEffect(energy) {
+    if (currentState !== STATE.SPEAKING) return;
+
+    ctx.save();
+    ctx.translate(CX, CY);
+
+    // 内核半径（与 drawCore 保持一致）
+    const breath = Math.sin(breathPhase) * 0.5 + 0.5;
+    const coreR = 78 + breath * 5 + energy * 5;
+    const innerR = 10;   // 射线起点
+    const outerR = coreR - 5; // 射线终点，不超出内核环
+
+    // 向外喷射的能量射线（约束在内核内）
+    const rayCount = 8;
+    for (let i = 0; i < rayCount; i++) {
+      const angle = (i / rayCount) * Math.PI * 2 + stateTime * 0.002;
+      const pulse = Math.sin(stateTime * 0.005 + i) * 0.3 + 0.7;
+      const length = innerR + pulse * (outerR - innerR);
+
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * innerR, Math.sin(angle) * innerR);
+      ctx.lineTo(Math.cos(angle) * length, Math.sin(angle) * length);
+      ctx.strokeStyle = `hsla(45, 100%, 70%, ${0.6 * energy * pulse})`;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = `hsla(45, 100%, 60%, ${0.8 * pulse})`;
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+
+      // 末端发光点
+      ctx.beginPath();
+      ctx.arc(Math.cos(angle) * length, Math.sin(angle) * length, 2 * pulse, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(45, 100%, 80%, ${0.8 * energy * pulse})`;
+      ctx.fill();
+    }
+
+    // 内核脉动光晕（不超出内核环）
+    const glowPulse = Math.sin(stateTime * 0.004) * 0.15;
+    const glowR = coreR * (1 + glowPulse) * 0.9;
+    const glowGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, glowR);
+    glowGrad.addColorStop(0, `hsla(45, 100%, 80%, ${0.4 * energy})`);
+    glowGrad.addColorStop(0.5, `hsla(45, 100%, 60%, ${0.15 * energy})`);
+    glowGrad.addColorStop(1, 'transparent');
+    ctx.beginPath();
+    ctx.arc(0, 0, glowR, 0, Math.PI * 2);
+    ctx.fillStyle = glowGrad;
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // 绘制中心 HUD 文字（适配放大的内核）
+  function drawCenterText(energy) {
+    if (energy < 0.5) return;
+
+    const alpha = (energy - 0.5) * 2;
+    ctx.save();
+    ctx.translate(CX, CY);
+
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = `hsla(200, 100%, 85%, ${0.9 * alpha})`;
+    ctx.shadowColor = `hsla(200, 100%, 60%, 0.7)`;
+    ctx.shadowBlur = 4;
+    ctx.fillText('JARVIS', 0, -10);
+
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = `hsla(200, 80%, 75%, ${0.7 * alpha})`;
+    ctx.shadowBlur = 0;
+    ctx.fillText('MK VII', 0, 12);
+
+    ctx.restore();
+  }
+
+  // 更新状态显示
+  function updateReadout() {
+    const stateNames = ['STANDBY', 'STARTING', 'CALIBRATING', 'ACTIVE', 'LISTENING', 'SPEAKING'];
+    const stateColors = ['value', 'warn', 'warn', 'ok', 'ok', 'warn'];
+    const stateEl = document.getElementById('stateVal');
+    stateEl.textContent = stateNames[currentState];
+    stateEl.className = stateColors[currentState];
+
+    const power = (globalEnergy * 3.2).toFixed(2);
+    document.getElementById('powerVal').textContent = power + ' TW';
+
+    const temp = Math.round(globalEnergy * 15000000).toLocaleString();
+    document.getElementById('tempVal').textContent = temp + ' K';
+
+    let stab = '--';
+    if (currentState === STATE.ACTIVE) {
+      stab = (92 + Math.sin(breathPhase * 2) * 3 + Math.random() * 2).toFixed(1) + '%';
+    } else if (currentState === STATE.CALIBRATING) {
+      stab = (globalEnergy * 90).toFixed(0) + '%';
+    }
+    const stabEl = document.getElementById('stabVal');
+    stabEl.textContent = stab;
+    stabEl.className = currentState === STATE.ACTIVE ? 'ok' : 'value';
+
+    const field = (globalEnergy * 8.5).toFixed(2);
+    document.getElementById('fieldVal').textContent = field + ' T';
+  }
+
+  // 状态机更新
+  function updateState(dt) {
+    stateTime += dt;
+
+    switch (currentState) {
+      case STATE.SLEEP:
+        targetEnergy = 0.05;
+        break;
+
+      case STATE.STARTING:
+        // 启动阶段：外环依次点亮
+        const startProgress = Math.min(stateTime / 3000, 1);
+        targetEnergy = startProgress;
+
+        // 每层环依次点亮
+        for (let i = 0; i < rings.length; i++) {
+          const ringDelay = i * 600;
+          const ringProgress = Math.max(0, Math.min((stateTime - ringDelay) / 800, 1));
+          ringIntensity[i] = ringProgress;
+        }
+
+        if (stateTime > 3000) {
+          currentState = STATE.CALIBRATING;
+          stateTime = 0;
+          triggerPulse(180, 2);
+        }
+        break;
+
+      case STATE.CALIBRATING:
+        // 校准阶段：能量波动，寻找稳定点
+        const calProgress = Math.min(stateTime / 2500, 1);
+        const wobble = Math.sin(stateTime * 0.01) * 0.1 * (1 - calProgress);
+        targetEnergy = 0.7 + calProgress * 0.25 + wobble;
+
+        for (let i = 0; i < rings.length; i++) {
+          ringIntensity[i] = 0.7 + calProgress * 0.3;
+        }
+
+        if (stateTime > 2500) {
+          currentState = STATE.ACTIVE;
+          stateTime = 0;
+          triggerPulse(160, 3);
+        }
+        break;
+
+      case STATE.ACTIVE:
+        // 激活状态：稳定呼吸
+        const breath = Math.sin(breathPhase) * 0.5 + 0.5;
+        targetEnergy = 0.85 + breath * 0.1;
+        for (let i = 0; i < rings.length; i++) {
+          ringIntensity[i] = 0.9 + Math.sin(breathPhase + i) * 0.1;
+        }
+        break;
+
+      case STATE.LISTENING:
+        // 聆听状态：能量集中，等待响应
+        const listenBreath = Math.sin(stateTime * 0.003) * 0.5 + 0.5;
+        targetEnergy = 0.7 + listenBreath * 0.2;
+        for (let i = 0; i < rings.length; i++) {
+          ringIntensity[i] = 0.6 + listenBreath * 0.3;
+        }
+        break;
+
+      case STATE.SPEAKING:
+        // 说话状态：能量爆发，向外辐射
+        const speakPulse = Math.sin(stateTime * 0.005) * 0.3 + 0.7;
+        targetEnergy = 0.8 + speakPulse * 0.2;
+        for (let i = 0; i < rings.length; i++) {
+          ringIntensity[i] = 0.8 + speakPulse * 0.2;
+        }
+        break;
+    }
+
+    // 能量平滑过渡
+    globalEnergy += (targetEnergy - globalEnergy) * 0.05;
+  }
+
+  // 主绘制循环
+  let lastTime = 0;
+  function animate(now) {
+    const dt = now - lastTime;
+    lastTime = now;
+
+    // 更新呼吸相位
+    breathPhase += 0.02;
+
+    // 更新状态机
+    updateState(dt);
+
+    // 更新环角度
+    for (let i = 0; i < rings.length; i++) {
+      ringAngles[i] += rings[i].speed * 0.001 * (0.5 + globalEnergy);
+    }
+
+    // 更新粒子
+    updateParticles(dt, globalEnergy);
+
+    // 清屏
+    ctx.clearRect(0, 0, W, H);
+
+    // 背景网格（极坐标）
+    if (globalEnergy > 0.1) {
+      ctx.save();
+      ctx.translate(CX, CY);
+      ctx.strokeStyle = `hsla(180, 50%, 30%, ${0.2 * globalEnergy})`;
+      ctx.lineWidth = 0.5;
+      for (let r = 38; r < 188; r += 30) {
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 刻度
+    drawTickMarks(globalEnergy);
+
+    // 从外向内绘制能量环
+    for (let i = 0; i < rings.length; i++) {
+      drawEnergyRing(i, globalEnergy);
+    }
+
+    // 粒子
+    drawParticles(globalEnergy);
+
+    // 聆听状态特效
+    drawListeningEffect(globalEnergy);
+
+    // 说话状态特效
+    drawSpeakingEffect(globalEnergy);
+
+    // 核心
+    drawCore(globalEnergy);
+
+    // 中心文字
+    drawCenterText(globalEnergy);
+
+    // 录制帧（节流到 RECORD_FPS）- 必须在绘制完成后
+    if (recordFlag) {
+      if (now - lastRecordTime >= RECORD_FRAME_INTERVAL) {
+        lastRecordTime = now;
+        try {
+          frameList.push(ctx.getImageData(0, 0, W, H));
+        } catch (e) {
+          console.error('capture frame failed', e);
+        }
+      }
+      const elapsed = now - recordStartTime;
+      const remain = Math.max(0, Math.ceil((RECORD_DURATION - elapsed) / 1000));
+      setStatus(`RECORDING GIF... ${remain}s left (${frameList.length} frames)`);
+      if (elapsed >= RECORD_DURATION) {
+        finishRecording();
+      }
+    }
+
+    // 更新读数
+    updateReadout();
+
+    requestAnimationFrame(animate);
+  }
+
+  // 唤醒序列
+  function wakeSequence() {
+    if (currentState !== STATE.SLEEP) return;
+    currentState = STATE.STARTING;
+    stateTime = 0;
+    initParticles();
+    triggerPulse(200, 1);
+  }
+
+  // 休眠
+  function sleep() {
+    currentState = STATE.SLEEP;
+    stateTime = 0;
+    ringIntensity = [0, 0, 0];
+    pulseWaves = [];
+  }
+
+  // 手动脉冲
+  function manualPulse() {
+    if (currentState === STATE.SLEEP) return;
+    triggerPulse(180, 2);
+  }
+
+  // 设置状态文字
+  function setStatus(text) {
+    document.getElementById('status').textContent = text;
+  }
+
+  // 开始录制 GIF
+  function startRecording() {
+    if (typeof GIF !== 'function') {
+      setStatus('ERROR: gif.js library not loaded');
+      return;
+    }
+    if (recordFlag) return;
+
+    frameList = [];
+    recordFlag = true;
+    recordStartTime = performance.now();
+    lastRecordTime = recordStartTime;
+    gifBtn.disabled = true;
+    setStatus('RECORDING GIF... 3s left (0 frames)');
+  }
+
+  // 结束录制并导出 GIF
+  function finishRecording() {
+    recordFlag = false;
+    gifBtn.disabled = true;
+
+    if (frameList.length === 0) {
+      setStatus('ERROR: No frames captured');
+      gifBtn.disabled = false;
+      return;
+    }
+
+    setStatus(`ENCODING GIF (${frameList.length} frames)...`);
+
+    try {
+      const gif = new GIF({
+        workers: 2,
+        quality: 10,
+        width: W,
+        height: H,
+        workerScript: 'lib/gif.worker.js'
+      });
+
+      frameList.forEach(img => gif.addFrame(img, { delay: Math.round(1000 / RECORD_FPS) }));
+
+      gif.on('progress', p => {
+        setStatus(`ENCODING... ${Math.round(p * 100)}%`);
+      });
+
+      gif.on('finished', blob => {
+        try {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'jarvis_reactor_wake.gif';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          setStatus(`✓ EXPORTED ${(blob.size / 1024).toFixed(1)} KB GIF (${frameList.length} frames)`);
+        } catch (e) {
+          setStatus('Download failed: ' + e.message);
+          console.error(e);
+        }
+        gifBtn.disabled = false;
+        frameList = [];
+      });
+
+      gif.on('abort', () => {
+        setStatus('GIF encoding aborted');
+        gifBtn.disabled = false;
+        frameList = [];
+      });
+
+      gif.render();
+    } catch (e) {
+      setStatus('GIF encoding failed: ' + e.message);
+      console.error(e);
+      gifBtn.disabled = false;
+      frameList = [];
+    }
+  }
+
+  // 导出 PNG 图片
+  function exportPNG() {
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[:.]/g, '-');
+      a.download = `jarvis_reactor_${timestamp}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setStatus('✓ PNG EXPORTED');
+    } catch (e) {
+      setStatus('PNG export failed: ' + e.message);
+      console.error(e);
+    }
+  }
+
+  // 切换到聆听状态
+  function setListening() {
+    if (currentState === STATE.SLEEP) return;
+    currentState = STATE.LISTENING;
+    stateTime = 0;
+    triggerPulse(180, 1);
+  }
+
+  // 切换到说话状态
+  function setSpeaking() {
+    if (currentState === STATE.SLEEP) return;
+    currentState = STATE.SPEAKING;
+    stateTime = 0;
+    triggerPulse(45, 2);
+  }
+
+  // 按钮事件
+  document.getElementById('wakeBtn').addEventListener('click', wakeSequence);
+  document.getElementById('sleepBtn').addEventListener('click', sleep);
+  document.getElementById('pulseBtn').addEventListener('click', manualPulse);
+  document.getElementById('listenBtn').addEventListener('click', setListening);
+  document.getElementById('speakBtn').addEventListener('click', setSpeaking);
+  document.getElementById('gifBtn').addEventListener('click', startRecording);
+  document.getElementById('pngBtn').addEventListener('click', exportPNG);
+
+  // 初始化
+  initParticles();
+  requestAnimationFrame(animate);
+
+  // 检查 gif.js 是否加载
+  window.addEventListener('load', () => {
+    if (typeof GIF !== 'function') {
+      setStatus('WARNING: gif.js failed to load');
+    } else {
+      setStatus('JARVIS REACTOR CONTROL SYSTEM v3.2.1 - READY');
+    }
+  });
+
+})();
+</script>
+</body>
+</html>

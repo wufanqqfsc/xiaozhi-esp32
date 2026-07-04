@@ -131,17 +131,17 @@
 
     // 核心（径向渐变）
     const coreR = (W/2 - 60) * coreScale;
-    const glowIntensity = 80 + breathVal * 220;
+    const glowIntensity = 2 + breathVal * 4;
     ctx.save();
     ctx.beginPath();
     ctx.arc(CX, CY, coreR, 0, Math.PI * 2);
 
     const gradient = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
     gradient.addColorStop(0, '#fff');
-    gradient.addColorStop(0.22, '#00fbff');
-    gradient.addColorStop(0.45, '#00d8ff');
-    gradient.addColorStop(0.75, '#007ee8');
-    gradient.addColorStop(1, 'transparent');
+    gradient.addColorStop(0.25, '#00fbff');
+    gradient.addColorStop(0.5, '#00d8ff');
+    gradient.addColorStop(0.75, '#009ee8');
+    gradient.addColorStop(1, '#005eaa');
     ctx.fillStyle = gradient;
 
     ctx.shadowColor = '#00fbff';
@@ -149,13 +149,28 @@
     ctx.fill();
     ctx.restore();
 
-    // 核心外发光层
+    // 内核边缘光环（1px）
+    const coreRingWidth = 1;
+    const coreRingR = coreR - coreRingWidth / 2;
+    const coreRingBlur = 0.5 + breathVal * 2;
+    const coreRingOpacity = Math.min(1, 0.6 + breathVal * 0.4);
     ctx.save();
     ctx.beginPath();
-    ctx.arc(CX, CY, coreR * 1.15, 0, Math.PI * 2);
+    ctx.arc(CX, CY, coreRingR, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0, 245, 255, ${coreRingOpacity})`;
+    ctx.lineWidth = coreRingWidth;
+    ctx.shadowColor = '#00f5ff';
+    ctx.shadowBlur = coreRingBlur;
+    ctx.stroke();
+    ctx.restore();
+
+    // 核心外发光层（极弱版）
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CX, CY, coreR * 1.02, 0, Math.PI * 2);
     ctx.fillStyle = 'transparent';
     ctx.shadowColor = '#00aaff';
-    ctx.shadowBlur = glowIntensity + 80;
+    ctx.shadowBlur = glowIntensity + 5;
     ctx.fill();
     ctx.restore();
   }
