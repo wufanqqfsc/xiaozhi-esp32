@@ -30,6 +30,7 @@
 
 #include <esp_log.h>
 #include <esp_http_server.h>
+#include <esp_heap_caps.h>
 #include <esp_lvgl_port.h>
 #include <esp_system.h>
 #include <esp_timer.h>
@@ -1016,6 +1017,8 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     //   - + httpd_req_recv / url_decode / fwrite 调用栈 ≈ 0.8KB
     //   之前 952KB GIF 上传到 ~135KB 时栈溢出崩溃；扩到 16KB 留 4× 余量
     config.stack_size = 16384;
+    // 任务栈使用 PSRAM，避免内部 SRAM 不足导致 ESP_ERR_HTTPD_TASK
+    config.task_caps = MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM;
     // 启用 wildcard URI 匹配（支持 * 通配符）
     config.uri_match_fn = httpd_uri_match_wildcard;
     ESP_LOGI(TAG, "  OK: Config ready (max_uri_handlers=%d, stack_size=%d, timeout=%ds)",
