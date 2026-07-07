@@ -1863,62 +1863,14 @@ static bool display_resource_from_file(const char* rel_path, int x, int y,
 
     std::unique_ptr<LvglImage> image;
 
-    // 尝试从 SD 卡读取文件
+    // 直接从 SD 卡文件路径加载图片，不读入内存
     if (rel_path != nullptr && rel_path[0] != '\0' && is_safe_path(rel_path)) {
         char* fullpath = (char*)malloc(320);
         if (fullpath && join_full_path(fullpath, 320, g_mount_point, rel_path)) {
-            FILE* fp = fopen(fullpath, "rb");
-            if (fp) {
-                fseek(fp, 0, SEEK_END);
-                size_t file_size = (size_t)ftell(fp);
-                fseek(fp, 0, SEEK_SET);
-                if (file_size > 0) {
-                    uint8_t* buf = (uint8_t*)heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-                    if (buf == nullptr) buf = (uint8_t*)malloc(file_size);
-                    if (buf) {
-                        size_t nread = fread(buf, 1, file_size, fp);
-                        if (nread == file_size) {
-                            // 探测 magic bytes 决定用哪个 LvglImage 子类：
-                            //   - "GIF8"     → LvglRawImage（lv_gif widget 内部用 AnimatedGIF 库解码）
-                            //   - 0x89 PNG   → LvglAllocatedImage（LVGL lodepng decoder 解码）
-                            //   - 0xFF D8 FF → LvglAllocatedImage（LVGL tjpgd decoder 解码）
-                            //   - "BM"       → LvglAllocatedImage（LVGL bmp decoder 解码）
-                            // 其他格式走 fallback RGB565 图案
-                            bool is_gif = file_size >= 4 && buf[0] == 'G' && buf[1] == 'I' && buf[2] == 'F' && buf[3] == '8';
-                            bool is_png = file_size >= 8 && buf[0] == 0x89 && buf[1] == 'P' && buf[2] == 'N' && buf[3] == 'G';
-                            bool is_jpg = file_size >= 3 && buf[0] == 0xFF && buf[1] == 0xD8 && buf[2] == 0xFF;
-                            bool is_bmp = file_size >= 2 && buf[0] == 'B' && buf[1] == 'M';
-
-                            try {
-                                if (is_gif) {
-                                    // LvglRawImage 会用 IsGif() 自动探测（基于 magic bytes）
-                                    // 注意：raw 的 cf 故意是 LV_COLOR_FORMAT_RAW_ALPHA，
-                                    //   这个 cf 不能用于 lv_image_set_src 显示（否则显示错乱），
-                                    //   但 lv_gif widget 通过 lv_gif_set_src 接收，自己调 AnimatedGIF 解码
-                                    image = std::make_unique<LvglRawImage>(buf, file_size);
-                                    ESP_LOGI(TAG, "Detected GIF: %s (%zu bytes)", rel_path, file_size);
-                                } else if (is_png || is_jpg || is_bmp) {
-                                    // 2 参构造：故意把 header.cf 设 UNKNOWN，让 decoder chain 中
-                                    //   BIN decoder 拒绝、lodepng/tjpgd/bmp 按 magic bytes 接管
-                                    image = std::make_unique<LvglAllocatedImage>(buf, file_size);
-                                    const char* fmt = is_png ? "PNG" : (is_jpg ? "JPG" : "BMP");
-                                    ESP_LOGI(TAG, "Detected %s: %s (%zu bytes)", fmt, rel_path, file_size);
-                                } else {
-                                    ESP_LOGW(TAG, "Unknown image format (magic=0x%02X 0x%02X 0x%02X 0x%02X), fallback",
-                                             buf[0], buf[1], buf[2], buf[3]);
-                                    heap_caps_free(buf);
-                                }
-                            } catch (...) {
-                                ESP_LOGE(TAG, "LvglImage ctor threw for %s", rel_path);
-                                heap_caps_free(buf);
-                            }
-                        } else {
-                            free(buf);
-                        }
-                    }
-                }
-                fclose(fp);
-            }
+            image = std::make_unique<LvglSdCardImage>(fullpath);
+            ESP_LOGI(TAG, "Loaded image from SD card: %s", fullpath);
+            free(fullpath);
+        } else {
             free(fullpath);
         }
     }

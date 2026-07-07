@@ -4,6 +4,8 @@
 #include <esp_bt.h>
 #include <esp_log.h>
 #include <esp_nimble_hci.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <host/ble_hs.h>
 #include <host/ble_uuid.h>
 #include <host/util/util.h>
@@ -16,6 +18,8 @@
 #define DEVICE_NAME "Xiaozhi-Compass"
 
 namespace {
+
+extern "C" void ble_store_config_init(void);
 
 BleServer* g_instance = nullptr;
 uint16_t g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -113,21 +117,23 @@ static void StartAdvertising()
     fields.name = reinterpret_cast<const uint8_t*>(DEVICE_NAME);
     fields.name_len = strlen(DEVICE_NAME);
     fields.name_is_complete = 1;
-    fields.uuids128 = &k_svc_uuid;
-    fields.num_uuids128 = 1;
-    fields.uuids128_is_complete = 1;
+    // 不包含 128-bit UUID，因为 BLE 广播数据包最大 31 字节，name(16)+flags(2) 已占用 18 字节
+    // 128-bit UUID(16) 会超过限制导致 BLE_HS_EINVAL 错误
 
     int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
         ESP_LOGE(TAG, "  FAILED: ble_gap_adv_set_fields: %d", rc);
         return;
     }
-    ESP_LOGI(TAG, "  OK: Adv fields set (name=%s, 128bit UUID included)", DEVICE_NAME);
+    ESP_LOGI(TAG, "  OK: Adv fields set (name=%s, flags only)", DEVICE_NAME);
 
     struct ble_gap_adv_params adv_params;
     memset(&adv_params, 0, sizeof(adv_params));
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    adv_params.channel_map = 7;
+    adv_params.itvl_min = BLE_GAP_ADV_FAST_INTERVAL2_MIN;
+    adv_params.itvl_max = BLE_GAP_ADV_FAST_INTERVAL2_MAX;
 
     ESP_LOGI(TAG, "Starting advertising (undirected, general discoverable)...");
     rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, nullptr, BLE_HS_FOREVER,
@@ -176,6 +182,78 @@ static void HostTask(void* param)
     ESP_LOGI(TAG, "NimBLE host task started");
     nimble_port_run();
     nimble_port_freertos_deinit();
+}
+
+static void StartTask(void* param)
+{
+    (void)param;
+    ESP_LOGI(TAG, "BLE start task running...");
+
+    ESP_LOGI(TAG, "[1/7] Initializing BT controller...");
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    esp_err_t err = esp_bt_controller_init(&bt_cfg);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "  FAILED: esp_bt_controller_init: %s", esp_err_to_name(err));
+        vTaskDelete(nullptr);
+        return;
+    }
+    ESP_LOGI(TAG, "  OK: BT controller initialized");
+
+    ESP_LOGI(TAG, "[2/7] Enabling BLE controller mode...");
+    err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "  FAILED: esp_bt_controller_enable: %s", esp_err_to_name(err));
+        vTaskDelete(nullptr);
+        return;
+    }
+    ESP_LOGI(TAG, "  OK: BLE controller enabled");
+
+    ESP_LOGI(TAG, "[3/7] Initializing NimBLE host stack...");
+    err = esp_nimble_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "  FAILED: esp_nimble_init: %s", esp_err_to_name(err));
+        vTaskDelete(nullptr);
+        return;
+    }
+    ESP_LOGI(TAG, "  OK: NimBLE host initialized");
+
+    ESP_LOGI(TAG, "[4/7] Configuring NimBLE host callbacks...");
+    ble_hs_cfg.reset_cb = OnReset;
+    ble_hs_cfg.sync_cb = OnSync;
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
+    ESP_LOGI(TAG, "  OK: Host callbacks configured (reset_cb, sync_cb)");
+
+    ESP_LOGI(TAG, "[5/7] Registering GATT services...");
+    int rc = ble_gatts_count_cfg(gatt_svcs);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "  FAILED: ble_gatts_count_cfg: %d", rc);
+        vTaskDelete(nullptr);
+        return;
+    }
+    rc = ble_gatts_add_svcs(gatt_svcs);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "  FAILED: ble_gatts_add_svcs: %d", rc);
+        vTaskDelete(nullptr);
+        return;
+    }
+    ESP_LOGI(TAG, "  OK: GATT services registered (1 primary service, 1 characteristic)");
+
+    ESP_LOGI(TAG, "[6/7] Initializing GAP/GATT services and store...");
+    ble_svc_gap_init();
+    ble_svc_gatt_init();
+    ble_store_config_init();
+    ESP_LOGI(TAG, "  OK: GAP/GATT/Store initialized");
+
+    ESP_LOGI(TAG, "[7/7] Starting NimBLE host task...");
+    nimble_port_freertos_init(HostTask);
+    ESP_LOGI(TAG, "  OK: Host task started");
+
+    g_instance->OnInitComplete();
+    ESP_LOGI(TAG, "===== BLE Initialization Complete =====");
+    ESP_LOGI(TAG, "Device name: %s", DEVICE_NAME);
+    ESP_LOGI(TAG, "Advertising will start after host sync (OnSync callback)");
+
+    vTaskDelete(nullptr);
 }
 
 }  // namespace
@@ -227,6 +305,12 @@ void BleServer::Resume()
     ESP_LOGI(TAG, "BLE resumed");
 }
 
+void BleServer::OnInitComplete()
+{
+    running_ = true;
+    status_ = BleStatus::DISABLED;
+}
+
 esp_err_t BleServer::Start()
 {
     if (running_) {
@@ -234,67 +318,23 @@ esp_err_t BleServer::Start()
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "===== BLE Initialization Start =====");
+    ESP_LOGI(TAG, "===== BLE Initialization Start (async task) =====");
 
-    ESP_LOGI(TAG, "[1/7] Initializing BT controller...");
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    esp_err_t err = esp_bt_controller_init(&bt_cfg);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "  FAILED: esp_bt_controller_init: %s", esp_err_to_name(err));
-        return err;
-    }
-    ESP_LOGI(TAG, "  OK: BT controller initialized");
+    BaseType_t ret = xTaskCreate(
+        StartTask,
+        "ble_start",
+        8192,
+        nullptr,
+        5,
+        nullptr
+    );
 
-    ESP_LOGI(TAG, "[2/7] Enabling BLE controller mode...");
-    err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "  FAILED: esp_bt_controller_enable: %s", esp_err_to_name(err));
-        return err;
-    }
-    ESP_LOGI(TAG, "  OK: BLE controller enabled");
-
-    ESP_LOGI(TAG, "[3/7] Initializing NimBLE host stack...");
-    err = esp_nimble_init();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "  FAILED: esp_nimble_init: %s", esp_err_to_name(err));
-        return err;
-    }
-    ESP_LOGI(TAG, "  OK: NimBLE host initialized");
-
-    ESP_LOGI(TAG, "[4/7] Configuring NimBLE host callbacks...");
-    ble_hs_cfg.reset_cb = OnReset;
-    ble_hs_cfg.sync_cb = OnSync;
-    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
-    ESP_LOGI(TAG, "  OK: Host callbacks configured (reset_cb, sync_cb)");
-
-    ESP_LOGI(TAG, "[5/7] Registering GATT services...");
-    int rc = ble_gatts_count_cfg(gatt_svcs);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "  FAILED: ble_gatts_count_cfg: %d", rc);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "  FAILED: xTaskCreate: %d", ret);
         return ESP_FAIL;
     }
-    rc = ble_gatts_add_svcs(gatt_svcs);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "  FAILED: ble_gatts_add_svcs: %d", rc);
-        return ESP_FAIL;
-    }
-    ESP_LOGI(TAG, "  OK: GATT services registered (1 primary service, 1 characteristic)");
 
-    ESP_LOGI(TAG, "[6/7] Initializing GAP/GATT services and store...");
-    ble_svc_gap_init();
-    ble_svc_gatt_init();
-    ble_store_config_init();
-    ESP_LOGI(TAG, "  OK: GAP/GATT/Store initialized");
-
-    ESP_LOGI(TAG, "[7/7] Starting NimBLE host task...");
-    nimble_port_freertos_init(HostTask);
-    ESP_LOGI(TAG, "  OK: Host task started");
-
-    running_ = true;
-    status_ = BleStatus::DISABLED;
-    ESP_LOGI(TAG, "===== BLE Initialization Complete =====");
-    ESP_LOGI(TAG, "Device name: %s", DEVICE_NAME);
-    ESP_LOGI(TAG, "Advertising will start after host sync (OnSync callback)");
+    ESP_LOGI(TAG, "  OK: BLE start task created, initialization will run asynchronously");
     return ESP_OK;
 }
 

@@ -29,6 +29,8 @@ static const char *TAG = "WifiBoard";
 
 // Connection timeout in seconds
 static constexpr int CONNECT_TIMEOUT_SEC = 60;
+// BLE delayed start delay in milliseconds (after WiFi RF resources are free)
+static constexpr int BLE_START_DELAY_MS = 5000;
 
 WifiBoard::WifiBoard() {
     // Create connection timeout timer
@@ -40,6 +42,18 @@ WifiBoard::WifiBoard() {
         .skip_unhandled_events = true
     };
     esp_timer_create(&timer_args, &connect_timer_);
+
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    // Create BLE delayed start timer
+    esp_timer_create_args_t ble_timer_args = {
+        .callback = OnBleStartTimeout,
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "ble_start_timer",
+        .skip_unhandled_events = true
+    };
+    esp_timer_create(&ble_timer_args, &ble_start_timer_);
+#endif
 }
 
 WifiBoard::~WifiBoard() {
@@ -47,6 +61,12 @@ WifiBoard::~WifiBoard() {
         esp_timer_stop(connect_timer_);
         esp_timer_delete(connect_timer_);
     }
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    if (ble_start_timer_) {
+        esp_timer_stop(ble_start_timer_);
+        esp_timer_delete(ble_start_timer_);
+    }
+#endif
 }
 
 std::string WifiBoard::GetBoardType() {
@@ -125,7 +145,10 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             Blufi::GetInstance().deinit();
 #endif
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
-            // WiFi 连接成功后启动 BLE
+            // WiFi 连接成功后启动 BLE（停止延迟定时器，因为此时 RF 资源已稳定）
+            if (ble_start_timer_) {
+                esp_timer_stop(ble_start_timer_);
+            }
             BleServer::GetInstance().Start();
 #endif
             in_config_mode_ = false;
@@ -133,6 +156,14 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             break;
         case NetworkEvent::Scanning:
             ESP_LOGI(TAG, "WiFi scanning");
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+            // 启动 BLE 延迟定时器，在 WiFi 扫描周期结束后启动 BLE
+            // 避免 RF 资源冲突导致 HCI 初始化失败
+            if (ble_start_timer_ && !esp_timer_is_active(ble_start_timer_)) {
+                ESP_LOGI(TAG, "Starting BLE delayed timer (%d ms)", BLE_START_DELAY_MS);
+                esp_timer_start_once(ble_start_timer_, BLE_START_DELAY_MS * 1000ULL);
+            }
+#endif
             break;
         case NetworkEvent::Connecting:
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
@@ -151,6 +182,10 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
         case NetworkEvent::WifiConfigModeExit:
             ESP_LOGI(TAG, "WiFi config mode exited");
             in_config_mode_ = false;
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+            // 配网模式退出后恢复 BLE 广播
+            BleServer::GetInstance().Resume();
+#endif
             // Try to connect with the new credentials
             TryWifiConnect();
             break;
@@ -174,6 +209,16 @@ void WifiBoard::OnWifiConnectTimeout(void* arg) {
 
     WifiManager::GetInstance().StopStation();
     board->StartWifiConfigMode();
+}
+
+void WifiBoard::OnBleStartTimeout(void* arg) {
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    auto* board = static_cast<WifiBoard*>(arg);
+    ESP_LOGI(TAG, "BLE delayed start timer fired, starting BLE now...");
+    BleServer::GetInstance().Start();
+#else
+    (void)arg;
+#endif
 }
 
 void WifiBoard::StartWifiConfigMode() {

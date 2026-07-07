@@ -3,11 +3,11 @@
 #include <lvgl.h>
 
 
-// Wrap around lv_img_dsc_t
 class LvglImage {
 public:
     virtual const lv_img_dsc_t* image_dsc() const = 0;
     virtual bool IsGif() const { return false; }
+    virtual const char* GetFilePath() const { return nullptr; }
     virtual ~LvglImage() = default;
 };
 
@@ -51,4 +51,17 @@ public:
 
 private:
     lv_img_dsc_t image_dsc_;
+};
+
+class LvglSdCardImage : public LvglImage {
+public:
+    LvglSdCardImage(const char* file_path);
+    virtual ~LvglSdCardImage();
+    virtual const lv_img_dsc_t* image_dsc() const override { return &image_dsc_; }
+    virtual bool IsGif() const override;
+    virtual const char* GetFilePath() const override { return file_path_; }
+
+private:
+    lv_img_dsc_t image_dsc_;
+    char file_path_[512];
 };

@@ -1,5 +1,6 @@
 #include "attitude_display.h"
 #include "lvgl_theme.h"
+#include "lvgl_image.h"
 #include "application.h"
 #include "assets/lang_config.h"
 #include "board.h"
@@ -521,9 +522,11 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
     preview_image_cache_ = std::move(image);
     auto img_dsc = preview_image_cache_->image_dsc();
     bool is_gif = preview_image_cache_->IsGif();
+    const char* file_path = preview_image_cache_->GetFilePath();
 
-    ESP_LOGI(TAG, "SetPreviewImage: %dx%d cf=%d is_gif=%d",
-             img_dsc->header.w, img_dsc->header.h, (int)img_dsc->header.cf, is_gif ? 1 : 0);
+    ESP_LOGI(TAG, "SetPreviewImage: %dx%d cf=%d is_gif=%d file=%s",
+             img_dsc->header.w, img_dsc->header.h, (int)img_dsc->header.cf, is_gif ? 1 : 0,
+             file_path ? file_path : "null");
 
     if (is_gif) {
         // GIF：改用 lv_image widget 显示第一帧（LVGL 9.x 已移除 lv_gif，暂不支持动画）
@@ -533,7 +536,11 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
             lvgl_port_unlock();
             return;
         }
-        lv_image_set_src(preview_gif_, img_dsc);
+        if (file_path) {
+            lv_image_set_src(preview_gif_, file_path);
+        } else {
+            lv_image_set_src(preview_gif_, img_dsc);
+        }
         lv_obj_remove_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
         if (preview_image_ != nullptr) {
             lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
@@ -546,7 +553,11 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
             lvgl_port_unlock();
             return;
         }
-        lv_image_set_src(preview_image_, img_dsc);
+        if (file_path) {
+            lv_image_set_src(preview_image_, file_path);
+        } else {
+            lv_image_set_src(preview_image_, img_dsc);
+        }
         if (img_dsc->header.w > 0 && img_dsc->header.h > 0) {
             lv_image_set_scale(preview_image_, 128 * DEBUG_INFO_CARD_W / img_dsc->header.w);
         }
@@ -573,6 +584,84 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
     preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, 10000, this);
 
     lvgl_port_unlock();
+}
+
+// 不加锁版本，供已持有 DisplayLockGuard 的调用方使用
+void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image)
+{
+    if (image == nullptr) {
+        if (preview_image_hide_timer_ != nullptr) {
+            lv_timer_del(preview_image_hide_timer_);
+            preview_image_hide_timer_ = nullptr;
+        }
+        if (preview_image_ != nullptr) {
+            lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (preview_gif_ != nullptr) {
+            lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (image_overlay_card_ != nullptr) {
+            lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+        }
+        preview_image_cache_.reset();
+        if (attitude_container_ != nullptr) {
+            lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+
+    if (image_overlay_card_ == nullptr) {
+        ESP_LOGE(TAG, "SetPreviewImageUnlocked: image_overlay_card_ not created");
+        return;
+    }
+
+    preview_image_cache_ = std::move(image);
+    auto img_dsc = preview_image_cache_->image_dsc();
+    bool is_gif = preview_image_cache_->IsGif();
+
+    ESP_LOGI(TAG, "SetPreviewImageUnlocked: %dx%d cf=%d is_gif=%d",
+             img_dsc->header.w, img_dsc->header.h, (int)img_dsc->header.cf, is_gif ? 1 : 0);
+
+    if (is_gif) {
+        if (preview_gif_ == nullptr) {
+            ESP_LOGE(TAG, "SetPreviewImageUnlocked: preview_gif_ not created");
+            preview_image_cache_.reset();
+            return;
+        }
+        lv_image_set_src(preview_gif_, img_dsc);
+        lv_obj_remove_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+        if (preview_image_ != nullptr) {
+            lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else {
+        if (preview_image_ == nullptr) {
+            ESP_LOGE(TAG, "SetPreviewImageUnlocked: preview_image_ not created");
+            preview_image_cache_.reset();
+            return;
+        }
+        lv_image_set_src(preview_image_, img_dsc);
+        if (img_dsc->header.w > 0 && img_dsc->header.h > 0) {
+            lv_image_set_scale(preview_image_, 128 * DEBUG_INFO_CARD_W / img_dsc->header.w);
+        }
+        lv_obj_center(preview_image_);
+        lv_obj_remove_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+        if (preview_gif_ != nullptr) {
+            lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    lv_obj_remove_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+    if (attitude_container_ != nullptr) {
+        lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+    ESP_LOGI(TAG, "SetPreviewImageUnlocked: displayed %s %dx%d",
+             is_gif ? "GIF" : "image",
+             img_dsc->header.w, img_dsc->header.h);
+
+    if (preview_image_hide_timer_ != nullptr) {
+        lv_timer_del(preview_image_hide_timer_);
+    }
+    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, 10000, this);
 }
 
 void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
@@ -640,6 +729,16 @@ void AttitudeDisplay::CreateFortuneMenuRing()
              FORTUNE_MENU_COUNT, FORTUNE_MENU_ICON_GLYPH_PX,
              FORTUNE_MENU_RING_RADIUS, FORTUNE_MENU_TOUCH_INNER_R,
              FORTUNE_MENU_TOUCH_OUTER_R);
+
+    // 启动运势菜单环自动旋转（60秒/圈，逆时针）
+    if (fortune_menu_rotation_timer_ != nullptr) {
+        lv_timer_delete(fortune_menu_rotation_timer_);
+    }
+    fortune_menu_rotation_angle_ = 0;
+    fortune_menu_rotation_timer_ = lv_timer_create(OnFortuneMenuRotationTimer,
+                                                    kFortuneMenuRotationIntervalMs, this);
+    ESP_LOGI(TAG, "Fortune menu auto rotation started (period=%dms, interval=%dms, CCW)",
+             kFortuneMenuRotationPeriodMs, kFortuneMenuRotationIntervalMs);
 }
 
 static void OnFortuneMenuRingTouched(lv_event_t* e)
@@ -693,6 +792,42 @@ void AttitudeDisplay::CreateFortuneMenuRingTouch()
              FORTUNE_MENU_TOUCH_INNER_R, FORTUNE_MENU_TOUCH_OUTER_R);
 }
 
+void AttitudeDisplay::OnFortuneMenuRotationTimer(lv_timer_t* timer)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+    if (self == nullptr) return;
+    // 60秒一圈 = 每200ms旋转1.2度 = 12个0.1度单位
+    const int steps = self->kFortuneMenuRotationPeriodMs / self->kFortuneMenuRotationIntervalMs;
+    const int step = (steps > 0) ? (3600 / steps) : 12;
+    self->fortune_menu_rotation_angle_ += step;
+    self->fortune_menu_rotation_angle_ %= 3600;
+    self->UpdateFortuneMenuRingRotation();
+}
+
+void AttitudeDisplay::UpdateFortuneMenuRingRotation()
+{
+    const double start_rad = FORTUNE_MENU_START_ANGLE_DEG * M_PI / 180.0;
+    const double step_rad = 2.0 * M_PI / FORTUNE_MENU_COUNT;
+    const double rotation_offset_rad = fortune_menu_rotation_angle_ * M_PI / 1800.0;
+
+    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
+        if (fortune_menu_labels_[i] == nullptr) {
+            continue;
+        }
+        const double angle = start_rad + step_rad * i + rotation_offset_rad;
+        const int cx = ATTITUDE_CENTER_X + static_cast<int>(std::lround(
+            FORTUNE_MENU_RING_RADIUS * std::cos(angle)));
+        const int cy = ATTITUDE_CENTER_Y + static_cast<int>(std::lround(
+            FORTUNE_MENU_RING_RADIUS * std::sin(angle)));
+        fortune_menu_center_x_[i] = cx;
+        fortune_menu_center_y_[i] = cy;
+
+        const int w = lv_obj_get_width(fortune_menu_labels_[i]);
+        const int h = lv_obj_get_height(fortune_menu_labels_[i]);
+        lv_obj_set_pos(fortune_menu_labels_[i], cx - w / 2, cy - h / 2);
+    }
+}
+
 void AttitudeDisplay::PlayFortuneMenuSelectSound()
 {
     Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
@@ -714,9 +849,9 @@ void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
         PlayFortuneMenuSelectSound();
     }
     UpdateFortuneMenuItemVisual(index, true);
-    // 通过 DebugInfo 卡展示当前主功能的一级分类（Boot 选中/循环选中均触发）
-    ShowFortuneFeatureCategoryUnlocked(index);
 
+    SetPreviewImageUnlocked(nullptr);
+    ShowFortuneFeatureCategoryUnlocked(index);
     ESP_LOGI(TAG, "Fortune menu select -> %d (%s)", index,
              kFortuneMenuDefs[index].func_label);
 }
@@ -735,6 +870,7 @@ void AttitudeDisplay::DeselectFortuneMenuItemUnlocked()
         UpdateFortuneMenuItemVisual(prev, false);
     }
     HideDebugInfoUnlocked();
+    SetPreviewImageUnlocked(nullptr);
 }
 
 void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
@@ -753,9 +889,8 @@ void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
         fortune_menu_applied_scale_[index] = scale;
         lv_obj_update_layout(fortune_menu_labels_[index]);
     }
-    lv_color_t normal_color = (ble_status_ == BleStatus::CONNECTED) ? COLOR_BT_BLUE : COLOR_TEXT_MAIN;
     lv_obj_set_style_text_color(fortune_menu_labels_[index],
-        selected ? COLOR_TEXT_HIGH : normal_color, 0);
+        selected ? COLOR_TEXT_HIGH : COLOR_TEXT_MAIN, 0);
     const int w = lv_obj_get_width(fortune_menu_labels_[index]);
     const int h = lv_obj_get_height(fortune_menu_labels_[index]);
     lv_obj_set_pos(fortune_menu_labels_[index], cx - w / 2, cy - h / 2);
@@ -775,11 +910,12 @@ void AttitudeDisplay::CycleFortuneMenuSelectionUnlocked()
     UpdateFortuneMenuItemVisual(prev, false);
     UpdateFortuneMenuItemVisual(fortune_menu_selected_index_, true);
     PlayFortuneMenuSelectSound();
-    // 循环选中同样展示当前主功能的一级分类
-    ShowFortuneFeatureCategoryUnlocked(fortune_menu_selected_index_);
+
+    const int idx = fortune_menu_selected_index_;
+    SetPreviewImageUnlocked(nullptr);
+    ShowFortuneFeatureCategoryUnlocked(idx);
     ESP_LOGI(TAG, "Fortune menu selected -> %d (%s)",
-             fortune_menu_selected_index_,
-             kFortuneMenuDefs[fortune_menu_selected_index_].func_label);
+             idx, kFortuneMenuDefs[idx].func_label);
 }
 
 void AttitudeDisplay::CycleFortuneMenuSelection()
@@ -790,6 +926,13 @@ void AttitudeDisplay::CycleFortuneMenuSelection()
 
 void AttitudeDisplay::SetFortuneMenuVisible(bool visible)
 {
+    if (fortune_menu_rotation_timer_ != nullptr) {
+        if (visible) {
+            lv_timer_resume(fortune_menu_rotation_timer_);
+        } else {
+            lv_timer_pause(fortune_menu_rotation_timer_);
+        }
+    }
     if (fortune_menu_ring_touch_ != nullptr) {
         if (visible) {
             lv_obj_remove_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_HIDDEN);
@@ -1053,7 +1196,7 @@ void AttitudeDisplay::ApplyWifiFisheyeStyle(WifiStatus status)
         StartFisheyePulse(wifi_fisheye_);
         break;
     case WifiStatus::CONNECTED:
-        lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeGold, 0);
+        lv_obj_set_style_text_color(wifi_fisheye_icon_, COLOR_WIFI_GREEN, 0);
         lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI);
         break;
     default:
@@ -1121,16 +1264,11 @@ void AttitudeDisplay::UpdateBleFisheye(BleStatus status)
     DisplayLockGuard lock(this);
     ble_status_ = status;
     ApplyBleFisheyeStyle(status);
-    SetGoldElementsColor(status == BleStatus::CONNECTED);
+    // BLE 连接时只改变太极圈颜色，断开时恢复金色
+    lv_color_t taiji_color = (status == BleStatus::CONNECTED) ? COLOR_BT_BLUE : COLOR_TEXT_MAIN;
+    UpdateTaijiGoldRingColor(taiji_color);
     UpdateOuterRingColor();
     ESP_LOGI(TAG, "BLE fisheye status -> %d", static_cast<int>(status));
-}
-
-void AttitudeDisplay::SetGoldElementsColor(bool is_bt_connected)
-{
-    lv_color_t color = is_bt_connected ? COLOR_BT_BLUE : COLOR_TEXT_MAIN;
-    ApplyGoldColorToElements(color);
-    UpdateTaijiGoldRingColor(color);
 }
 
 void AttitudeDisplay::UpdateOuterRingColor()
@@ -1141,34 +1279,8 @@ void AttitudeDisplay::UpdateOuterRingColor()
     lv_color_t color = COLOR_TEXT_MAIN;
     if (wifi_status_ == WifiStatus::CONNECTED) {
         color = COLOR_WIFI_GREEN;
-    } else if (ble_status_ == BleStatus::CONNECTED) {
-        color = COLOR_BT_BLUE;
     }
     lv_obj_set_style_arc_color(layer4_outer_ring_, color, LV_PART_INDICATOR);
-}
-
-void AttitudeDisplay::ApplyGoldColorToElements(lv_color_t color)
-{
-    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
-        if (fortune_menu_labels_[i] != nullptr) {
-            bool is_selected = fortune_menu_selection_active_ && (i == fortune_menu_selected_index_);
-            lv_obj_set_style_text_color(fortune_menu_labels_[i],
-                is_selected ? COLOR_TEXT_HIGH : color, 0);
-        }
-    }
-
-    if (debug_info_title_ != nullptr) {
-        lv_obj_set_style_text_color(debug_info_title_, color, 0);
-    }
-
-    auto screen = lv_screen_active();
-    if (screen != nullptr) {
-        lv_obj_set_style_text_color(screen, color, 0);
-    }
-
-    if (wifi_fisheye_icon_ != nullptr) {
-        lv_obj_set_style_text_color(wifi_fisheye_icon_, color, 0);
-    }
 }
 
 void AttitudeDisplay::UpdateTaijiGoldRingColor(lv_color_t color)
@@ -1334,6 +1446,10 @@ void AttitudeDisplay::DestroyDebugInfoCard()
     if (preview_image_hide_timer_ != nullptr) {
         lv_timer_delete(preview_image_hide_timer_);
         preview_image_hide_timer_ = nullptr;
+    }
+    if (fortune_menu_rotation_timer_ != nullptr) {
+        lv_timer_delete(fortune_menu_rotation_timer_);
+        fortune_menu_rotation_timer_ = nullptr;
     }
     if (function_area_card_ != nullptr) {
         lv_obj_del(function_area_card_);

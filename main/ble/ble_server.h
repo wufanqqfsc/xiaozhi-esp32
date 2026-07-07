@@ -28,6 +28,9 @@ public:
     /** Called from NimBLE GAP callbacks (not for external use). */
     void NotifyStatus(BleStatus status);
 
+    /** Called from async start task to mark initialization complete. */
+    void OnInitComplete();
+
     BleServer(const BleServer&) = delete;
     BleServer& operator=(const BleServer&) = delete;
 

@@ -74,3 +74,29 @@ bool LvglAllocatedImage::IsGif() const {
     auto ptr = (const uint8_t*)image_dsc_.data;
     return ptr[0] == 'G' && ptr[1] == 'I' && ptr[2] == 'F';
 }
+
+LvglSdCardImage::LvglSdCardImage(const char* file_path) {
+    bzero(&image_dsc_, sizeof(image_dsc_));
+    size_t len = strlen(file_path);
+    if (len >= sizeof(file_path_)) {
+        len = sizeof(file_path_) - 1;
+    }
+    memcpy(file_path_, file_path, len);
+    file_path_[len] = '\0';
+
+    image_dsc_.data = (uint8_t*)file_path_;
+    image_dsc_.data_size = len;
+    image_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+    image_dsc_.header.cf = LV_COLOR_FORMAT_UNKNOWN;
+    ESP_LOGI(TAG, "LvglSdCardImage created: %s", file_path_);
+}
+
+LvglSdCardImage::~LvglSdCardImage() {
+}
+
+bool LvglSdCardImage::IsGif() const {
+    size_t len = strlen(file_path_);
+    if (len < 4) return false;
+    const char* ext = file_path_ + len - 4;
+    return strcasecmp(ext, ".gif") == 0;
+}

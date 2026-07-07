@@ -136,6 +136,38 @@ SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
 #endif
     lvgl_port_init(&port_cfg);
 
+    ESP_LOGI(TAG, "Registering LVGL filesystem driver for SD card...");
+    lv_fs_drv_t fs_drv;
+    lv_fs_drv_init(&fs_drv);
+    fs_drv.letter = 'S';
+    fs_drv.open_cb = [](lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode) -> void* {
+        (void)drv;
+        const char* flags = (mode == LV_FS_MODE_RD) ? "rb" : "wb";
+        return fopen(path, flags);
+    };
+    fs_drv.close_cb = [](lv_fs_drv_t* drv, void* file_p) -> lv_fs_res_t {
+        (void)drv;
+        fclose((FILE*)file_p);
+        return LV_FS_RES_OK;
+    };
+    fs_drv.read_cb = [](lv_fs_drv_t* drv, void* file_p, void* buf, uint32_t btr, uint32_t* br) -> lv_fs_res_t {
+        (void)drv;
+        *br = fread(buf, 1, btr, (FILE*)file_p);
+        return LV_FS_RES_OK;
+    };
+    fs_drv.seek_cb = [](lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whence_t whence) -> lv_fs_res_t {
+        (void)drv;
+        fseek((FILE*)file_p, pos, whence);
+        return LV_FS_RES_OK;
+    };
+    fs_drv.tell_cb = [](lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p) -> lv_fs_res_t {
+        (void)drv;
+        *pos_p = ftell((FILE*)file_p);
+        return LV_FS_RES_OK;
+    };
+    lv_fs_drv_register(&fs_drv);
+    ESP_LOGI(TAG, "  OK: LVGL filesystem driver 'S:' registered");
+
     // SPI 屏须用 DMA 内部 RAM 绘制缓冲；整帧 PSRAM 双缓冲会导致白屏
     const uint32_t draw_lines = 72;
     const uint32_t draw_buf_pixels = static_cast<uint32_t>(width_) * draw_lines;

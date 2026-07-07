@@ -143,7 +143,6 @@ public:
     WifiStatus GetWifiFisheyeStatus() const { return wifi_status_; }
     BleStatus GetBleFisheyeStatus() const { return ble_status_; }
 
-    void SetGoldElementsColor(bool is_bt_connected);
     void UpdateOuterRingColor();
 
     // 运势菜单（短按选中、长按确认；结果卡 Plan A 已彻底删除）
@@ -190,6 +189,14 @@ private:
     bool fortune_menu_selection_active_ = false;
     int fortune_menu_applied_scale_[FORTUNE_MENU_COUNT] = {};
 
+    // 运势菜单环自动旋转（60秒/圈，逆时针）
+    lv_timer_t* fortune_menu_rotation_timer_ = nullptr;
+    int fortune_menu_rotation_angle_ = 0; // 0.1°单位，逆时针旋转偏移
+    static constexpr int kFortuneMenuRotationPeriodMs = 60000;
+    static constexpr int kFortuneMenuRotationIntervalMs = 200;
+    static void OnFortuneMenuRotationTimer(lv_timer_t* timer);
+    void UpdateFortuneMenuRingRotation();
+
     float current_pitch_ = 0.0f;
     float current_roll_ = 0.0f;
     float current_yaw_ = 0.0f;
@@ -221,7 +228,6 @@ private:
     void UpdateWifiFisheyeBorderColor(WifiStatus status);
     void UpdateBleFisheyeBorderColor(BleStatus status);
 
-    void ApplyGoldColorToElements(lv_color_t color);
     void UpdateTaijiGoldRingColor(lv_color_t color);
 
     void CreateBackground();
@@ -238,6 +244,8 @@ private:
     void PlayFortuneMenuSelectSound();
     // 在 DebugInfo 卡上展示指定索引主功能的一级分类（持锁状态下调用）
     void ShowFortuneFeatureCategoryUnlocked(int index);
+    // 图片显示（持锁状态下调用，不加锁版本）
+    void SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image);
 
     void SetTaijiCoreVisible(bool visible);
 

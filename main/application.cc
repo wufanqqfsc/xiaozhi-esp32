@@ -292,9 +292,9 @@ void Application::Initialize() {
             ApplyBleFisheyeStatus(status);
         });
     });
-    // BLE 在 StartNetwork 完成后由 WifiBoard::OnNetworkEvent(Connected) 启动，
-    // 或者在 StartWifiConfigMode 时暂停。
-    // 注意：如果要开机即启 BLE，需确保 WiFi 初始化成功，否则会因内存不足导致 ESP_ERR_NO_MEM。
+    // BLE 在 StartNetwork 后由 WifiBoard::OnNetworkEvent(Scanning) 启动，
+    // 确保开机进入扫描阶段即可被蓝牙发现，不依赖 WiFi 连接成功。
+    // 进入配网模式（SoftAP/Blufi）时会暂停广播避免共存冲突。
 #endif
 
     // Start network asynchronously

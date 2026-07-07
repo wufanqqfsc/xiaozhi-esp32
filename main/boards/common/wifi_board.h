@@ -9,6 +9,7 @@
 class WifiBoard : public Board {
 protected:
     esp_timer_handle_t connect_timer_ = nullptr;
+    esp_timer_handle_t ble_start_timer_ = nullptr;  // BLE 延迟启动定时器
     bool in_config_mode_ = false;
     NetworkEventCallback network_event_callback_ = nullptr;
 
@@ -35,6 +36,11 @@ protected:
      * WiFi connection timeout callback
      */
     static void OnWifiConnectTimeout(void* arg);
+
+    /**
+     * BLE delayed start callback (after WiFi RF resources are free)
+     */
+    static void OnBleStartTimeout(void* arg);
 
 public:
     WifiBoard();
