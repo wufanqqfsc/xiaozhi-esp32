@@ -11,7 +11,13 @@ protected:
     esp_timer_handle_t connect_timer_ = nullptr;
     esp_timer_handle_t ble_start_timer_ = nullptr;  // BLE 延迟启动定时器
     bool in_config_mode_ = false;
+    bool seen_connecting_ = false;
+    int scan_rounds_without_connect_ = 0;
     NetworkEventCallback network_event_callback_ = nullptr;
+
+    static constexpr int kNoApScanRoundsBeforeConfig = 2;
+
+    void EnsureDefaultWifiCredentials();
 
     virtual std::string GetBoardJson() override;
 

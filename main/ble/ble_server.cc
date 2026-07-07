@@ -282,11 +282,14 @@ void BleServer::NotifyStatus(BleStatus status)
 
 void BleServer::Pause()
 {
-    if (!running_) {
-        return;
-    }
+    // 即使 BLE 尚未完成异步初始化，也要先标记 paused，
+    // 避免 OnSync/延迟定时器在配网 SoftAP 期间拉起广播导致共存崩溃。
     g_paused = true;
     paused_ = true;
+    if (!running_) {
+        ESP_LOGI(TAG, "BLE pause requested (init pending)");
+        return;
+    }
     if (g_advertising) {
         ble_gap_adv_stop();
         g_advertising = false;

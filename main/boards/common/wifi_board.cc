@@ -110,26 +110,57 @@ void WifiBoard::StartNetwork() {
     TryWifiConnect();
 }
 
-void WifiBoard::TryWifiConnect() {
+void WifiBoard::EnsureDefaultWifiCredentials() {
+#ifdef CONFIG_XIAOZHI_WIFI_DEFAULT_SSID
+    if (CONFIG_XIAOZHI_WIFI_DEFAULT_SSID[0] == '\0') {
+        ESP_LOGW(TAG, "Factory default WiFi SSID is empty");
+        return;
+    }
     auto& ssid_manager = SsidManager::GetInstance();
-    bool have_ssid = !ssid_manager.GetSsidList().empty();
+    
+    // Check if the default SSID is already in the list
+    auto list = ssid_manager.GetSsidList();
+    bool found = false;
+    for (const auto& item : list) {
+        if (item.ssid == CONFIG_XIAOZHI_WIFI_DEFAULT_SSID) {
+            found = true;
+            break;
+        }
+    }
+    
+    if (!found) {
+        ESP_LOGI(TAG, "Seeding factory default WiFi: %s", CONFIG_XIAOZHI_WIFI_DEFAULT_SSID);
+        ssid_manager.AddSsid(CONFIG_XIAOZHI_WIFI_DEFAULT_SSID, CONFIG_XIAOZHI_WIFI_DEFAULT_PASSWORD);
+    }
+#else
+    ESP_LOGW(TAG, "No factory default WiFi SSID configured");
+#endif
+}
 
-    if (have_ssid) {
+void WifiBoard::TryWifiConnect() {
+    seen_connecting_ = false;
+    scan_rounds_without_connect_ = 0;
+
+    auto& ssid_manager = SsidManager::GetInstance();
+    
+    // 如果没有任何 WiFi 记录，先尝试从 SD 卡自动恢复
+    if (ssid_manager.GetSsidList().empty()) {
+        int restored = WifiConfigBackup::GetInstance().AutoRestore();
+        if (restored > 0) {
+            ESP_LOGI(TAG, "Auto-restored %d WiFi network(s) from SD card", restored);
+        }
+    }
+
+    // 确保出厂默认 WiFi 始终作为一个可用选项（如果配置了的话）
+    EnsureDefaultWifiCredentials();
+
+    if (!ssid_manager.GetSsidList().empty()) {
         // Start connection attempt with timeout
         ESP_LOGI(TAG, "Starting WiFi connection attempt");
         esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
         WifiManager::GetInstance().StartStation();
     } else {
-        // 先尝试从 SD 卡自动恢复 WiFi 配置
-        int restored = WifiConfigBackup::GetInstance().AutoRestore();
-        if (restored > 0) {
-            ESP_LOGI(TAG, "Auto-restored %d WiFi network(s) from SD card, connecting...", restored);
-            esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
-            WifiManager::GetInstance().StartStation();
-            return;
-        }
-        // No SSID configured, enter config mode
-        // Wait for the board version to be shown
+        // 依然无凭据，直接进入配网模式
         vTaskDelay(pdMS_TO_TICKS(1500));
         StartWifiConfigMode();
     }
@@ -139,6 +170,8 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
     switch (event) {
         case NetworkEvent::Connected:
             // Stop timeout timer
+            seen_connecting_ = true;
+            scan_rounds_without_connect_ = 0;
             esp_timer_stop(connect_timer_);
 #ifdef CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
             // make sure blufi resources has been released
@@ -156,19 +189,35 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             break;
         case NetworkEvent::Scanning:
             ESP_LOGI(TAG, "WiFi scanning");
+            if (!in_config_mode_ && !seen_connecting_ && connect_timer_ != nullptr
+                && esp_timer_is_active(connect_timer_)) {
+                scan_rounds_without_connect_++;
+                if (scan_rounds_without_connect_ >= kNoApScanRoundsBeforeConfig) {
+                    ESP_LOGW(TAG, "Default WiFi not found after %d scan round(s), entering config mode",
+                             scan_rounds_without_connect_);
+                    esp_timer_stop(connect_timer_);
+                    WifiManager::GetInstance().StopStation();
+                    StartWifiConfigMode();
+                    break;
+                }
+            }
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
             // 启动 BLE 延迟定时器，在 WiFi 扫描周期结束后启动 BLE
             // 避免 RF 资源冲突导致 HCI 初始化失败
-            if (ble_start_timer_ && !esp_timer_is_active(ble_start_timer_)) {
+            if (!in_config_mode_ && ble_start_timer_ && !esp_timer_is_active(ble_start_timer_)) {
                 ESP_LOGI(TAG, "Starting BLE delayed timer (%d ms)", BLE_START_DELAY_MS);
                 esp_timer_start_once(ble_start_timer_, BLE_START_DELAY_MS * 1000ULL);
             }
 #endif
             break;
         case NetworkEvent::Connecting:
+            seen_connecting_ = true;
+            scan_rounds_without_connect_ = 0;
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
             // WiFi 开始连接时就启动 BLE（在连接超时进入配网模式之前）
-            BleServer::GetInstance().Start();
+            if (!in_config_mode_) {
+                BleServer::GetInstance().Start();
+            }
 #endif
             ESP_LOGI(TAG, "WiFi connecting to %s", data.c_str());
             break;
@@ -214,6 +263,10 @@ void WifiBoard::OnWifiConnectTimeout(void* arg) {
 void WifiBoard::OnBleStartTimeout(void* arg) {
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
     auto* board = static_cast<WifiBoard*>(arg);
+    if (board != nullptr && board->in_config_mode_) {
+        ESP_LOGI(TAG, "BLE delayed start skipped: WiFi config mode active");
+        return;
+    }
     ESP_LOGI(TAG, "BLE delayed start timer fired, starting BLE now...");
     BleServer::GetInstance().Start();
 #else
@@ -223,6 +276,11 @@ void WifiBoard::OnBleStartTimeout(void* arg) {
 
 void WifiBoard::StartWifiConfigMode() {
     in_config_mode_ = true;
+#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
+    if (ble_start_timer_) {
+        esp_timer_stop(ble_start_timer_);
+    }
+#endif
     // Transition to wifi configuring state
     Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
 #ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING

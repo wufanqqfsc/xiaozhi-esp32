@@ -537,7 +537,7 @@ private:
 
         // Boot Button
         button_config_t boot_btn_config = {
-            .long_press_time = 2000,
+            .long_press_time = 3000,
             .short_press_time = 0
         };
         boot_btn_driver_ = (button_driver_t*)calloc(1, sizeof(button_driver_t));
@@ -570,7 +570,7 @@ private:
 
         // Power Button
         button_config_t pwr_btn_config = {
-            .long_press_time = 5000,
+            .long_press_time = 3000,
             .short_press_time = 0
         };
         pwr_btn_driver_ = (button_driver_t*)calloc(1, sizeof(button_driver_t));

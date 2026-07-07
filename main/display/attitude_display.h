@@ -63,6 +63,12 @@ static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of 
 #define FORTUNE_MENU_TOUCH_INNER_R   (TAIJI_RADIUS - 4)
 #define FORTUNE_MENU_TOUCH_OUTER_R   LAYER4_BOUNDARY_RADIUS
 
+// 今日占卜：太极中心 / Boot 长按 3s 触发，15s 时间轴驱动跑马灯，按住可延长
+#define FORTUNE_DIVINATION_HOLD_MS           3000
+#define FORTUNE_DIVINATION_DURATION_MS       15000
+#define FORTUNE_DIVINATION_RELEASE_FINISH_MS 5000
+#define FORTUNE_DIVINATION_TICK_MS           25
+
 enum class FortuneMenuType : int {
     Today = 0,      // fortune.today
     Wealth = 1,     // fortune.wealth
@@ -98,7 +104,11 @@ enum class BleStatus {
     CONNECTED = 2,
 };
 
-// 运势菜单状态已彻底简化为：始终为 Idle（Plan A 结果卡与 Animating/Result 状态机已删除）
+enum class FortuneDivinationState {
+    Idle = 0,
+    Animating = 1,
+    Result = 2,
+};
 
 class AttitudeDisplay : public SpiLcdDisplay {
 public:
@@ -157,7 +167,7 @@ public:
     void RefreshDebugInfoTimer(uint32_t hold_ms = 0);
     /** Boot 短按：Idle 循环选中运势入口 */
     bool HandleBootKey();
-    /** Boot 长按：Idle 触发当前选中运势（确定） */
+    /** Boot 长按 3s：触发今日占卜跑马灯 */
     bool HandleFortuneBootLongPress();
     /** 电源键短按：返回/取消 - 取消选中、隐藏功能区 */
     bool HandlePowerKey();
@@ -165,6 +175,8 @@ public:
     void SelectFortuneMenuItem(int index);
     /** 循环选中下一个运势菜单项 */
     void CycleFortuneMenuSelection();
+    /** 占卜动画或结果展示进行中 */
+    bool IsFortuneDivinationBusy() const;
 
 private:
     lv_obj_t* attitude_container_ = nullptr;
@@ -189,13 +201,19 @@ private:
     bool fortune_menu_selection_active_ = false;
     int fortune_menu_applied_scale_[FORTUNE_MENU_COUNT] = {};
 
-    // 运势菜单环自动旋转（60秒/圈，逆时针）
-    lv_timer_t* fortune_menu_rotation_timer_ = nullptr;
-    int fortune_menu_rotation_angle_ = 0; // 0.1°单位，逆时针旋转偏移
-    static constexpr int kFortuneMenuRotationPeriodMs = 60000;
-    static constexpr int kFortuneMenuRotationIntervalMs = 200;
-    static void OnFortuneMenuRotationTimer(lv_timer_t* timer);
-    void UpdateFortuneMenuRingRotation();
+    FortuneDivinationState fortune_divination_state_ = FortuneDivinationState::Idle;
+    lv_timer_t* fortune_divination_timer_ = nullptr;
+    lv_timer_t* taiji_hold_timer_ = nullptr;
+    uint32_t fortune_divination_start_ms_ = 0;
+    uint32_t fortune_divination_finish_deadline_ms_ = 0;
+    bool taiji_pressed_during_anim_ = false;
+    bool fortune_divination_from_taiji_ = false;
+    int fortune_divination_last_tick_index_ = -1;
+    int fortune_divination_highlight_ = -1;
+    int fortune_divination_result_ = -1;
+    bool taiji_hold_pending_ = false;
+    lv_obj_t* taiji_divination_touch_ = nullptr;
+    lv_obj_t* divination_hint_label_ = nullptr;
 
     float current_pitch_ = 0.0f;
     float current_roll_ = 0.0f;
@@ -235,6 +253,8 @@ private:
     void CreateLayer4Boundary();
     void CreateFortuneMenuRing();
     void CreateFortuneMenuRingTouch();
+    void CreateTaijiDivinationTouch();
+    void CreateDivinationHintLabel();
     void SetFortuneMenuVisible(bool visible);
     void SelectFortuneMenuItemUnlocked(int index);
     void DeselectFortuneMenuItemUnlocked();
@@ -242,6 +262,19 @@ private:
     void UpdateFortuneMenuItemVisual(int index, bool selected);
     void CycleFortuneMenuSelectionUnlocked();
     void PlayFortuneMenuSelectSound();
+    void PlayFortuneDivinationMarqueeSound();
+    void StartFortuneDivinationUnlocked();
+    void StopFortuneDivinationUnlocked();
+    void FinishFortuneDivinationUnlocked(int result_index);
+    void UpdateFortuneDivinationMarqueeVisual(int active_index);
+    void ResetFortuneMenuIconStyle(int index);
+    void CancelTaijiHoldTimerUnlocked();
+    static void OnFortuneDivinationTick(lv_timer_t* timer);
+    static void OnTaijiHoldTimer(lv_timer_t* timer);
+    static void OnTaijiDivinationPressed(lv_event_t* e);
+    static void OnTaijiDivinationReleased(lv_event_t* e);
+    void ShowDivinationHintUnlocked(const char* text);
+    void HideDivinationHintUnlocked();
     // 在 DebugInfo 卡上展示指定索引主功能的一级分类（持锁状态下调用）
     void ShowFortuneFeatureCategoryUnlocked(int index);
     // 图片显示（持锁状态下调用，不加锁版本）

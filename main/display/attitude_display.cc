@@ -8,6 +8,7 @@
 #include <esp_lvgl_port.h>
 #include <esp_log.h>
 #include <esp_heap_caps.h>
+#include <esp_random.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -310,6 +311,8 @@ void AttitudeDisplay::SetupUI()
     CreateFortuneMenuRing();
     CreateLayer4Boundary();
     CreateFortuneMenuRingTouch();
+    CreateTaijiDivinationTouch();
+    CreateDivinationHintLabel();
     // 方位圆点已移除（v1.2+ 视觉简化，运势高亮见迭代 2 再定）
 
     // ============================================================
@@ -729,22 +732,13 @@ void AttitudeDisplay::CreateFortuneMenuRing()
              FORTUNE_MENU_COUNT, FORTUNE_MENU_ICON_GLYPH_PX,
              FORTUNE_MENU_RING_RADIUS, FORTUNE_MENU_TOUCH_INNER_R,
              FORTUNE_MENU_TOUCH_OUTER_R);
-
-    // 启动运势菜单环自动旋转（60秒/圈，逆时针）
-    if (fortune_menu_rotation_timer_ != nullptr) {
-        lv_timer_delete(fortune_menu_rotation_timer_);
-    }
-    fortune_menu_rotation_angle_ = 0;
-    fortune_menu_rotation_timer_ = lv_timer_create(OnFortuneMenuRotationTimer,
-                                                    kFortuneMenuRotationIntervalMs, this);
-    ESP_LOGI(TAG, "Fortune menu auto rotation started (period=%dms, interval=%dms, CCW)",
-             kFortuneMenuRotationPeriodMs, kFortuneMenuRotationIntervalMs);
 }
 
 static void OnFortuneMenuRingTouched(lv_event_t* e)
 {
     auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
     if (self == nullptr) return;
+    if (self->IsFortuneDivinationBusy()) return;
 
     lv_indev_t* indev = lv_indev_get_act();
     if (indev == nullptr) return;
@@ -792,39 +786,67 @@ void AttitudeDisplay::CreateFortuneMenuRingTouch()
              FORTUNE_MENU_TOUCH_INNER_R, FORTUNE_MENU_TOUCH_OUTER_R);
 }
 
-void AttitudeDisplay::OnFortuneMenuRotationTimer(lv_timer_t* timer)
+namespace {
+
+bool IsPointInTaijiCenter(int x, int y)
 {
-    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
-    if (self == nullptr) return;
-    // 60秒一圈 = 每200ms旋转1.2度 = 12个0.1度单位
-    const int steps = self->kFortuneMenuRotationPeriodMs / self->kFortuneMenuRotationIntervalMs;
-    const int step = (steps > 0) ? (3600 / steps) : 12;
-    self->fortune_menu_rotation_angle_ += step;
-    self->fortune_menu_rotation_angle_ %= 3600;
-    self->UpdateFortuneMenuRingRotation();
+    const int dx = x - ATTITUDE_CENTER_X;
+    const int dy = y - ATTITUDE_CENTER_Y;
+    return (dx * dx + dy * dy) <= (TAIJI_RADIUS * TAIJI_RADIUS);
 }
 
-void AttitudeDisplay::UpdateFortuneMenuRingRotation()
+}  // namespace
+
+void AttitudeDisplay::CreateTaijiDivinationTouch()
 {
-    const double start_rad = FORTUNE_MENU_START_ANGLE_DEG * M_PI / 180.0;
-    const double step_rad = 2.0 * M_PI / FORTUNE_MENU_COUNT;
-    const double rotation_offset_rad = fortune_menu_rotation_angle_ * M_PI / 1800.0;
+    taiji_divination_touch_ = lv_obj_create(attitude_container_);
+    lv_obj_set_size(taiji_divination_touch_, TAIJI_CANVAS_SIZE, TAIJI_CANVAS_SIZE);
+    lv_obj_set_pos(taiji_divination_touch_,
+                   ATTITUDE_CENTER_X - TAIJI_RADIUS,
+                   ATTITUDE_CENTER_Y - TAIJI_RADIUS);
+    lv_obj_set_style_radius(taiji_divination_touch_, TAIJI_RADIUS, 0);
+    lv_obj_set_style_bg_opa(taiji_divination_touch_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(taiji_divination_touch_, 0, 0);
+    lv_obj_set_style_pad_all(taiji_divination_touch_, 0, 0);
+    lv_obj_add_flag(taiji_divination_touch_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(taiji_divination_touch_, OnTaijiDivinationPressed, LV_EVENT_PRESSED, this);
+    lv_obj_add_event_cb(taiji_divination_touch_, OnTaijiDivinationReleased, LV_EVENT_RELEASED, this);
+    lv_obj_add_event_cb(taiji_divination_touch_, OnTaijiDivinationReleased, LV_EVENT_PRESS_LOST, this);
+    if (fortune_menu_ring_touch_ != nullptr) {
+        lv_obj_move_foreground(fortune_menu_ring_touch_);
+    }
+    lv_obj_move_foreground(taiji_divination_touch_);
+    ESP_LOGI(TAG, "Taiji divination touch ready (%dx%d, hold %dms)",
+             TAIJI_CANVAS_SIZE, TAIJI_CANVAS_SIZE, FORTUNE_DIVINATION_HOLD_MS);
+}
 
-    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
-        if (fortune_menu_labels_[i] == nullptr) {
-            continue;
-        }
-        const double angle = start_rad + step_rad * i + rotation_offset_rad;
-        const int cx = ATTITUDE_CENTER_X + static_cast<int>(std::lround(
-            FORTUNE_MENU_RING_RADIUS * std::cos(angle)));
-        const int cy = ATTITUDE_CENTER_Y + static_cast<int>(std::lround(
-            FORTUNE_MENU_RING_RADIUS * std::sin(angle)));
-        fortune_menu_center_x_[i] = cx;
-        fortune_menu_center_y_[i] = cy;
+void AttitudeDisplay::CreateDivinationHintLabel()
+{
+    divination_hint_label_ = lv_label_create(attitude_container_);
+    lv_obj_set_style_text_font(divination_hint_label_, &font_puhui_20_4, 0);
+    lv_obj_set_style_text_color(divination_hint_label_, COLOR_TEXT_MAIN, 0);
+    lv_obj_set_style_bg_opa(divination_hint_label_, LV_OPA_TRANSP, 0);
+    lv_label_set_text(divination_hint_label_, "");
+    lv_label_set_long_mode(divination_hint_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(divination_hint_label_, TAIJI_RADIUS * 2 - 20);
+    lv_obj_set_style_text_align(divination_hint_label_, LV_TEXT_ALIGN_CENTER, 0);
+    // 垂直居中于太极略微偏上的位置
+    lv_obj_align(divination_hint_label_, LV_ALIGN_CENTER, 0, -12);
+    lv_obj_add_flag(divination_hint_label_, LV_OBJ_FLAG_HIDDEN);
+}
 
-        const int w = lv_obj_get_width(fortune_menu_labels_[i]);
-        const int h = lv_obj_get_height(fortune_menu_labels_[i]);
-        lv_obj_set_pos(fortune_menu_labels_[i], cx - w / 2, cy - h / 2);
+void AttitudeDisplay::ShowDivinationHintUnlocked(const char* text)
+{
+    if (divination_hint_label_ == nullptr) return;
+    lv_label_set_text(divination_hint_label_, text);
+    lv_obj_remove_flag(divination_hint_label_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(divination_hint_label_);
+}
+
+void AttitudeDisplay::HideDivinationHintUnlocked()
+{
+    if (divination_hint_label_ != nullptr) {
+        lv_obj_add_flag(divination_hint_label_, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -833,10 +855,305 @@ void AttitudeDisplay::PlayFortuneMenuSelectSound()
     Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
 }
 
+void AttitudeDisplay::PlayFortuneDivinationMarqueeSound()
+{
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+}
+
+bool AttitudeDisplay::IsFortuneDivinationBusy() const
+{
+    return fortune_divination_state_ == FortuneDivinationState::Animating;
+}
+
+void AttitudeDisplay::ResetFortuneMenuIconStyle(int index)
+{
+    if (index < 0 || index >= FORTUNE_MENU_COUNT || fortune_menu_labels_[index] == nullptr) {
+        return;
+    }
+    lv_obj_t* label = fortune_menu_labels_[index];
+    if (fortune_menu_applied_scale_[index] != FORTUNE_MENU_ICON_SCALE) {
+        lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE, 0);
+        fortune_menu_applied_scale_[index] = FORTUNE_MENU_ICON_SCALE;
+        lv_obj_update_layout(label);
+    }
+    lv_obj_set_style_text_color(label, COLOR_TEXT_MAIN, 0);
+    lv_obj_set_style_shadow_width(label, 0, 0);
+    lv_obj_set_style_shadow_spread(label, 0, 0);
+    const int cx = fortune_menu_center_x_[index];
+    const int cy = fortune_menu_center_y_[index];
+    const int w = lv_obj_get_width(label);
+    const int h = lv_obj_get_height(label);
+    lv_obj_set_pos(label, cx - w / 2, cy - h / 2);
+}
+
+void AttitudeDisplay::UpdateFortuneDivinationMarqueeVisual(int active_index)
+{
+    fortune_divination_highlight_ = active_index;
+    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
+        if (fortune_menu_labels_[i] == nullptr) {
+            continue;
+        }
+        lv_obj_t* label = fortune_menu_labels_[i];
+        const int cx = fortune_menu_center_x_[i];
+        const int cy = fortune_menu_center_y_[i];
+
+        if (i == active_index) {
+            if (fortune_divination_state_ == FortuneDivinationState::Result) {
+                if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE_SELECTED) {
+                    lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE_SELECTED, 0);
+                    fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
+                    lv_obj_update_layout(label);
+                }
+                lv_obj_set_style_text_color(label, DEBUG_INFO_TITLE_COLOR, 0);
+            } else {
+                if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE_SELECTED) {
+                    lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE_SELECTED, 0);
+                    fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
+                    lv_obj_update_layout(label);
+                }
+                lv_obj_set_style_text_color(label, DEBUG_INFO_BORDER_COLOR, 0);
+            }
+        } else {
+            if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE) {
+                lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE, 0);
+                fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE;
+                lv_obj_update_layout(label);
+            }
+            lv_obj_set_style_text_color(label, COLOR_TEXT_MAIN, 0);
+        }
+        const int w = lv_obj_get_width(label);
+        const int h = lv_obj_get_height(label);
+        lv_obj_set_pos(label, cx - w / 2, cy - h / 2);
+    }
+}
+
+void AttitudeDisplay::CancelTaijiHoldTimerUnlocked()
+{
+    taiji_hold_pending_ = false;
+    if (taiji_hold_timer_ != nullptr) {
+        lv_timer_delete(taiji_hold_timer_);
+        taiji_hold_timer_ = nullptr;
+    }
+}
+
+void AttitudeDisplay::StopFortuneDivinationUnlocked()
+{
+    CancelTaijiHoldTimerUnlocked();
+    if (fortune_divination_timer_ != nullptr) {
+        lv_timer_delete(fortune_divination_timer_);
+        fortune_divination_timer_ = nullptr;
+    }
+    fortune_divination_state_ = FortuneDivinationState::Idle;
+    fortune_divination_start_ms_ = 0;
+    fortune_divination_finish_deadline_ms_ = 0;
+    fortune_divination_last_tick_index_ = -1;
+    fortune_divination_highlight_ = -1;
+    fortune_divination_result_ = -1;
+    taiji_pressed_during_anim_ = false;
+    for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
+        ResetFortuneMenuIconStyle(i);
+    }
+    fortune_menu_selection_active_ = false;
+    HideDivinationHintUnlocked();
+    HideDebugInfoUnlocked();
+}
+
+void AttitudeDisplay::StartFortuneDivinationUnlocked()
+{
+    if (fortune_divination_state_ == FortuneDivinationState::Animating) {
+        return;
+    }
+    bool was_taiji_holding = taiji_hold_pending_;
+    CancelTaijiHoldTimerUnlocked();
+    if (fortune_divination_timer_ != nullptr) {
+        lv_timer_delete(fortune_divination_timer_);
+        fortune_divination_timer_ = nullptr;
+    }
+
+    DeselectFortuneMenuItemUnlocked();
+    fortune_divination_state_ = FortuneDivinationState::Animating;
+    fortune_divination_result_ = static_cast<int>(esp_random() % FORTUNE_MENU_COUNT);
+    fortune_divination_highlight_ = 0;
+    fortune_divination_last_tick_index_ = -1;
+
+    fortune_divination_start_ms_ = lv_tick_get();
+    if (fortune_divination_from_taiji_ && was_taiji_holding) {
+        // Taiji trigger and still holding
+        fortune_divination_finish_deadline_ms_ = 0;
+        taiji_pressed_during_anim_ = true;
+    } else {
+        // Boot long press or already released Taiji
+        fortune_divination_finish_deadline_ms_ = fortune_divination_start_ms_ + FORTUNE_DIVINATION_DURATION_MS;
+        taiji_pressed_during_anim_ = false;
+    }
+
+    HideDivinationHintUnlocked(); // Hide the hold hint during marquee if you want, or show "正在感应..."
+    // According to plan, we can just hide it during marquee to not block Taiji
+    
+    UpdateFortuneDivinationMarqueeVisual(0);
+    PlayFortuneDivinationMarqueeSound();
+
+    fortune_divination_timer_ = lv_timer_create(OnFortuneDivinationTick,
+                                                FORTUNE_DIVINATION_TICK_MS, this);
+    lv_timer_set_repeat_count(fortune_divination_timer_, -1);
+
+    ESP_LOGI(TAG, "Fortune divination started, result will be index %d",
+             fortune_divination_result_);
+}
+
+void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
+{
+    if (result_index < 0 || result_index >= FORTUNE_MENU_COUNT) {
+        return;
+    }
+    if (fortune_divination_timer_ != nullptr) {
+        lv_timer_delete(fortune_divination_timer_);
+        fortune_divination_timer_ = nullptr;
+    }
+
+    fortune_divination_state_ = FortuneDivinationState::Result;
+    fortune_divination_result_ = result_index;
+    fortune_menu_selection_active_ = true;
+    fortune_menu_selected_index_ = result_index;
+
+    UpdateFortuneDivinationMarqueeVisual(result_index);
+    if (result_index != fortune_divination_last_tick_index_) {
+        PlayFortuneDivinationMarqueeSound();
+    }
+    ShowFortuneFeatureCategoryUnlocked(result_index);
+
+    ESP_LOGI(TAG, "Fortune divination finished -> %d (%s)",
+             result_index, kFortuneMenuDefs[result_index].func_label);
+}
+
+void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+    if (self == nullptr) {
+        return;
+    }
+
+    DisplayLockGuard lock(self);
+    if (self->fortune_divination_state_ != FortuneDivinationState::Animating) {
+        return;
+    }
+
+    uint32_t now = lv_tick_get();
+    
+    if (self->fortune_divination_finish_deadline_ms_ != 0 && now >= self->fortune_divination_finish_deadline_ms_) {
+        self->FinishFortuneDivinationUnlocked(self->fortune_divination_result_);
+        return;
+    }
+
+    uint32_t elapsed = now - self->fortune_divination_start_ms_;
+    int step = elapsed / FORTUNE_DIVINATION_TICK_MS;
+    int highlight = step % FORTUNE_MENU_COUNT;
+    
+    // In the last cycle (if we know when it ends), we might want to align it, but since it's time-based,
+    // we can just let it loop and suddenly stop at the result when deadline hits.
+    // However, to make it look nicer, let's just make the step highlight move continuously.
+    
+    self->UpdateFortuneDivinationMarqueeVisual(highlight);
+    if (highlight != self->fortune_divination_last_tick_index_) {
+        self->PlayFortuneDivinationMarqueeSound();
+        self->fortune_divination_last_tick_index_ = highlight;
+    }
+}
+
+void AttitudeDisplay::OnTaijiHoldTimer(lv_timer_t* timer)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+    if (self == nullptr) {
+        return;
+    }
+
+    DisplayLockGuard lock(self);
+    self->taiji_hold_timer_ = nullptr;
+    // 不重置 taiji_hold_pending_，以判断当前手是否还按着
+    if (self->fortune_divination_state_ == FortuneDivinationState::Animating) {
+        return;
+    }
+    self->fortune_divination_from_taiji_ = true;
+    self->StartFortuneDivinationUnlocked();
+}
+
+void AttitudeDisplay::OnTaijiDivinationPressed(lv_event_t* e)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
+    if (self == nullptr) {
+        return;
+    }
+
+    lv_indev_t* indev = lv_indev_get_act();
+    if (indev == nullptr) {
+        return;
+    }
+
+    lv_point_t pt;
+    lv_indev_get_point(indev, &pt);
+    if (!IsPointInTaijiCenter(pt.x, pt.y)) {
+        return;
+    }
+
+    DisplayLockGuard lock(self);
+    
+    // 如果已经在动画中，记录按住延长
+    if (self->fortune_divination_state_ == FortuneDivinationState::Animating) {
+        self->taiji_pressed_during_anim_ = true;
+        self->fortune_divination_finish_deadline_ms_ = 0; // 无限延长
+        return;
+    }
+
+    if (self->IsFortuneDivinationBusy()) {
+        if (self->fortune_divination_state_ == FortuneDivinationState::Result) {
+            self->StopFortuneDivinationUnlocked();
+        } else {
+            return;
+        }
+    }
+
+    self->CancelTaijiHoldTimerUnlocked();
+    self->taiji_hold_pending_ = true;
+    self->ShowDivinationHintUnlocked("今日占卜\n继续按住…");
+    self->taiji_hold_timer_ = lv_timer_create(OnTaijiHoldTimer, FORTUNE_DIVINATION_HOLD_MS, self);
+    lv_timer_set_repeat_count(self->taiji_hold_timer_, 1);
+}
+
+void AttitudeDisplay::OnTaijiDivinationReleased(lv_event_t* e)
+{
+    auto* self = static_cast<AttitudeDisplay*>(lv_event_get_user_data(e));
+    if (self == nullptr) {
+        return;
+    }
+
+    DisplayLockGuard lock(self);
+    
+    // 如果在动画中松手，则设定结束期限为 5s 后
+    if (self->fortune_divination_state_ == FortuneDivinationState::Animating && self->taiji_pressed_during_anim_) {
+        self->taiji_pressed_during_anim_ = false;
+        self->fortune_divination_finish_deadline_ms_ = lv_tick_get() + FORTUNE_DIVINATION_RELEASE_FINISH_MS;
+        return;
+    }
+
+    if (!self->taiji_hold_pending_) {
+        return;
+    }
+    self->CancelTaijiHoldTimerUnlocked();
+    if (self->fortune_divination_state_ != FortuneDivinationState::Animating) {
+        self->HideDivinationHintUnlocked();
+    }
+}
+
 void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
 {
     if (index < 0 || index >= FORTUNE_MENU_COUNT) {
         return;
+    }
+    if (fortune_divination_state_ == FortuneDivinationState::Animating) {
+        return;
+    }
+    if (fortune_divination_state_ == FortuneDivinationState::Result) {
+        StopFortuneDivinationUnlocked();
     }
     const int prev = fortune_menu_selected_index_;
     const bool was_active = fortune_menu_selection_active_;
@@ -926,13 +1243,6 @@ void AttitudeDisplay::CycleFortuneMenuSelection()
 
 void AttitudeDisplay::SetFortuneMenuVisible(bool visible)
 {
-    if (fortune_menu_rotation_timer_ != nullptr) {
-        if (visible) {
-            lv_timer_resume(fortune_menu_rotation_timer_);
-        } else {
-            lv_timer_pause(fortune_menu_rotation_timer_);
-        }
-    }
     if (fortune_menu_ring_touch_ != nullptr) {
         if (visible) {
             lv_obj_remove_flag(fortune_menu_ring_touch_, LV_OBJ_FLAG_HIDDEN);
@@ -985,7 +1295,13 @@ bool AttitudeDisplay::HandlePowerKey()
 {
     DisplayLockGuard lock(this);
 
-    // 1. 选中状态：取消选中
+    if (fortune_divination_state_ != FortuneDivinationState::Idle) {
+        StopFortuneDivinationUnlocked();
+        ESP_LOGI(TAG, "PWR: fortune divination cancelled");
+        return true;
+    }
+
+    // 取消选中
     if (fortune_menu_selection_active_) {
         DeselectFortuneMenuItemUnlocked();
         ESP_LOGI(TAG, "PWR: selection cancelled");
@@ -1294,6 +1610,8 @@ void AttitudeDisplay::UpdateTaijiGoldRingColor(lv_color_t color)
 
 void AttitudeDisplay::EnterIdleState()
 {
+    DisplayLockGuard lock(this);
+    StopFortuneDivinationUnlocked();
     ApplyWifiFisheyeStyle(wifi_status_);
     ApplyBleFisheyeStyle(ble_status_);
 
@@ -1439,6 +1757,7 @@ void AttitudeDisplay::ApplyDebugInfoCardLayout()
 
 void AttitudeDisplay::DestroyDebugInfoCard()
 {
+    StopFortuneDivinationUnlocked();
     if (debug_info_hide_timer_ != nullptr) {
         lv_timer_delete(debug_info_hide_timer_);
         debug_info_hide_timer_ = nullptr;
@@ -1446,10 +1765,6 @@ void AttitudeDisplay::DestroyDebugInfoCard()
     if (preview_image_hide_timer_ != nullptr) {
         lv_timer_delete(preview_image_hide_timer_);
         preview_image_hide_timer_ = nullptr;
-    }
-    if (fortune_menu_rotation_timer_ != nullptr) {
-        lv_timer_delete(fortune_menu_rotation_timer_);
-        fortune_menu_rotation_timer_ = nullptr;
     }
     if (function_area_card_ != nullptr) {
         lv_obj_del(function_area_card_);
@@ -1562,6 +1877,11 @@ void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string&
 {
     DisplayLockGuard lock(this);
 
+    if (fortune_divination_state_ == FortuneDivinationState::Animating) {
+        ESP_LOGD(TAG, "ShowDebugInfo skipped (divination animating): %s", title.c_str());
+        return;
+    }
+
     if (fortune_menu_selection_active_) {
         ESP_LOGD(TAG, "ShowDebugInfo skipped (fortune menu active): %s", title.c_str());
         return;
@@ -1622,8 +1942,12 @@ bool AttitudeDisplay::HandleBootKey()
 {
     DisplayLockGuard lock(this);
 
-
-
+    if (fortune_divination_state_ == FortuneDivinationState::Animating) {
+        return true;
+    }
+    if (fortune_divination_state_ == FortuneDivinationState::Result) {
+        StopFortuneDivinationUnlocked();
+    }
 
     // Idle状态：进入选中态或循环选择
     if (!fortune_menu_selection_active_) {
@@ -1643,14 +1967,13 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
 {
     DisplayLockGuard lock(this);
 
-    if (!fortune_menu_selection_active_) {
-        return false;
+    if (fortune_divination_state_ == FortuneDivinationState::Animating) {
+        return true;
     }
 
-
-
-    ESP_LOGI(TAG, "Boot long press: fortune menu %d (no result card, Plan A removed)",
-             fortune_menu_selected_index_);
+    fortune_divination_from_taiji_ = false;
+    StartFortuneDivinationUnlocked();
+    ESP_LOGI(TAG, "Boot long press: fortune divination started");
     return true;
 }
 

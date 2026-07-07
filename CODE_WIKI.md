@@ -494,19 +494,21 @@ Display (基类, display.h)
 
 - 环触摸区：`FORTUNE_MENU_TOUCH_INNER_R = TAIJI_RADIUS - 4` ~ `LAYER4_BOUNDARY_RADIUS`。
 - 选中态图标放大 10%（`FORTUNE_MENU_ICON_SCALE_SELECTED`），未选中 `FORTUNE_MENU_ICON_SCALE`。
+- 占卜跑马灯特效：全金图标、青色高亮，支持通过 `OnFortuneDivinationTick` 推进时间轴。
 - 环心相对中点外偏 3px：`FORTUNE_MENU_RING_OUTWARD_PX = 3`。
 
 #### 7.4.3 按键/触摸入口
 
 | 方法 | 行为 |
 |------|------|
-| `HandleBootKey()` | 循环选中运势菜单项 |
-| `HandleFortuneBootLongPress()` | 仅落日志 |
-| `HandlePowerKey()` | 返回/取消 - 取消选中、隐藏功能区 |
+| `OnTaijiDivinationPressed` | 判断太极区域点击，或长按3s开启/延长占卜 |
+| `HandleBootKey()` | 循环选中运势菜单项，或在占卜结果状态下取消展示 |
+| `HandleFortuneBootLongPress()` | 长按3s开启占卜跑马灯特效 |
+| `HandlePowerKey()` | 返回/取消 - 取消选中、隐藏功能区或打断占卜 |
 
 > 对应 [application.h](file:///Users/sfan/Desktop/cv/github/OpenMAIC/xiaozhi-esp32/main/application.h) 的 `HandleFortuneBootKey/HandleFortuneBootLongPress/HandlePowerKey`，由板卡按键回调触发。
 
-#### 7.4.4 调试信息卡
+#### 7.4.4 调试信息卡 / 占卜结果卡
 
 ```cpp
 void ShowDebugInfo(title, detail, hold_ms = 3000);
@@ -516,6 +518,7 @@ void HideDebugInfo();
 - 用于显示与后台的关键交互事件（如「激活成功」「WiFi 已连接」「MCP 收到工具调用」「联网失败」）。
 - 调试 TTS（`Application::RequestDebugTts`）期间叠加播放。
 - 功能区提示卡显示时间设置为 5000ms (`DEBUG_INFO_SHOW_MS=5000) 后自动关闭。
+- 占卜跑马灯结束后的功能结果展示，同样复用了 DebugInfo 卡片的遮罩及文本区域。
 
 **网络状态通知**（[main/application.cc](file:///Users/sfan/Desktop/cv/github/OpenMAIC/xiaozhi-esp32/main/application.cc)）：
 

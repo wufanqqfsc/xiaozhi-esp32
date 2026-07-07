@@ -1,0 +1,8 @@
+feat(ui): optimize fortune divination marquee and sync wifi icon color
+
+- Adjusted divination trigger hold time to 3s (from 5s).
+- Extended marquee duration to 15s and reduced tick to 25ms for faster animation.
+- Removed final success sound, aligning with continuous step popup sound.
+- Aligned connected WiFi icon and outer ring color with the main theme (cyan color COLOR_WIFI_GREEN).
+- Extracted detailed divination feature logic to doc/fortune_divination.md.
+- Updated CODE_WIKI.md and doc/ai_compass_feature_expansion.md with the new timing rules.
