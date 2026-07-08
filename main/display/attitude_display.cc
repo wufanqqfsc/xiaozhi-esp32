@@ -1072,10 +1072,10 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
     fortune_menu_selected_index_ = result_index;
 
     UpdateFortuneDivinationMarqueeVisual(result_index);
-    if (result_index != fortune_divination_last_tick_index_) {
-        PlayFortuneDivinationMarqueeSound();
-    }
+    // 先显示 debug info 卡片展示结果，显示后不再播放 marquee 音效
     ShowFortuneFeatureCategoryUnlocked(result_index);
+    // 卡片已显示，无需再播放完成音效（避免声音与视觉提示冲突）
+    fortune_divination_last_tick_index_ = result_index;
 
     ESP_LOGI(TAG, "Fortune divination finished -> %d (%s)",
              result_index, kFortuneMenuDefs[result_index].func_label);
