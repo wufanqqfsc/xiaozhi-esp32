@@ -214,6 +214,8 @@ private:
     bool taiji_hold_pending_ = false;
     lv_obj_t* taiji_divination_touch_ = nullptr;
     lv_obj_t* divination_hint_label_ = nullptr;
+    lv_obj_t* taiji_press_overlay_ = nullptr;
+    bool taiji_rotation_paused_by_press_ = false;
 
     float current_pitch_ = 0.0f;
     float current_roll_ = 0.0f;
@@ -275,6 +277,9 @@ private:
     static void OnTaijiDivinationReleased(lv_event_t* e);
     void ShowDivinationHintUnlocked(const char* text);
     void HideDivinationHintUnlocked();
+    void CreateTaijiPressOverlayUnlocked();
+    void ShowTaijiPressOverlayUnlocked();
+    void HideTaijiPressOverlayUnlocked();
     // 在 DebugInfo 卡上展示指定索引主功能的一级分类（持锁状态下调用）
     void ShowFortuneFeatureCategoryUnlocked(int index);
     // 图片显示（持锁状态下调用，不加锁版本）

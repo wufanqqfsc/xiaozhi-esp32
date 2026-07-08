@@ -15,6 +15,7 @@
 
 #include <cstring>
 #include <esp_log.h>
+#include <esp_heap_caps.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
 #include <arpa/inet.h>
@@ -453,12 +454,48 @@ void Application::HandleNetworkConnectedEvent() {
             return;
         }
 
-        xTaskCreate([](void* arg) {
+        ESP_LOGI(TAG, "Creating activation task...");
+        const size_t stack_size = 4096 * 2;
+        BaseType_t ret = xTaskCreate([](void* arg) {
             Application* app = static_cast<Application*>(arg);
+            ESP_LOGI(TAG, "Activation task started");
             app->ActivationTask();
+            ESP_LOGI(TAG, "Activation task finished");
             app->activation_task_handle_ = nullptr;
             vTaskDelete(NULL);
-        }, "activation", 4096 * 2, this, 2, &activation_task_handle_);
+        }, "activation", stack_size, this, 2, &activation_task_handle_);
+        if (ret != pdPASS) {
+            ESP_LOGE(TAG, "Failed to create activation task, ret=%d", ret);
+            // Fallback: try with PSRAM stack using xTaskCreateStatic
+            StackType_t* stack = (StackType_t*)heap_caps_malloc(stack_size, MALLOC_CAP_SPIRAM);
+            if (stack != nullptr) {
+                StaticTask_t* task_buffer = (StaticTask_t*)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
+                if (task_buffer != nullptr) {
+                    activation_task_handle_ = xTaskCreateStatic([](void* arg) {
+                        Application* app = static_cast<Application*>(arg);
+                        ESP_LOGI(TAG, "Activation task started (PSRAM stack)");
+                        app->ActivationTask();
+                        ESP_LOGI(TAG, "Activation task finished");
+                        app->activation_task_handle_ = nullptr;
+                        vTaskDelete(NULL);
+                    }, "activation", stack_size, this, 2, stack, task_buffer);
+                    if (activation_task_handle_ != nullptr) {
+                        ESP_LOGI(TAG, "Activation task created with PSRAM stack");
+                    } else {
+                        ESP_LOGE(TAG, "Failed to create activation task with PSRAM stack");
+                        heap_caps_free(stack);
+                        heap_caps_free(task_buffer);
+                    }
+                } else {
+                    ESP_LOGE(TAG, "Failed to allocate task buffer");
+                    heap_caps_free(stack);
+                }
+            } else {
+                ESP_LOGE(TAG, "Failed to allocate PSRAM stack");
+            }
+        } else {
+            ESP_LOGI(TAG, "Activation task created successfully");
+        }
     }
 
     // Update the status bar immediately to show the network state
@@ -508,19 +545,28 @@ void Application::HandleActivationDoneEvent() {
 }
 
 void Application::ActivationTask() {
+    ESP_LOGI(TAG, "ActivationTask: Creating OTA object...");
     // Create OTA object for activation process
     ota_ = std::make_unique<Ota>();
+    ESP_LOGI(TAG, "ActivationTask: OTA object created");
 
     // Check for new assets version
+    ESP_LOGI(TAG, "ActivationTask: Checking assets version...");
     CheckAssetsVersion();
+    ESP_LOGI(TAG, "ActivationTask: Assets version check done");
 
     // Check for new firmware version
+    ESP_LOGI(TAG, "ActivationTask: Checking new version...");
     CheckNewVersion();
+    ESP_LOGI(TAG, "ActivationTask: New version check done");
 
     // Initialize the protocol
+    ESP_LOGI(TAG, "ActivationTask: Initializing protocol...");
     InitializeProtocol();
+    ESP_LOGI(TAG, "ActivationTask: Protocol initialized");
 
     // Signal completion to main loop
+    ESP_LOGI(TAG, "ActivationTask: Setting activation done event");
     xEventGroupSetBits(event_group_, MAIN_EVENT_ACTIVATION_DONE);
 }
 

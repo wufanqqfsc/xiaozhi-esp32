@@ -1015,9 +1015,10 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     //   - handle_files_upload 局部：fullpath[320] + buf[1024] + query[256] + display_err[128] ≈ 1.7KB
     //   - + cJSON_CreateObject / display_resource_from_file / lvgl_port_lock 调用链 ≈ 1.5KB
     //   - + httpd_req_recv / url_decode / fwrite 调用栈 ≈ 0.8KB
-    //   之前 952KB GIF 上传到 ~135KB 时栈溢出崩溃；扩到 16KB 留 4× 余量
-    config.stack_size = 16384;
-    // 任务栈使用 PSRAM，避免内部 SRAM 不足导致 ESP_ERR_HTTPD_TASK
+    // 之前 952KB GIF 上传到 ~135KB 时栈溢出崩溃；扩到 20KB 留 5× 余量
+    config.stack_size = 20480;
+    // 任务栈使用 PSRAM（CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y 已启用，PSRAM 栈安全）
+    // 避免内部 SRAM 不足导致 ESP_ERR_HTTPD_TASK 或 handler 栈溢出 hang
     config.task_caps = MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM;
     // 启用 wildcard URI 匹配（支持 * 通配符）
     config.uri_match_fn = httpd_uri_match_wildcard;

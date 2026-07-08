@@ -850,6 +850,60 @@ void AttitudeDisplay::HideDivinationHintUnlocked()
     }
 }
 
+void AttitudeDisplay::CreateTaijiPressOverlayUnlocked()
+{
+    if (taiji_press_overlay_ != nullptr) {
+        return;
+    }
+    taiji_press_overlay_ = lv_obj_create(attitude_container_);
+    lv_obj_set_size(taiji_press_overlay_, TAIJI_CANVAS_SIZE, TAIJI_CANVAS_SIZE);
+    lv_obj_set_pos(taiji_press_overlay_,
+                   ATTITUDE_CENTER_X - TAIJI_RADIUS,
+                   ATTITUDE_CENTER_Y - TAIJI_RADIUS);
+    lv_obj_set_style_radius(taiji_press_overlay_, TAIJI_RADIUS, 0);
+    lv_obj_set_style_clip_corner(taiji_press_overlay_, true, 0);
+    lv_obj_set_style_bg_color(taiji_press_overlay_, lv_color_hex(0x0A1414), 0);
+    lv_obj_set_style_bg_opa(taiji_press_overlay_, LV_OPA_80, 0);
+    lv_obj_set_style_border_color(taiji_press_overlay_, DEBUG_INFO_BORDER_COLOR, 0);
+    lv_obj_set_style_border_width(taiji_press_overlay_, 2, 0);
+    lv_obj_set_style_pad_all(taiji_press_overlay_, 0, 0);
+    lv_obj_clear_flag(taiji_press_overlay_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(taiji_press_overlay_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(taiji_press_overlay_);
+}
+
+void AttitudeDisplay::ShowTaijiPressOverlayUnlocked()
+{
+    if (taiji_press_overlay_ == nullptr) {
+        CreateTaijiPressOverlayUnlocked();
+    }
+    if (taiji_press_overlay_ != nullptr) {
+        lv_obj_remove_flag(taiji_press_overlay_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(taiji_press_overlay_);
+    }
+    if (divination_hint_label_ != nullptr) {
+        lv_obj_move_foreground(divination_hint_label_);
+    }
+    if (!taiji_rotation_paused_by_press_) {
+        CompassTaiji::SetAutoRotationPaused(true);
+        taiji_rotation_paused_by_press_ = true;
+    }
+    UpdateTaijiGoldRingColor(DEBUG_INFO_BORDER_COLOR);
+}
+
+void AttitudeDisplay::HideTaijiPressOverlayUnlocked()
+{
+    if (taiji_press_overlay_ != nullptr) {
+        lv_obj_add_flag(taiji_press_overlay_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (taiji_rotation_paused_by_press_) {
+        CompassTaiji::SetAutoRotationPaused(false);
+        taiji_rotation_paused_by_press_ = false;
+    }
+    lv_color_t taiji_color = (ble_status_ == BleStatus::CONNECTED) ? COLOR_BT_BLUE : COLOR_TEXT_MAIN;
+    UpdateTaijiGoldRingColor(taiji_color);
+}
+
 void AttitudeDisplay::PlayFortuneMenuSelectSound()
 {
     Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
@@ -955,6 +1009,7 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     }
     fortune_menu_selection_active_ = false;
     HideDivinationHintUnlocked();
+    HideTaijiPressOverlayUnlocked();
     HideDebugInfoUnlocked();
 }
 
@@ -1097,6 +1152,9 @@ void AttitudeDisplay::OnTaijiDivinationPressed(lv_event_t* e)
 
     DisplayLockGuard lock(self);
     
+    // 按住太极圈即显示遮罩层 + 停止旋转 + 边框变青色
+    self->ShowTaijiPressOverlayUnlocked();
+
     // 如果已经在动画中，记录按住延长
     if (self->fortune_divination_state_ == FortuneDivinationState::Animating) {
         self->taiji_pressed_during_anim_ = true;
@@ -1128,6 +1186,9 @@ void AttitudeDisplay::OnTaijiDivinationReleased(lv_event_t* e)
 
     DisplayLockGuard lock(self);
     
+    // 松开太极圈即隐藏遮罩层 + 恢复旋转 + 恢复边框颜色
+    self->HideTaijiPressOverlayUnlocked();
+
     // 如果在动画中松手，则设定结束期限为 5s 后
     if (self->fortune_divination_state_ == FortuneDivinationState::Animating && self->taiji_pressed_during_anim_) {
         self->taiji_pressed_during_anim_ = false;
@@ -1772,6 +1833,10 @@ void AttitudeDisplay::DestroyDebugInfoCard()
     }
     debug_info_title_ = nullptr;
     debug_info_detail_ = nullptr;
+    if (taiji_press_overlay_ != nullptr) {
+        lv_obj_del(taiji_press_overlay_);
+        taiji_press_overlay_ = nullptr;
+    }
 }
 
 void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
