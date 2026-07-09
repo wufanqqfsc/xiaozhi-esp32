@@ -177,6 +177,14 @@ public:
     void CycleFortuneMenuSelection();
     /** 占卜动画或结果展示进行中 */
     bool IsFortuneDivinationBusy() const;
+    /** 开始占卜跑马灯动画（AI 可通过此方法触发占卜） */
+    void StartFortuneDivination();
+    /** 停止当前占卜（动画或结果），恢复待机状态 */
+    void StopFortuneDivination();
+    /** 获取当前占卜结果索引（-1 表示无结果） */
+    int GetFortuneDivinationResult() const;
+    /** 获取当前占卜状态 */
+    int GetFortuneDivinationState() const;
 
 private:
     lv_obj_t* attitude_container_ = nullptr;
@@ -212,6 +220,7 @@ private:
     int fortune_divination_highlight_ = -1;
     int fortune_divination_result_ = -1;
     bool taiji_hold_pending_ = false;
+    bool fortune_divination_sound_playing_ = false;
     lv_obj_t* taiji_divination_touch_ = nullptr;
     lv_obj_t* divination_hint_label_ = nullptr;
     lv_obj_t* taiji_press_overlay_ = nullptr;

@@ -911,12 +911,42 @@ void AttitudeDisplay::PlayFortuneMenuSelectSound()
 
 void AttitudeDisplay::PlayFortuneDivinationMarqueeSound()
 {
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_ZHANBU);
 }
 
 bool AttitudeDisplay::IsFortuneDivinationBusy() const
 {
     return fortune_divination_state_ == FortuneDivinationState::Animating;
+}
+
+void AttitudeDisplay::StartFortuneDivination()
+{
+    DisplayLockGuard lock(this);
+    if (fortune_divination_state_ == FortuneDivinationState::Animating) {
+        ESP_LOGI(TAG, "Fortune divination already running, ignoring request");
+        return;
+    }
+    fortune_divination_from_taiji_ = false;
+    StartFortuneDivinationUnlocked();
+}
+
+void AttitudeDisplay::StopFortuneDivination()
+{
+    DisplayLockGuard lock(this);
+    StopFortuneDivinationUnlocked();
+}
+
+int AttitudeDisplay::GetFortuneDivinationResult() const
+{
+    if (fortune_divination_state_ != FortuneDivinationState::Result) {
+        return -1;
+    }
+    return fortune_divination_result_;
+}
+
+int AttitudeDisplay::GetFortuneDivinationState() const
+{
+    return static_cast<int>(fortune_divination_state_);
 }
 
 void AttitudeDisplay::ResetFortuneMenuIconStyle(int index)
@@ -1004,6 +1034,8 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     fortune_divination_highlight_ = -1;
     fortune_divination_result_ = -1;
     taiji_pressed_during_anim_ = false;
+    fortune_divination_sound_playing_ = false;
+    Application::GetInstance().AbortSpeaking(kAbortReasonWakeWordDetected);
     for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
         ResetFortuneMenuIconStyle(i);
     }
@@ -1072,10 +1104,11 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
     fortune_menu_selected_index_ = result_index;
 
     UpdateFortuneDivinationMarqueeVisual(result_index);
-    // 先显示 debug info 卡片展示结果，显示后不再播放 marquee 音效
     ShowFortuneFeatureCategoryUnlocked(result_index);
-    // 卡片已显示，无需再播放完成音效（避免声音与视觉提示冲突）
     fortune_divination_last_tick_index_ = result_index;
+
+    fortune_divination_sound_playing_ = true;
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_ZHANBU);
 
     ESP_LOGI(TAG, "Fortune divination finished -> %d (%s)",
              result_index, kFortuneMenuDefs[result_index].func_label);
@@ -1870,6 +1903,8 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
     // 注意：不能在持锁情况下调用 lv_refr_now()，LVGL 文档禁止从非 LVGL 任务刷新。
     // 此函数由 ShowNotification 等 UI 调用方持有 DisplayLockGuard，本身为非 LVGL 任务上下文，
     // 故移除 lv_refr_now()；下次 LVGL 周期会自动刷新（典型 < 30ms）。
+
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
 
     ESP_LOGI(TAG, "DebugInfoCard shown: title=%s hidden=%d card_hidden=%d",
              title.c_str(),

@@ -1,8 +1,8 @@
 # Xiaozhi ESP32 开发规则
 
 > **项目**: Xiaozhi ESP32 AI 罗盘项目  
-> **版本**: v1.2  
-> **更新日期**: 2026-06-26
+> **版本**: v1.3  
+> **更新日期**: 2026-07-08
 
 ---
 
@@ -137,6 +137,128 @@ ESP32 设备**已经支持**保存最近成功连接的 WiFi 名（SSID）和密
    这会清除 NVS 全部配置（WiFi + OTA_URL + 设备ID），下次启动自动进配网。
 
 2. **物理操作**：在 `kDeviceStateStarting` 状态下单击 BOOT 键（参考 board.cc 按钮处理）。
+
+---
+
+## 问题排查流程（v1.3 新增）
+
+### 标准排查步骤
+
+当设备出现连接、OTA、唤醒等端到端问题时，**必须按照以下步骤依次排查**：
+
+#### 步骤 1: 重新编译烧录固件
+
+```bash
+cd /Users/sfan/Desktop/cv/github/OpenMAIC/xiaozhi-esp32
+./build_and_flash.sh all
+```
+
+**验证**：设备应自动重启，HTTP 服务可用。
+
+#### 步骤 2: 检查 HTTP 设备日志
+
+```bash
+# 等待设备启动后检查状态
+curl -s http://<设备IP>:8080/api/device/status
+
+# 获取设备日志（关键！）
+curl -s http://<设备IP>:8080/api/device/logs | tail -100
+```
+
+**重点关注**：
+- WiFi 连接状态（是否连接到正确的 SSID）
+- OTA 检查结果（是否有 `activation` 或 `websocket` 字段）
+- 错误信息（如 `Connection reset`、`timeout` 等）
+
+#### 步骤 3: 检查服务器端日志
+
+```bash
+# 服务器状态
+cd /Users/sfan/Desktop/cv/github/OpenMAIC/xiaozhi-esp32-server-java
+./start.sh status
+
+# OTA 请求日志
+grep -E "ota|OTA|activation|192.168" logs/xiaozhi-server.log | tail -30
+
+# WebSocket 连接日志
+grep -E "websocket|WebSocket|session|hello" logs/xiaozhi-dialogue.log | tail -30
+```
+
+**重点关注**：
+- 设备 MAC 地址（用于匹配设备）
+- OTA 端点请求（`POST /api/device/ota`）
+- WebSocket 连接建立
+- 任何错误或异常
+
+#### 步骤 4: 分析并修复问题
+
+根据日志分析根因，常见问题及修复：
+
+| 问题现象 | 根因 | 修复方法 |
+|---------|------|---------|
+| WiFi 连接失败 | NVS 保存了旧 SSID | 清除 NVS 并重新配网 |
+| OTA 检查失败 | 服务器地址配置错误 | 更新 sdkconfig 中的 OTA_URL |
+| HTTP 服务超时 | SD 卡未挂载时请求卡死 | 修复 sdcard_log_http.cc 提前返回 |
+| 唤醒无响应 | 设备未完成激活 | 检查服务器设备状态（state=2） |
+
+#### 步骤 5: 闭环验证修复结果
+
+修复后必须验证：
+1. 设备成功连接 WiFi（正确的 SSID）
+2. OTA 检查成功（收到 `websocket` 配置）
+3. WebSocket 连接建立
+4. 语音唤醒正常响应
+
+### 常用诊断命令
+
+```bash
+# 1. 获取设备状态
+curl http://<设备IP>:8080/api/device/status
+
+# 2. 获取设备日志
+curl http://<设备IP>:8080/api/device/logs
+
+# 3. 检查 OTA URL 配置
+curl http://<设备IP>:8080/api/device/ota-url
+
+# 4. 清除 NVS 重新配网
+curl -X POST http://<设备IP>:8080/api/device/clear-nvs
+
+# 5. 重启设备
+curl -X POST http://<设备IP>:8080/api/device/reboot
+
+# 6. 检查服务器设备列表
+docker exec xiaozhi-mysql mysql -uroot -pabc123456 xiaozhi -e "SELECT deviceId, state, ip, wifiName FROM sys_device;"
+
+# 7. 测试 OTA 端点
+curl -X POST "http://<服务器IP>:8091/api/device/ota" \
+  -H "Device-Id: <MAC地址>" \
+  -H "Content-Type: application/json" \
+  -d '{"ip":"<设备IP>","chipModelName":"esp32s3","application":{"version":"2.2.6"}}'
+```
+
+### 端到端数据流
+
+```
+┌─────────────────┐                    ┌─────────────────────────────────────┐
+│   ESP32 设备    │                    │        Java 后端服务器              │
+│                 │  1. OTA 检查      │  8091: xiaozhi-server              │
+│  Wi-Fi 已连接   │ ───────────────►  │  - 验证 deviceId                   │
+│  HTTP:8080 正常 │  POST /api/device/ota  │  - 返回 activation/websocket      │
+│                 │                    │                                    │
+│                 │  2. 设备状态上报    │                                    │
+│                 │ ◄───────────────  │  - 更新 sys_device 表              │
+│                 │  HTTP POST         │                                    │
+│                 │                    │                                    │
+│                 │  3. WebSocket     │  8092: xiaozhi-dialogue            │
+│                 │ ◄───────────────  │  - 建立语音对话会话                  │
+│                 │  ws://.../v1/     │  - 启用唤醒检测                     │
+│                 │                    │                                    │
+│                 │  4. 唤醒响应       │                                    │
+│                 │ ◄───────────────  │  - STT → LLM → TTS                │
+│  播放 TTS 音频  │  Opus 流          │                                    │
+└─────────────────┘                    └─────────────────────────────────────┘
+```
 
 ---
 

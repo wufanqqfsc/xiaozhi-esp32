@@ -119,6 +119,47 @@ void McpServer::AddCommonTools() {
                 return true;
             });
 
+        AddTool("self.attitude.start_divination",
+            "Start the fortune divination marquee animation on the compass. The animation will randomly select one of the 12 fortune categories. Call get_divination_result after waiting for the animation to complete (about 15-20 seconds).",
+            PropertyList(),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                attitude_display->StartFortuneDivination();
+                return "占卜已开始，跑马灯动画进行中。约15-20秒后请调用 get_divination_result 获取结果。";
+            });
+
+        AddTool("self.attitude.get_divination_result",
+            "Get the result of the fortune divination. Returns the selected fortune category index and name. Call this after start_divination when the animation has completed.",
+            PropertyList(),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                int state = attitude_display->GetFortuneDivinationState();
+                if (state == 0) {
+                    return "占卜状态：待机中，请先调用 start_divination 开始占卜。";
+                } else if (state == 1) {
+                    return "占卜状态：跑马灯动画进行中，请稍候...";
+                } else {
+                    int result = attitude_display->GetFortuneDivinationResult();
+                    if (result < 0 || result >= 12) {
+                        return "占卜结果无效。";
+                    }
+                    static const char* fortune_names[] = {
+                        "今日运势", "财运", "事业运势", "感情运势", "心情卦",
+                        "黄历宜忌", "节气提示", "系统设置", "健康运势",
+                        "学业运势", "出行吉日", "贵人运势"
+                    };
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "占卜结果：%d - %s", result, fortune_names[result]);
+                    return std::string(buf);
+                }
+            });
+
+        AddTool("self.attitude.stop_divination",
+            "Stop the current fortune divination animation and reset to idle state.",
+            PropertyList(),
+            [attitude_display](const PropertyList& properties) -> ReturnValue {
+                attitude_display->StopFortuneDivination();
+                return true;
+            });
+
         // 运势结果卡（Plan A）已彻底删除：show_fortune / dismiss_fortune 工具同步下线
     }
 

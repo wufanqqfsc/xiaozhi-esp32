@@ -354,6 +354,15 @@ flash_firmware() {
     # 获取固件大小
     FIRMWARE_SIZE=$(ls -lh build/merged-binary.bin | awk '{print $5}')
     print_info "固件大小: $FIRMWARE_SIZE"
+    
+    # 擦除 NVS 分区（清除所有 WiFi 凭据，避免使用旧配置）
+    print_warning "擦除 NVS 分区（清除旧 WiFi 凭据）..."
+    echo "----------------------------------------"
+    python3 "$IDF_PATH/tools/idf.py" -p "$PORT" erase_nvs 2>&1 | sed 's/\r$//' || true
+    echo "----------------------------------------"
+    print_success "NVS 擦除完成"
+    echo ""
+    
     print_progress "正在烧录..."
     echo "----------------------------------------"
     

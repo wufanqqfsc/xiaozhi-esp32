@@ -1340,6 +1340,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
 
 void SdCardLogHttpStop(void) {
     if (g_server == nullptr) return;
+    ESP_LOGI(TAG, "HTTP server stopping...");
     httpd_stop(g_server);
     g_server = nullptr;
     g_port = 0;
@@ -1606,25 +1607,40 @@ static esp_err_t handle_device_reboot(httpd_req_t* req) {
 
 // HTTP GET /api/device/logs - 获取设备日志（实时串口日志）
 static esp_err_t handle_device_logs(httpd_req_t* req) {
+    // 检查 SD 卡目录是否存在（g_mount_point 是静态数组，需要检查内容）
+    struct stat mount_st;
+    if (g_mount_point[0] == '\0' || stat(g_mount_point, &mount_st) != 0 || !S_ISDIR(mount_st.st_mode)) {
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+
     // 返回最后一段日志（从 SD 卡读取）
     char filepath[320];
     snprintf(filepath, sizeof(filepath), "%s/xiaozhi_boot_ld.log", g_mount_point);
 
     int fd = open(filepath, O_RDONLY);
     if (fd < 0) {
-        // 尝试其他日志文件
+        // 尝试其他日志文件，找最新的
         DIR* d = opendir(g_mount_point);
         if (d) {
             struct dirent* entry;
+            time_t newest_mtime = 0;
+            char newest_file[320] = {0};
             while ((entry = readdir(d)) != nullptr) {
                 const char* name = entry->d_name;
                 if (strncmp(name, "xiaozhi_boot_", 13) == 0 && strstr(name, ".log")) {
                     snprintf(filepath, sizeof(filepath), "%s/%s", g_mount_point, name);
-                    fd = open(filepath, O_RDONLY);
-                    if (fd >= 0) break;
+                    struct stat file_st;
+                    if (stat(filepath, &file_st) == 0 && file_st.st_mtime > newest_mtime) {
+                        newest_mtime = file_st.st_mtime;
+                        strncpy(newest_file, filepath, sizeof(newest_file) - 1);
+                    }
                 }
             }
             closedir(d);
+            if (newest_file[0]) {
+                fd = open(newest_file, O_RDONLY);
+            }
         }
     }
 
@@ -1634,17 +1650,17 @@ static esp_err_t handle_device_logs(httpd_req_t* req) {
     }
 
     // 获取文件大小，读取最后 10KB
-    struct stat st;
-    if (fstat(fd, &st) != 0) {
+    struct stat file_stat;
+    if (fstat(fd, &file_stat) != 0) {
         close(fd);
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
 
     off_t read_offset = 0;
-    size_t read_size = st.st_size;
-    if (st.st_size > 10240) {
-        read_offset = st.st_size - 10240;
+    size_t read_size = file_stat.st_size;
+    if (file_stat.st_size > 10240) {
+        read_offset = file_stat.st_size - 10240;
         read_size = 10240;
     }
 

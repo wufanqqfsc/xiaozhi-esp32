@@ -241,13 +241,8 @@ void Application::Initialize() {
                     Schedule([this, detail]() {
                         if (auto* attitude = GetAttitudeDisplay()) {
                             attitude->ShowDebugInfo("WiFi 已连接", detail, 5000);
-                            audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
                         }
                     });
-                }
-                {
-                    std::string tts_text = std::string("WiFi 已连接：") + data;
-                    RequestDebugTts(tts_text);
                 }
                 break;
             }
@@ -308,6 +303,20 @@ void Application::Initialize() {
 
     // Update the status bar immediately to show the network state
     display->UpdateStatusBar(true);
+
+    // 延迟 5 秒启动 HTTP 服务，确保 LVGL 等初始化完成后再启动，避免内存不足导致崩溃
+    Schedule([]() {
+        ESP_LOGI(TAG, "Starting HTTP server delayed...");
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        ESP_LOGI(TAG, "HTTP server delay finished, starting server...");
+        struct stat st;
+        if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
+            SdCardLogHttpStart("/sdcard", 8080);
+        } else {
+            SdCardLogHttpStart("/tmp", 8080);
+        }
+        ESP_LOGI(TAG, "HTTP server start called");
+    });
 }
 
 void Application::Run() {
@@ -437,15 +446,6 @@ void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
     auto state = GetDeviceState();
 
-    if (!SdCardLogHttpIsRunning()) {
-        struct stat st;
-        if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
-            SdCardLogHttpStart("/sdcard", 8080);
-        } else {
-            SdCardLogHttpStart("/tmp", 8080);
-        }
-    }
-
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
         // Network is ready, start activation
         SetDeviceState(kDeviceStateActivating);
@@ -455,44 +455,17 @@ void Application::HandleNetworkConnectedEvent() {
         }
 
         ESP_LOGI(TAG, "Creating activation task...");
-        const size_t stack_size = 4096 * 2;
-        BaseType_t ret = xTaskCreate([](void* arg) {
+        const size_t stack_size = 4096 * 3;
+        BaseType_t ret = xTaskCreatePinnedToCore([](void* arg) {
             Application* app = static_cast<Application*>(arg);
             ESP_LOGI(TAG, "Activation task started");
             app->ActivationTask();
             ESP_LOGI(TAG, "Activation task finished");
             app->activation_task_handle_ = nullptr;
             vTaskDelete(NULL);
-        }, "activation", stack_size, this, 2, &activation_task_handle_);
+        }, "activation", stack_size, this, 3, &activation_task_handle_, 1);
         if (ret != pdPASS) {
             ESP_LOGE(TAG, "Failed to create activation task, ret=%d", ret);
-            // Fallback: try with PSRAM stack using xTaskCreateStatic
-            StackType_t* stack = (StackType_t*)heap_caps_malloc(stack_size, MALLOC_CAP_SPIRAM);
-            if (stack != nullptr) {
-                StaticTask_t* task_buffer = (StaticTask_t*)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
-                if (task_buffer != nullptr) {
-                    activation_task_handle_ = xTaskCreateStatic([](void* arg) {
-                        Application* app = static_cast<Application*>(arg);
-                        ESP_LOGI(TAG, "Activation task started (PSRAM stack)");
-                        app->ActivationTask();
-                        ESP_LOGI(TAG, "Activation task finished");
-                        app->activation_task_handle_ = nullptr;
-                        vTaskDelete(NULL);
-                    }, "activation", stack_size, this, 2, stack, task_buffer);
-                    if (activation_task_handle_ != nullptr) {
-                        ESP_LOGI(TAG, "Activation task created with PSRAM stack");
-                    } else {
-                        ESP_LOGE(TAG, "Failed to create activation task with PSRAM stack");
-                        heap_caps_free(stack);
-                        heap_caps_free(task_buffer);
-                    }
-                } else {
-                    ESP_LOGE(TAG, "Failed to allocate task buffer");
-                    heap_caps_free(stack);
-                }
-            } else {
-                ESP_LOGE(TAG, "Failed to allocate PSRAM stack");
-            }
         } else {
             ESP_LOGI(TAG, "Activation task created successfully");
         }
@@ -539,9 +512,16 @@ void Application::HandleActivationDoneEvent() {
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
 
-    Schedule([this]() {
-        PlayUiSound(Lang::Sounds::OGG_SUCCESS);
-    });
+    // 激活完成后重新启动 HTTP 服务
+    if (!SdCardLogHttpIsRunning()) {
+        struct stat st;
+        if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
+            SdCardLogHttpStart("/sdcard", 8080);
+        } else {
+            SdCardLogHttpStart("/tmp", 8080);
+        }
+        ESP_LOGI(TAG, "HTTP server restarted after activation");
+    }
 }
 
 void Application::ActivationTask() {
