@@ -1648,6 +1648,10 @@ void Application::PlaySound(const std::string_view& sound) {
     audio_service_.PlaySound(sound);
 }
 
+void Application::StopSound() {
+    audio_service_.ResetDecoder();
+}
+
 void Application::PlayUiSound(const std::string_view& sound) {
     if (sound.empty()) {
         return;
@@ -1655,6 +1659,13 @@ void Application::PlayUiSound(const std::string_view& sound) {
     Schedule([this, sound]() {
         ESP_LOGI(TAG, "PlayUiSound (%zu bytes)", sound.size());
         audio_service_.PlaySound(sound);
+    });
+}
+
+void Application::StopUiSound() {
+    Schedule([this]() {
+        ESP_LOGI(TAG, "StopUiSound");
+        audio_service_.ResetDecoder();
     });
 }
 

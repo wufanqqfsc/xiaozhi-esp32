@@ -1034,6 +1034,7 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     fortune_divination_result_ = -1;
     taiji_pressed_during_anim_ = false;
     fortune_divination_sound_playing_ = false;
+    Application::GetInstance().StopUiSound();
     Application::GetInstance().AbortSpeaking(kAbortReasonWakeWordDetected);
     for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
         ResetFortuneMenuIconStyle(i);
@@ -1106,8 +1107,8 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
     ShowFortuneFeatureCategoryUnlocked(result_index);
     fortune_divination_last_tick_index_ = result_index;
 
-    fortune_divination_sound_playing_ = true;
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_ZHANBU);
+    fortune_divination_sound_playing_ = false;
+    Application::GetInstance().StopUiSound();
 
     ESP_LOGI(TAG, "Fortune divination finished -> %d (%s)",
              result_index, kFortuneMenuDefs[result_index].func_label);
@@ -1142,7 +1143,6 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
     
     self->UpdateFortuneDivinationMarqueeVisual(highlight);
     if (highlight != self->fortune_divination_last_tick_index_) {
-        self->PlayFortuneDivinationMarqueeSound();
         self->fortune_divination_last_tick_index_ = highlight;
     }
 }

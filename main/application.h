@@ -122,8 +122,10 @@ public:
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
+    void StopSound();
     // UI 反馈音：投递到主循环播放（与激活成功音相同路径，避免 LVGL/定时器任务直接播音频）
     void PlayUiSound(const std::string_view& sound);
+    void StopUiSound();
     AudioService& GetAudioService() { return audio_service_; }
     /**
      * 调试用：让服务端 TTS 朗读一段文字（用于播报后台交互事件）。
