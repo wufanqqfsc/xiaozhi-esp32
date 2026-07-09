@@ -1,6 +1,7 @@
 #include "http_api_unified.h"
 
 #include <cstring>
+#include <strings.h>
 #include <cstdlib>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -321,8 +322,12 @@ static cJSON* list_files_filter(const char* mount, const char* prefix,
     while ((entry = readdir(d)) != nullptr) {
         const char* name = entry->d_name;
         if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
-        if (prefix && strncmp(name, prefix, strlen(prefix)) != 0) continue;
-        if (suffix && !strstr(name, suffix)) continue;
+        if (prefix && strncasecmp(name, prefix, strlen(prefix)) != 0) continue;
+        if (suffix) {
+            size_t nlen = strlen(name);
+            size_t slen = strlen(suffix);
+            if (nlen < slen || strcasecmp(name + nlen - slen, suffix) != 0) continue;
+        }
         names.push_back(strdup(name));
     }
     closedir(d);
@@ -347,7 +352,7 @@ static cJSON* list_files_filter(const char* mount, const char* prefix,
 }
 
 extern "C" cJSON* http_api_sdcard_logs_list(void) {
-    return list_files_filter(s_mount_point, "xiaozhi_boot_", ".log");
+    return list_files_filter(s_mount_point, nullptr, ".log");
 }
 
 extern "C" cJSON* http_api_sdcard_shots_list(void) {
@@ -359,8 +364,9 @@ extern "C" bool http_api_sdcard_delete_log(const char* name, char* err_buf, size
         copy_err(err_buf, err_size, "invalid or unsafe name");
         return false;
     }
-    if (strncmp(name, "xiaozhi_boot_", 13) != 0 || !strstr(name, ".log")) {
-        copy_err(err_buf, err_size, "only xiaozhi_boot_*.log allowed");
+    size_t nlen = strlen(name);
+    if (nlen < 4 || strcasecmp(name + nlen - 4, ".log") != 0) {
+        copy_err(err_buf, err_size, "only *.log files allowed");
         return false;
     }
     char path[320];

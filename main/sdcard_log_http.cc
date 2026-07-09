@@ -14,6 +14,7 @@
 #endif
 
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -208,6 +209,19 @@ static bool is_safe_filename(const char* name) {
     if (strchr(name, '/') != nullptr) return false;
     if (name[0] == '.') return false;
     return true;
+}
+
+// FAT 8.3 短文件名扩展名通常为大写（如 XZHI.LOG），需忽略大小写
+static bool ends_with_ci(const char* name, const char* suffix) {
+    if (name == nullptr || suffix == nullptr) return false;
+    size_t nlen = strlen(name);
+    size_t slen = strlen(suffix);
+    if (nlen < slen) return false;
+    return strcasecmp(name + nlen - slen, suffix) == 0;
+}
+
+static bool is_log_filename(const char* name) {
+    return name != nullptr && name[0] != '.' && ends_with_ci(name, ".log");
 }
 
 // 与 is_safe_filename 类似，但允许 "/" 用于子目录
@@ -446,30 +460,66 @@ static esp_err_t handle_root(httpd_req_t* req) {
         "<h1>Xiaozhi ESP32 SD Card Logs</h1>"
         "<div class='card'>"
         "<div id='info'>Loading...</div>"
-        "<div class='bar' style='width:100%'><div id='usage' style='width:0%'></div>"
+        "<div class='bar' style='width:100%'><div id='usage' style='width:0%'></div></div>"
         "</div>"
         "<div class='card'>"
-        "<h2 style='color:#D4AF37;margin-top:0;'>Log Files</h2>"
-        "<table><thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>"
-        "<tbody id='files'><tr><td colspan='3' style='color:#888;'>Loading...</td></tr></tbody>"
+        "<h2 style='color:#D4AF37;margin-top:0;'>Log Files "
+        "<a class='btn' href='#' onclick='load();return false;' style='float:right;font-size:12px;'>Refresh</a></h2>"
+        "<table><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>"
+        "<tbody id='files'><tr><td colspan='4' style='color:#888;'>Loading...</td></tr></tbody>"
+        "</table>"
+        "<p id='logHint' style='color:#888;font-size:13px;margin:8px 0 0;display:none;'></p>"
+        "</div>"
+        "<div class='card'>"
+        "<h2 style='color:#D4AF37;margin-top:0;'>Other SD Card Files</h2>"
+        "<table><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>"
+        "<tbody id='others'><tr><td colspan='4' style='color:#888;'>Loading...</td></tr></tbody>"
         "</table></div>"
         "<script>"
+        "function fmtTime(ts){if(!ts)return'-';const d=new Date(ts*1000);"
+        "return d.toLocaleString();}"
         "async function load(){try{"
         "const r=await fetch('/api/sdcard/info');const d=await r.json();"
         "document.getElementById('info').textContent="
-        "  `Mount: ${d.mount_point} | Used: ${(d.used_bytes/1024/1024).toFixed(1)} MB / ${(d.total_bytes/1024/1024).toFixed(1)} MB | Log Active: ${d.log_active}; "
-        "document.getElementById('usage').style.width=`${(d.used_bytes/d.total_bytes*100).toFixed(1)}%`;"
+        "`Mount: ${d.mount_point} | Used: ${(d.used_bytes/1024/1024).toFixed(1)} MB / ${(d.total_bytes/1024/1024).toFixed(1)} MB | Log Active: ${d.log_active}`;"
+        "document.getElementById('usage').style.width="
+        "`${d.total_bytes?(d.used_bytes/d.total_bytes*100).toFixed(1):0}%`;"
         "const r2=await fetch('/api/sdcard/logs');const f=await r2.json();"
         "const tb=document.getElementById('files');tb.innerHTML='';"
-        "if(f.length===0){tb.innerHTML='<tr><td colspan=3 style=\\\"text-align:center;color:#888;'>No log files</td></tr>';return;}"
+        "if(!f.length){tb.innerHTML='<tr><td colspan=4 style=\"text-align:center;color:#888;\">No log files in SD root</td></tr>';"
+        "document.getElementById('logHint').style.display='block';"
+        "document.getElementById('logHint').textContent="
+        "'Used space includes all SD card files (screenshots, etc.), not only logs.';}"
+        "else{document.getElementById('logHint').style.display='none';"
         "f.forEach(x=>{const tr=document.createElement('tr');"
-        "tr.innerHTML=`<td>${x.name}</td><td>${(x.size_bytes/1024).toFixed(1)} KB</td>"
-        "<td><a class='btn' href='/api/sdcard/logs/${encodeURIComponent(x.name)}'>Download</a>"
-        "<a class='btn del' href='#' onclick=\\\"del('${x.name}');return false;\\\">Delete</a></td>`;"
-        "tb.appendChild(tr);});"
+        "const dl='/api/sdcard/logs/'+encodeURIComponent(x.name);"
+        "tr.innerHTML=`<td>${x.name}</td><td>${fmtKB(x.size_bytes)}</td>"
+        "<td>${fmtTime(x.mtime)}</td>"
+        "<td><a class='btn' href='${dl}'>Download</a>"
+        "<a class='btn del' href='#' data-name='${x.name.replace(/'/g,\"&#39;\")}' "
+        "onclick='del(this.dataset.name);return false;'>Delete</a></td>`;"
+        "tb.appendChild(tr);});}"
+        "const r3=await fetch('/api/sdcard/files');const all=await r3.json();"
+        "const ob=document.getElementById('others');ob.innerHTML='';"
+        "const others=(all||[]).filter(x=>!x.is_dir&&!/\\.log$/i.test(x.name));"
+        "if(!others.length){ob.innerHTML='<tr><td colspan=4 style=\"text-align:center;color:#888;\">No other files in SD root</td></tr>';}"
+        "else{others.forEach(x=>{const tr=document.createElement('tr');"
+        "const dl='/api/sdcard/files/'+encodeURIComponent(x.path);"
+        "tr.innerHTML=`<td>${x.name}</td><td>${fmtKB(x.size_bytes)}</td>"
+        "<td>${fmtTime(x.mtime)}</td>"
+        "<td><a class='btn' href='${dl}'>Download</a>"
+        "<a class='btn del' href='#' data-path='${x.path.replace(/'/g,\"&#39;\")}' "
+        "onclick='delFile(this.dataset.path);return false;'>Delete</a></td>`;"
+        "ob.appendChild(tr);});}"
         "}catch(e){document.getElementById('info').textContent='Error: '+e.message;}}"
+        "function fmtKB(b){if(b>=1048576)return(b/1048576).toFixed(1)+' MB';return(b/1024).toFixed(1)+' KB';}"
         "async function del(name){if(!confirm('Delete '+name+'?'))return;"
-        "await fetch('/api/sdcard/logs/'+encodeURIComponent(name),{method:'DELETE'});"
+        "const r=await fetch('/api/sdcard/logs/'+encodeURIComponent(name),{method:'DELETE'});"
+        "if(!r.ok){alert('Delete failed: '+r.status);return;}"
+        "load();}"
+        "async function delFile(path){if(!confirm('Delete '+path+'?'))return;"
+        "const r=await fetch('/api/sdcard/files/'+encodeURIComponent(path),{method:'DELETE'});"
+        "if(!r.ok){alert('Delete failed: '+r.status);return;}"
         "load();}"
         "load();"
         "</script></body></html>";
@@ -521,9 +571,7 @@ static esp_err_t handle_logs_list(httpd_req_t* req) {
     struct stat st;
     while ((entry = readdir(d)) != nullptr) {
         const char* name = entry->d_name;
-        if (name[0] == '.') continue;
-        size_t nlen = strlen(name);
-        if (nlen < 4 || strcmp(name + nlen - 4, ".log") != 0) continue;
+        if (!is_log_filename(name)) continue;
         snprintf(path, sizeof(path), "%s/%s", g_mount_point, name);
         if (stat(path, &st) != 0) continue;
         cJSON* item = cJSON_CreateObject();
@@ -1371,9 +1419,8 @@ static esp_err_t handle_shots_list(httpd_req_t* req) {
     while ((entry = readdir(d)) != nullptr) {
         const char* name = entry->d_name;
         if (name[0] == '.') continue;
-        size_t nlen = strlen(name);
-        if (nlen < 4 || strcmp(name + nlen - 4, ".jpg") != 0) continue;
-        if (strncmp(name, "shot_", 5) != 0) continue;
+        if (!ends_with_ci(name, ".jpg")) continue;
+        if (strncasecmp(name, "shot_", 5) != 0) continue;
         snprintf(path, sizeof(path), "%s/%s", g_mount_point, name);
         if (stat(path, &st) != 0) continue;
         cJSON* item = cJSON_CreateObject();
