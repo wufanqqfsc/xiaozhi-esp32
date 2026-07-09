@@ -2,6 +2,7 @@
 #include "lvgl_theme.h"
 #include "lvgl_image.h"
 #include "application.h"
+#include "assets.h"
 #include "assets/lang_config.h"
 #include "board.h"
 #include "compass_taiji.h"
@@ -490,7 +491,7 @@ void AttitudeDisplay::ClearChatMessages()
 //   - image == nullptr 时隐藏浮层、恢复 attitude_container_
 // 参数：image 已构造好的 LvglImage；析构时由本对象接管（unique_ptr）
 // 线程：内部加 LVGL 互斥锁（lvgl_port_lock 100ms），可以从其他 task 安全调用
-void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
+void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms)
 {
     if (!lvgl_port_lock(100)) {
         ESP_LOGW(TAG, "SetPreviewImage: LVGL lock timeout, skipping");
@@ -587,13 +588,13 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)
     if (preview_image_hide_timer_ != nullptr) {
         lv_timer_del(preview_image_hide_timer_);
     }
-    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, 10000, this);
+    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, timeout_ms, this);
 
     lvgl_port_unlock();
 }
 
 // 不加锁版本，供已持有 DisplayLockGuard 的调用方使用
-void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image)
+void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms)
 {
     if (image == nullptr) {
         if (preview_image_hide_timer_ != nullptr) {
@@ -667,7 +668,7 @@ void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image)
     if (preview_image_hide_timer_ != nullptr) {
         lv_timer_del(preview_image_hide_timer_);
     }
-    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, 10000, this);
+    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, timeout_ms, this);
 }
 
 void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
@@ -1080,15 +1081,8 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
     fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
 
     fortune_divination_start_ms_ = lv_tick_get();
-    if (fortune_divination_from_taiji_ && was_taiji_holding) {
-        // Taiji trigger and still holding
-        fortune_divination_finish_deadline_ms_ = 0;
-        taiji_pressed_during_anim_ = true;
-    } else {
-        // Boot long press or already released Taiji
-        fortune_divination_finish_deadline_ms_ = fortune_divination_start_ms_ + FORTUNE_DIVINATION_DURATION_MS;
-        taiji_pressed_during_anim_ = false;
-    }
+    fortune_divination_finish_deadline_ms_ = fortune_divination_start_ms_ + FORTUNE_DIVINATION_DURATION_MS;
+    taiji_pressed_during_anim_ = false;
 
     HideDivinationHintUnlocked(); // Hide the hold hint during marquee if you want, or show "正在感应..."
     // According to plan, we can just hide it during marquee to not block Taiji
@@ -1122,6 +1116,7 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
 
     fortune_divination_sound_playing_ = false;
     Application::GetInstance().StopUiSound();
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_SUCCESS);
 
     UpdateFortuneDivinationMarqueeVisual(result_index);
     ShowFortuneFeatureCategoryUnlocked(result_index);
@@ -1213,12 +1208,12 @@ void AttitudeDisplay::OnTaijiDivinationPressed(lv_event_t* e)
     DisplayLockGuard lock(self);
     
     // 按住太极圈即显示遮罩层 + 停止旋转 + 边框变青色
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
     self->ShowTaijiPressOverlayUnlocked();
 
     // 如果已经在动画中，记录按住延长
     if (self->fortune_divination_state_ == FortuneDivinationState::Animating) {
         self->taiji_pressed_during_anim_ = true;
-        self->fortune_divination_finish_deadline_ms_ = 0; // 无限延长
         return;
     }
 
@@ -1249,10 +1244,9 @@ void AttitudeDisplay::OnTaijiDivinationReleased(lv_event_t* e)
     // 松开太极圈即隐藏遮罩层 + 恢复旋转 + 恢复边框颜色
     self->HideTaijiPressOverlayUnlocked();
 
-    // 如果在动画中松手，则设定结束期限为 5s 后
+    // 如果在动画中松手，不再立刻停止或设定死线，而是让跑马灯自动跑到指定时长结束
     if (self->fortune_divination_state_ == FortuneDivinationState::Animating && self->taiji_pressed_during_anim_) {
         self->taiji_pressed_during_anim_ = false;
-        self->fortune_divination_finish_deadline_ms_ = lv_tick_get() + FORTUNE_DIVINATION_RELEASE_FINISH_MS;
         return;
     }
 
@@ -2044,6 +2038,23 @@ void AttitudeDisplay::HideDebugInfoUnlocked()
         lv_obj_add_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN);
     }
     // 功能区提示卡触发事件已全部移除：调试卡消失后不再恢复显示
+
+    // 如果占卜结果弹窗刚消失，显示5秒 ark-reactor-normal.gif
+    if (fortune_divination_state_ == FortuneDivinationState::Result) {
+        // 重置为 Idle 状态，避免每次隐藏其他通知时重复触发
+        fortune_divination_state_ = FortuneDivinationState::Idle;
+        // 清理功能图标选中态
+        DeselectFortuneMenuItemUnlocked();
+        
+        void* gif_data = nullptr;
+        size_t gif_size = 0;
+        if (Assets::GetInstance().GetAssetData("ark-reactor-normal.gif", gif_data, gif_size)) {
+            auto gif_image = std::make_unique<LvglRawImage>(gif_data, gif_size);
+            if (gif_image->IsGif()) {
+                SetPreviewImageUnlocked(std::move(gif_image), 5000); // 5s timeout
+            }
+        }
+    }
 }
 
 void AttitudeDisplay::HideDebugInfo()

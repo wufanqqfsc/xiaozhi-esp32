@@ -65,7 +65,7 @@ static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of 
 
 // 今日占卜：太极中心 / Boot 长按 3s 触发，15s 时间轴驱动跑马灯，按住可延长
 #define FORTUNE_DIVINATION_HOLD_MS           3000
-#define FORTUNE_DIVINATION_DURATION_MS       60000
+#define FORTUNE_DIVINATION_DURATION_MS       30000
 #define FORTUNE_DIVINATION_RELEASE_FINISH_MS 5000
 #define FORTUNE_DIVINATION_TICK_MS           25
 #define FORTUNE_DIVINATION_SOUND_INTERVAL_MS 8745
@@ -135,7 +135,7 @@ public:
     virtual void SetEmotion(const char* emotion) override;
     virtual void SetChatMessage(const char* role, const char* content) override;
     virtual void ClearChatMessages() override;
-    virtual void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
+    virtual void SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 10000) override;
 
     void SetAttitudeData(float pitch, float roll, float yaw);
     void SetInterpretation(const std::string& text);
@@ -296,7 +296,7 @@ private:
     // 在 DebugInfo 卡上展示指定索引主功能的一级分类（持锁状态下调用）
     void ShowFortuneFeatureCategoryUnlocked(int index);
     // 图片显示（持锁状态下调用，不加锁版本）
-    void SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image);
+    void SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 10000);
 
     void SetTaijiCoreVisible(bool visible);
 

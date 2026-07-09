@@ -50,7 +50,7 @@ void Display::ClearChatMessages() {
     // Default empty implementation, override in subclasses if needed
 }
 
-void Display::SetPreviewImage(std::unique_ptr<LvglImage> image) {
+void Display::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {
     ESP_LOGW(TAG, "SetPreviewImage not implemented by this Display subclass");
 }
 
