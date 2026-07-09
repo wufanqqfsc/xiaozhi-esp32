@@ -65,7 +65,7 @@ static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of 
 
 // 今日占卜：太极中心 / Boot 长按 3s 触发，15s 时间轴驱动跑马灯，按住可延长
 #define FORTUNE_DIVINATION_HOLD_MS           3000
-#define FORTUNE_DIVINATION_DURATION_MS       15000
+#define FORTUNE_DIVINATION_DURATION_MS       30000
 #define FORTUNE_DIVINATION_RELEASE_FINISH_MS 5000
 #define FORTUNE_DIVINATION_TICK_MS           25
 
@@ -219,6 +219,7 @@ private:
     int fortune_divination_last_tick_index_ = -1;
     int fortune_divination_highlight_ = -1;
     int fortune_divination_result_ = -1;
+    lv_color_t fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
     bool taiji_hold_pending_ = false;
     bool fortune_divination_sound_playing_ = false;
     lv_obj_t* taiji_divination_touch_ = nullptr;

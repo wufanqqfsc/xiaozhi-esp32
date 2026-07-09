@@ -422,6 +422,9 @@ void AttitudeDisplay::ShowNotification(const char* notification, int duration_ms
     uint32_t hold_ms = (duration_ms > 0) ? static_cast<uint32_t>(duration_ms) : DEBUG_INFO_SHOW_MS;
     if (hold_ms < 500) hold_ms = 500;
     if (hold_ms > DEBUG_INFO_HOLD_MAX_MS) hold_ms = DEBUG_INFO_HOLD_MAX_MS;
+    
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+
     // 加 LVGL 互斥锁：SdCardReportTask 等非 LVGL 任务也会调用 ShowNotification
     // 没有锁的话会在 lv_refr_now 阶段触发 LoadProhibited
     DisplayLockGuard lock(this);
@@ -987,14 +990,14 @@ void AttitudeDisplay::UpdateFortuneDivinationMarqueeVisual(int active_index)
                     fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
                     lv_obj_update_layout(label);
                 }
-                lv_obj_set_style_text_color(label, DEBUG_INFO_TITLE_COLOR, 0);
+                lv_obj_set_style_text_color(label, fortune_divination_current_color_, 0);
             } else {
                 if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE_SELECTED) {
                     lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE_SELECTED, 0);
                     fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
                     lv_obj_update_layout(label);
                 }
-                lv_obj_set_style_text_color(label, DEBUG_INFO_BORDER_COLOR, 0);
+                lv_obj_set_style_text_color(label, fortune_divination_current_color_, 0);
             }
         } else {
             if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE) {
@@ -1032,6 +1035,7 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     fortune_divination_last_tick_index_ = -1;
     fortune_divination_highlight_ = -1;
     fortune_divination_result_ = -1;
+    fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
     taiji_pressed_during_anim_ = false;
     fortune_divination_sound_playing_ = false;
     Application::GetInstance().StopUiSound();
@@ -1062,6 +1066,7 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
     fortune_divination_result_ = static_cast<int>(esp_random() % FORTUNE_MENU_COUNT);
     fortune_divination_highlight_ = 0;
     fortune_divination_last_tick_index_ = -1;
+    fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
 
     fortune_divination_start_ms_ = lv_tick_get();
     if (fortune_divination_from_taiji_ && was_taiji_holding) {
@@ -1141,10 +1146,16 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
     // we can just let it loop and suddenly stop at the result when deadline hits.
     // However, to make it look nicer, let's just make the step highlight move continuously.
     
-    self->UpdateFortuneDivinationMarqueeVisual(highlight);
     if (highlight != self->fortune_divination_last_tick_index_) {
+        // 生成随机高饱和、高明度颜色
+        uint16_t h = esp_random() % 360;
+        uint8_t s = 80 + (esp_random() % 21); // 80-100
+        uint8_t v = 90 + (esp_random() % 11); // 90-100
+        self->fortune_divination_current_color_ = lv_color_hsv_to_rgb(h, s, v);
         self->fortune_divination_last_tick_index_ = highlight;
     }
+
+    self->UpdateFortuneDivinationMarqueeVisual(highlight);
 }
 
 void AttitudeDisplay::OnTaijiHoldTimer(lv_timer_t* timer)
