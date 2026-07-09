@@ -1,7 +1,7 @@
 ESP-ROM:esp32s3-20210327
 Build:Mar 27 2021
 rst:0x15 (USB_UART_CHIP_RESET),boot:0xa (SPI_FAST_FLASH_BOOT)
-Saved PC:0x40387f1a
+Saved PC:0x4212c238
 SPIWP:0xee
 mode:DIO, clock div:1
 load:0x3fce2820,len:0x548
@@ -17,8 +17,8 @@ I (46) octal_psram: VCC          : 0x01 (3V)
 I (50) octal_psram: SRF          : 0x01 (Fast Refresh)
 I (55) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
 I (60) octal_psram: BurstLen     : 0x01 (32 Byte)
-I (64) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
-I (69) octal_psram: DriveStrength: 0x00 (1/1)
+I (65) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (70) octal_psram: DriveStrength: 0x00 (1/1)
 I (74) MSPI Timing: Enter psram timing tuning
 I (78) esp_psram: Found 8MB PSRAM device
 I (81) esp_psram: Speed: 80MHz
@@ -26,201 +26,218 @@ I (84) cpu_start: Multicore app
 I (98) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
 I (99) cpu_start: Pro cpu start user code
 I (99) cpu_start: cpu freq: 240000000 Hz
-I (100) app_init: Application information:
+I (101) app_init: Application information:
 I (104) app_init: Project name:     xiaozhi
 I (108) app_init: App version:      2.2.6
-I (112) app_init: Compile time:     Jul  7 2026 14:42:13
-I (117) app_init: ELF file SHA256:  409e0b767...
+I (112) app_init: Compile time:     Jul  9 2026 15:31:48
+I (117) app_init: ELF file SHA256:  6a13eeaf0...
 I (121) app_init: ESP-IDF:          v5.5.4
 I (125) efuse_init: Min chip rev:     v0.0
 I (129) efuse_init: Max chip rev:     v0.99 
 I (133) efuse_init: Chip rev:         v0.2
 I (137) heap_init: Initializing. RAM available for dynamic allocation:
-I (143) heap_init: At 3FCB5248 len 000344C8 (209 KiB): RAM
+I (143) heap_init: At 3FCB5260 len 000344B0 (209 KiB): RAM
 I (148) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
 I (153) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
-I (158) heap_init: At 600FE000 len 00001FD8 (7 KiB): RTCRAM
+I (159) heap_init: At 600FE000 len 00001FD8 (7 KiB): RTCRAM
 I (164) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
 I (171) spi_flash: detected chip: generic
 I (174) spi_flash: flash io: qio
 I (178) sleep_gpio: Configure to isolate all GPIO pins in sleep state
 I (183) sleep_gpio: Enable automatic switching of GPIO sleep configuration
-I (198) main_task: Started on CPU0
-I (208) esp_psram: Reserving pool of 96K of internal memory for DMA/internal allocations
-I (208) main_task: Calling app_main()
-I (218) Board: UUID=8e1db6fb-1020-48d6-a282-19ef5294ecec SKU=esp32-s3-touch-lcd-1.85b
+I (199) main_task: Started on CPU0
+I (209) esp_psram: Reserving pool of 96K of internal memory for DMA/internal allocations
+I (209) main_task: Calling app_main()
+I (219) Board: UUID=8e1db6fb-1020-48d6-a282-19ef5294ecec SKU=esp32-s3-touch-lcd-1.85b
 [1.85B] TCA9554 not present, skipping initialization
 [1.85B] Waiting for LCD power up...
-I (728) waveshare_lcd_1_85: Initialize QSPI bus
-I (728) waveshare_lcd_1_85: Install panel IO
-I (728) waveshare_lcd_1_85: Install ST77916 panel driver
+I (729) waveshare_lcd_1_85: Initialize QSPI bus
+I (729) waveshare_lcd_1_85: Install panel IO
+I (729) waveshare_lcd_1_85: Install ST77916 panel driver
 -------------------------------------- Version selection -------------------------------------- 
 Register 0x04 data: 00 00 00 00
 LCD communication parameters are set successfully -- SPI
-I (738) waveshare_lcd_1_85: Forcing vendor-specific initialization for ESP32-S3-Touch-LCD-1.85B
+I (739) waveshare_lcd_1_85: Forcing vendor-specific initialization for ESP32-S3-Touch-LCD-1.85B
 ------------------------------------- End of version selection------------------------------------- 
-I (758) st77916: LCD panel create success, version: 1.0.1
-I (1068) Display: Power management not supported
-I (1118) LcdDisplay: Turning display on
-I (1118) LcdDisplay: Initialize LVGL library
-I (1118) LcdDisplay: Use 2MB of PSRAM for image cache
-I (1118) LcdDisplay: Initialize LVGL port
-I (1118) LcdDisplay: Registering LVGL filesystem driver for SD card...
-I (1118) LVGL: Starting LVGL task
-I (1128) LcdDisplay:   OK: LVGL filesystem driver 'S:' registered
-I (1138) LcdDisplay: LCD draw buf: 360x72 (72 lines), single DMA buffer
-I (1148) LcdDisplay: Adding LCD display
-I (1148) AttitudeDisplay: AttitudeDisplay constructed, 360x360
-I (1548) CST816S: IC id: 181
-I (1548) waveshare_lcd_1_85: CST816S touch initialized (RST=1 INT=4)
-I (1548) button: IoT Button Version: 4.1.7
-I (1548) Backlight: Set brightness to 75
-I (1548) StateMachine: State: unknown -> starting
-I (1548) Application: Abort speaking
-I (1558) AttitudeDisplay: Background created with fixed colors
-I (1558) AttitudeDisplay: Creating Layer0 Taiji (radius=86, canvas=172, fisheye=32)
-I (1568) CompassTaiji: Creating Taiji diagram at (180, 180) radius=86
-I (1888) CompassTaiji: Canvas snapshots ready (118336 bytes x2)
-I (1888) CompassTaiji: Taiji diagram created (AA 172x172 canvas)
-I (1888) AttitudeDisplay: WiFi fisheye on taiji at local (70,27) size=32
-I (1898) AttitudeDisplay: BLE fisheye on taiji at local (70,113) size=32
-I (1918) AttitudeDisplay: WiFi fisheye status -> 0
-I (1938) AttitudeDisplay: BLE fisheye status -> 0
-I (1938) CompassTaiji: Auto rotation started: period=60000ms, step=1.2°/step, interval=200ms
-I (1938) AttitudeDisplay: Taiji auto rotation started (period=60000ms, fisheyes co-rotate)
-I (1988) AttitudeDisplay: Fortune menu ring: 12 icons (~35px), r=132, touch 82~179
-I (1998) AttitudeDisplay: Layer4 Boundary gold arc at r=179 (smooth, 3px)
-I (1998) AttitudeDisplay: Fortune menu ring touch layer ready (annulus 82~179)
-I (1998) AttitudeDisplay: Taiji divination touch ready (172x172, hold 3000ms)
-I (2118) AttitudeDisplay: SetupUI completed (taiji+fisheye 90%, fortune menu ring, L4 outer ring only)
-I (2128) AttitudeDisplay: DebugInfoCard shown: title=系统消息 hidden=0 card_hidden=0
-I (2128) AttitudeDisplay: DebugInfo: 系统消息 | esp32-s3-touch-lcd-1.85b/2.2.6 (hold=5000ms builtin_font=1)
-I (2138) BoxAudioCodec: Duplex channels created
-I (2148) ES8311: Work in Slave mode
-I (2148) ES7210: Work in Slave mode
-I (2158) ES7210: Enable ES7210_INPUT_MIC1
-I (2158) ES7210: Enable ES7210_INPUT_MIC2
-I (2168) ES7210: Enable ES7210_INPUT_MIC3
-I (2168) ES7210: Enable ES7210_INPUT_MIC4
-I (2168) ES7210: Enable TDM mode
-I (2178) BoxAudioCodec: BoxAudioDevice initialized
-I (2178) AudioCodec: Audio codec started
-I (2178) MCP: Add tool: self.get_device_status
-I (2178) MCP: Add tool: self.audio_speaker.set_volume
-I (2178) MCP: Add tool: self.screen.set_brightness
-I (2188) MCP: Add tool: self.screen.set_theme
-I (2188) MCP: Add tool: self.attitude.select_fortune
-I (2198) MCP: Add tool: self.attitude.cycle_fortune
-I (2198) MCP: Add tool: self.attitude.start_divination
-I (2208) MCP: Add tool: self.attitude.get_divination_result
-I (2208) MCP: Add tool: self.attitude.stop_divination
-I (2218) MCP: Add tool: self.screen.display_gif
-I (2218) MCP: Add tool: self.get_system_info [user]
-I (2228) MCP: Add tool: self.reboot [user]
-I (2228) MCP: Add tool: self.upgrade_firmware [user]
-I (2238) MCP: Add tool: self.screen.get_info [user]
-I (2238) MCP: Add tool: self.screen.preview_image [user]
-I (2238) MCP: Add tool: self.assets.set_download_url [user]
-I (2248) WifiManager: Initializing...
-I (2248) pp: pp rom version: e7ae62f
-I (2258) net80211: net80211 rom version: e7ae62f
-I (2268) wifi:wifi driver task: 3fcc9570, prio:23, stack:6144, core=0
-I (2268) wifi:wifi firmware version: 0947e8b
-I (2268) wifi:wifi certification version: v7.0
-I (2278) wifi:config NVS flash: disabled
-I (2278) wifi:config nano formatting: enabled
-I (2278) wifi:Init data frame dynamic rx buffer num: 6
-I (2288) wifi:Init dynamic rx mgmt buffer num: 5
-I (2288) wifi:Init management short buffer num: 32
-I (2298) wifi:Init dynamic tx buffer num: 32
-I (2298) wifi:Init static tx FG buffer num: 2
-I (2298) wifi:Init static rx buffer size: 1600
-I (2308) wifi:Init static rx buffer num: 3
-I (2308) wifi:Init dynamic rx buffer num: 6
-I (2318) wifi_init: rx ba win: 3
-I (2318) wifi_init: accept mbox: 6
-I (2318) wifi_init: tcpip mbox: 16
-I (2328) wifi_init: udp mbox: 6
-I (2328) wifi_init: tcp mbox: 6
-I (2328) wifi_init: tcp tx win: 5760
-I (2328) wifi_init: tcp rx win: 5760
-I (2338) wifi_init: tcp mss: 1440
-I (2338) WifiManager: Initialized
-I (2348) WifiBoard: Starting WiFi connection attempt
-I (2348) WifiManager: Starting station
-I (2348) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
-I (2398) wifi:mode : sta (a0:f2:62:e4:3a:40)
-I (2398) wifi:enable tsf
-I (2398) WifiBoard: WiFi scanning
-I (2398) WifiBoard: Starting BLE delayed timer (5000 ms)
-I (2458) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
-I (2458) AttitudeDisplay: DebugInfo: 通知 | 扫描 Wi-Fi... (hold=10000ms builtin_font=1)
-I (2998) AttitudeDisplay: WiFi fisheye status -> 0
-I (2998) Application: Starting HTTP server delayed...
-I (4078) waveshare_lcd_1_85: SD已挂载 58.04 GB
-I (4088) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
-I (4088) AttitudeDisplay: DebugInfo: 通知 | SD已挂载 58.04 GB (hold=4000ms builtin_font=1)
-E (4098) SdCardLog: open /sdcard/xiaozhi_boot_3.log failed: errno=22 (Invalid argument)
-W (4098) SdCardLog: fallback to 8.3 short name (LFN disabled?)
-W (4118) SdCardLog: using short name /sdcard/xzhi.log (overwritten on every boot)
-[+3.952] I (4118) SdCardLog: SD card log redirect started, file=/sdcard/xzhi.log
-[+3.973] I (4138) waveshare_lcd_1_85: 启动日志已重定向到 TF 卡: /sdcard/xzhi.log
-[+4.642] I (4808) WifiStation: Found AP: HUAWEI-9YQAVW, BSSID: a0:57:e3:fc:21:68, RSSI: -68, Channel: 7, Authmode: 4
-[+4.643] I (4808) WifiBoard: WiFi connecting to HUAWEI-9YQAVW
-[+4.765] W (4928) wifi:[+4.765] Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2[+4.768] 
-[+5.569] I (5738) wifi:[+5.569] new:<7,1>, old:<1,0>, ap:<255,255>, sta:<7,1>, prof:1, snd_ch_cfg:0x0[+5.570] 
-[+5.570] I (5738) wifi:[+5.570] state: init -> auth (0xb0)[+5.570] 
-[+5.573] I (5738) wifi:[+5.573] state: auth -> assoc (0x0)[+5.573] 
-[+5.578] I (5738) wifi:[+5.579] state: assoc -> run (0x10)[+5.579] 
-[+5.589] I (5758) wifi:[+5.589] connected with HUAWEI-9YQAVW, aid = 3, channel 7, 40U, bssid = a0:57:e3:fc:21:68[+5.590] 
-[+5.590] I (5758) wifi:[+5.590] security: WPA2-PSK, phy: bgn, rssi: -69, cipher(pairwise:0x3, group:0x3), pmf:0[+5.591] 
-[+5.592] I (5758) wifi:[+5.592] pm start, type: 1
-[+5.592] 
-[+5.592] I (5758) wifi:[+5.592] dp: 1, bi: 102400, li: 10, scale listen interval from 1024000 us to 1024000 us[+5.592] 
-[+5.592] I (5758) wifi:[+5.592] set rx beacon pti, rx_bcn_pti: 14, bcn_timeout: 25000, mt_pti: 14, mt_time: 10000[+5.593] 
-[+5.622] I (5788) wifi:[+5.622] AP's beacon interval = 102400 us, DTIM period = 1[+5.623] 
-[+6.640] I (6808) esp_netif_handlers: sta ip: 192.168.3.22, mask: 255.255.255.0, gw: 192.168.3.1
-[+6.642] I (6808) WifiStation: Got IP: 192.168.3.22
-[+6.642] I (6808) BleServer: ===== BLE Initialization Start (async task) =====
-[+6.642] I (6808) BleServer:   OK: BLE start task created, initialization will run asynchronously
-[+6.643] I (6808) WifiBoard: Connected to WiFi: HUAWEI-9YQAVW
-[+6.643] I (6808) BLE_INIT: Bluetooth MAC: a0:f2:62:e4:3a:42
-[+6.644] I (6808) BleServer:   OK: BT controller initialized
-[+6.644] I (6808) BleServer: [2/7] Enabling BLE controller mode...
-[+6.648] I (6808) BleServer:   OK: BLE controller enabled
-[+6.648] I (6808) BleServer: [3/7] Initializing NimBLE host stack...
-[+6.649] E (6808) BLE_INIT: hci inits failed
+I (759) st77916: LCD panel create success, version: 1.0.1
+I (1069) Display: Power management not supported
+I (1119) LcdDisplay: Turning display on
+I (1119) LcdDisplay: Initialize LVGL library
+I (1119) LcdDisplay: Use 2MB of PSRAM for image cache
+I (1119) LcdDisplay: Initialize LVGL port
+I (1119) LcdDisplay: Registering LVGL filesystem driver for SD card...
+I (1119) LVGL: Starting LVGL task
+I (1129) LcdDisplay:   OK: LVGL filesystem driver 'S:' registered
+I (1139) LcdDisplay: LCD draw buf: 360x72 (72 lines), single DMA buffer
+I (1149) LcdDisplay: Adding LCD display
+I (1149) AttitudeDisplay: AttitudeDisplay constructed, 360x360
+I (1549) CST816S: IC id: 181
+I (1549) waveshare_lcd_1_85: CST816S touch initialized (RST=1 INT=4)
+I (1549) button: IoT Button Version: 4.1.7
+I (1549) Backlight: Set brightness to 75
+I (1549) StateMachine: State: unknown -> starting
+I (1559) Application: Abort speaking
+I (1559) AttitudeDisplay: Background created with fixed colors
+I (1559) AttitudeDisplay: Creating Layer0 Taiji (radius=86, canvas=172, fisheye=32)
+I (1569) CompassTaiji: Creating Taiji diagram at (180, 180) radius=86
+I (1889) CompassTaiji: Canvas snapshots ready (118336 bytes x2)
+I (1889) CompassTaiji: Taiji diagram created (AA 172x172 canvas)
+I (1889) AttitudeDisplay: WiFi fisheye on taiji at local (70,27) size=32
+I (1899) AttitudeDisplay: BLE fisheye on taiji at local (70,113) size=32
+I (1919) AttitudeDisplay: WiFi fisheye status -> 0
+I (1939) AttitudeDisplay: BLE fisheye status -> 0
+I (1939) CompassTaiji: Auto rotation started: period=60000ms, step=1.2°/step, interval=200ms
+I (1939) AttitudeDisplay: Taiji auto rotation started (period=60000ms, fisheyes co-rotate)
+I (1989) AttitudeDisplay: Fortune menu ring: 12 icons (~35px), r=132, touch 82~179
+I (1999) AttitudeDisplay: Layer4 Boundary gold arc at r=179 (smooth, 3px)
+I (1999) AttitudeDisplay: Fortune menu ring touch layer ready (annulus 82~179)
+I (1999) AttitudeDisplay: Taiji divination touch ready (172x172, hold 3000ms)
+I (2119) AttitudeDisplay: SetupUI completed (taiji+fisheye 90%, fortune menu ring, L4 outer ring only)
+I (2129) AttitudeDisplay: DebugInfoCard shown: title=系统消息 hidden=0 card_hidden=0
+I (2129) AttitudeDisplay: DebugInfo: 系统消息 | esp32-s3-touch-lcd-1.85b/2.2.6 (hold=5000ms builtin_font=1)
+I (2139) BoxAudioCodec: Duplex channels created
+I (2149) ES8311: Work in Slave mode
+I (2159) ES7210: Work in Slave mode
+I (2159) ES7210: Enable ES7210_INPUT_MIC1
+I (2159) ES7210: Enable ES7210_INPUT_MIC2
+I (2169) ES7210: Enable ES7210_INPUT_MIC3
+I (2169) ES7210: Enable ES7210_INPUT_MIC4
+I (2169) ES7210: Enable TDM mode
+I (2179) BoxAudioCodec: BoxAudioDevice initialized
+I (2179) AudioCodec: Audio codec started
+I (2179) MCP: Add tool: self.get_device_status
+I (2179) MCP: Add tool: self.audio_speaker.set_volume
+I (2189) MCP: Add tool: self.screen.set_brightness
+I (2189) MCP: Add tool: self.screen.set_theme
+I (2189) MCP: Add tool: self.attitude.select_fortune
+I (2199) MCP: Add tool: self.attitude.cycle_fortune
+I (2199) MCP: Add tool: self.attitude.start_divination
+I (2209) MCP: Add tool: self.attitude.get_divination_result
+I (2209) MCP: Add tool: self.attitude.stop_divination
+I (2219) MCP: Add tool: self.screen.display_gif
+I (2219) MCP: Add tool: self.get_system_info [user]
+I (2229) MCP: Add tool: self.reboot [user]
+I (2229) MCP: Add tool: self.upgrade_firmware [user]
+I (2239) MCP: Add tool: self.screen.get_info [user]
+I (2239) MCP: Add tool: self.screen.preview_image [user]
+I (2249) MCP: Add tool: self.assets.set_download_url [user]
+I (2249) WifiManager: Initializing...
+I (2259) pp: pp rom version: e7ae62f
+I (2259) net80211: net80211 rom version: e7ae62f
+I (2269) wifi:wifi driver task: 3fcc9598, prio:23, stack:6144, core=0
+I (2269) wifi:wifi firmware version: 0947e8b
+I (2269) wifi:wifi certification version: v7.0
+I (2279) wifi:config NVS flash: disabled
+I (2279) wifi:config nano formatting: enabled
+I (2279) wifi:Init data frame dynamic rx buffer num: 6
+I (2289) wifi:Init dynamic rx mgmt buffer num: 5
+I (2289) wifi:Init management short buffer num: 32
+I (2299) wifi:Init dynamic tx buffer num: 32
+I (2299) wifi:Init static tx FG buffer num: 2
+I (2309) wifi:Init static rx buffer size: 1600
+I (2309) wifi:Init static rx buffer num: 3
+I (2309) wifi:Init dynamic rx buffer num: 6
+I (2319) wifi_init: rx ba win: 3
+I (2319) wifi_init: accept mbox: 6
+I (2319) wifi_init: tcpip mbox: 16
+I (2329) wifi_init: udp mbox: 6
+I (2329) wifi_init: tcp mbox: 6
+I (2329) wifi_init: tcp tx win: 5760
+I (2339) wifi_init: tcp rx win: 5760
+I (2339) wifi_init: tcp mss: 1440
+I (2339) WifiManager: Initialized
+I (2349) WifiBoard: Starting WiFi connection attempt
+I (2349) WifiManager: Starting station
+I (2349) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+I (2389) wifi:mode : sta (a0:f2:62:e4:3a:40)
+I (2399) wifi:enable tsf
+I (2399) WifiBoard: WiFi scanning
+I (2399) WifiBoard: Starting BLE delayed timer (5000 ms)
+I (2399) Application: StopUiSound
+I (2469) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
+I (2469) AttitudeDisplay: DebugInfo: 通知 | 扫描 Wi-Fi... (hold=10000ms builtin_font=1)
+I (3009) AttitudeDisplay: WiFi fisheye status -> 0
+I (3009) Application: Starting HTTP server delayed...
+I (4079) waveshare_lcd_1_85: SD已挂载 58.04 GB
+I (4089) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
+I (4089) AttitudeDisplay: DebugInfo: 通知 | SD已挂载 58.04 GB (hold=4000ms builtin_font=1)
+E (4099) SdCardLog: open /sdcard/xiaozhi_boot_3.log failed: errno=22 (Invalid argument)
+W (4099) SdCardLog: fallback to 8.3 short name (LFN disabled?)
+W (4119) SdCardLog: using short name /sdcard/xzhi.log (overwritten on every boot)
+[+3.955] I (4119) SdCardLog: SD card log redirect started, file=/sdcard/xzhi.log
+[+4.010] I (4179) waveshare_lcd_1_85: 启动日志已重定向到 TF 卡: /sdcard/xzhi.log
+[+4.642] I (4809) WifiStation: Found AP: HUAWEI-9YQAVW, BSSID: a0:57:e3:fc:21:68, RSSI: -69, Channel: 7, Authmode: 4
+[+4.643] I (4809) WifiBoard: WiFi connecting to HUAWEI-9YQAVW
+[+4.766] W (4929) wifi:[+4.766] Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2[+4.768] 
+[+5.564] I (5729) wifi:[+5.565] new:<7,1>, old:<1,0>, ap:<255,255>, sta:<7,1>, prof:1, snd_ch_cfg:0x0[+5.565] 
+[+5.565] I (5729) wifi:[+5.565] state: init -> auth (0xb0)[+5.565] 
+[+5.567] I (5729) wifi:[+5.567] state: auth -> assoc (0x0)[+5.568] 
+[+5.572] I (5739) wifi:[+5.572] state: assoc -> run (0x10)[+5.572] 
+[+5.586] I (5749) wifi:[+5.587] connected with HUAWEI-9YQAVW, aid = 3, channel 7, 40U, bssid = a0:57:e3:fc:21:68[+5.587] 
+[+5.587] I (5749) wifi:[+5.587] security: WPA2-PSK, phy: bgn, rssi: -69, cipher(pairwise:0x3, group:0x3), pmf:0[+5.589] 
+[+5.589] I (5759) wifi:[+5.589] pm start, type: 1
+[+5.589] 
+[+5.589] I (5759) wifi:[+5.590] dp: 1, bi: 102400, li: 10, scale listen interval from 1024000 us to 1024000 us[+5.590] 
+[+5.590] I (5759) wifi:[+5.590] set rx beacon pti, rx_bcn_pti: 14, bcn_timeout: 25000, mt_pti: 14, mt_time: 10000[+5.590] 
+[+5.626] I (5789) wifi:[+5.626] AP's beacon interval = 102400 us, DTIM period = 1[+5.626] 
+[+6.448] I (6609) wifi:[+6.448] <ba-add>idx:0 (ifx:0, a0:57:e3:fc:21:68), tid:7, ssn:4, winSize:64[+6.450] 
+[+6.639] I (6809) esp_netif_handlers: sta ip: 192.168.3.22, mask: 255.255.255.0, gw: 192.168.3.1
+[+6.640] I (6809) WifiStation: Got IP: 192.168.3.22
+[+6.640] I (6809) BleServer: ===== BLE Initialization Start (async task) =====
+[+6.640] I (6809) BleServer:   OK: BLE start task created, initialization will run asynchronously
+[+6.641] I (6809) WifiBoard: Connected to WiFi: HUAWEI-9YQAVW
+[+6.641] I (6809) BLE_INIT: Feature Config, ADV:1, BLE_50:1, DTM:1, SCAN:1, CCA:0, SMP:1, CONNECT:1
+[+6.681] I (6849) BLE_INIT: Bluetooth MAC: a0:f2:62:e4:3a:42
+[+6.682] I (6849) BleServer:   OK: BT controller initialized
+[+6.682] I (6849) BleServer: [2/7] Enabling BLE controller mode...
+[+6.683] I (6849) BleServer:   OK: BLE controller enabled
+[+6.684] I (6849) BleServer: [3/7] Initializing NimBLE host stack...
+[+6.684] E (6849) BLE_INIT: hci inits failed
 
-[+6.649] E (6808) BleServer:   FAILED: esp_nimble_init: ESP_FAIL
-[+6.710] I (6878) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
-[+6.710] I (6878) AttitudeDisplay: DebugInfo: 通知 | 已连接 HUAWEI-9YQAVW (hold=10000ms builtin_font=1)
-[+7.829] I (7998) Application: HTTP server delay finished, starting server...
-[+7.831] I (7998) SdCardLogHttp: ===== HTTP Server Start =====
-[+7.831] I (7998) SdCardLogHttp: [1/5] Configuring mount point: /sdcard
-[+7.831] I (7998) SdCardLogHttp:   OK: Mount point set
-[+7.831] I (7998) SdCardLogHttp: [2/5] Configuring HTTP server (port=8080)...
-[+7.832] I (7998) SdCardLogHttp:   OK: Config ready (max_uri_handlers=30, stack_size=20480, timeout=10s)
-[+7.832] I (7998) SdCardLogHttp: [3/5] Initializing display request queue...
-[+7.832] I (7998) SdCardLogHttp: Display request queue + timer initialized (queue=4 slots, timer=50ms)
-[+7.834] I (7998) SdCardLogHttp:   OK: Display request queue ready
-[+7.834] I (7998) SdCardLogHttp: [4/5] Starting HTTP server...
-[+7.835] I (7998) SdCardLogHttp:   OK: Server started on port 8080
-[+7.835] I (7998) SdCardLogHttp: [5/5] Registering URI handlers...
-[+7.835] I (7998) SdCardLogHttp:   [GET] /  -> Web UI
-[+7.836] I (7998) SdCardLogHttp:   OK: 28 URI handlers registered
-[+7.837] I (7998) SdCardLogHttp: ===== HTTP Server Ready =====
-[+7.837] I (7998) SdCardLogHttp:   Port: 8080
-[+7.838] I (7998) SdCardLogHttp:   Mount: /sdcard
-[+7.838] I (7998) SdCardLogHttp:   Handlers: 28
-[+7.838] I (7998) Application: HTTP server start called
-[+7.839] I (7998) Application: Network connected
-[+7.839] I (7998) StateMachine: State: starting -> activating
-[+7.839] I (7998) Application: Creating activation task...
-[+7.839] E (7998) Application: Failed to create activation task, ret=-1
-[+8.297] I (8458) wifi:[+8.297] <ba-add>idx:0 (ifx:0, a0:57:e3:fc:21:68), tid:6, ssn:0, winSize:64[+8.298] 
-[+8.404] I (8568) AttitudeDisplay: WiFi fisheye status -> 1
-[+8.713] I (8878) AttitudeDisplay: DebugInfoCard shown: title=WiFi 已连接 hidden=0 card_hidden=0
-[+8.714] I (8878) AttitudeDisplay: DebugInfo: WiFi 已连接 | HUAWEI-9YQAVW (hold=5000ms builtin_font=1)
-[+9.273] I (9438) AttitudeDisplay: WiFi fisheye status -> 2
-[+9.326] I (9488) wifi:[+9.326] <ba-add>idx:1 (ifx:0, a0:57:e3:fc:21:68), tid:0, ssn:0, winSize:64[+9.326] 
-[+18.014] I (18178) SystemInfo: free sram: 21187 minimal sram: 5607
+[+6.684] E (6849) BleServer:   FAILED: esp_nimble_init: ESP_FAIL
+[+6.810] I (6979) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
+[+6.812] I (6979) AttitudeDisplay: DebugInfo: 通知 | 已连接 HUAWEI-9YQAVW (hold=10000ms builtin_font=1)
+[+7.084] I (7249) wifi:[+7.084] <ba-add>idx:1 (ifx:0, a0:57:e3:fc:21:68), tid:0, ssn:0, winSize:64[+7.084] 
+[+7.839] I (8009) Application: HTTP server delay finished, starting server...
+[+7.840] I (8009) SdCardLogHttp: ===== HTTP Server Start =====
+[+7.840] I (8009) SdCardLogHttp: [1/5] Configuring mount point: /sdcard
+[+7.840] I (8009) SdCardLogHttp:   OK: Mount point set
+[+7.841] I (8009) SdCardLogHttp: [2/5] Configuring HTTP server (port=8080)...
+[+7.842] I (8009) SdCardLogHttp:   OK: Config ready (max_uri_handlers=30, stack_size=20480, timeout=10s)
+[+7.842] I (8009) SdCardLogHttp: [3/5] Initializing display request queue...
+[+7.842] I (8009) SdCardLogHttp: Display request queue + timer initialized (queue=4 slots, timer=50ms)
+[+7.843] I (8009) SdCardLogHttp:   OK: Display request queue ready
+[+7.843] I (8009) SdCardLogHttp: [4/5] Starting HTTP server...
+[+7.844] I (8009) SdCardLogHttp:   OK: Server started on port 8080
+[+7.888] I (8049) SdCardLogHttp: [5/5] Registering URI handlers...
+[+7.889] I (8049) SdCardLogHttp:   [GET] /  -> Web UI
+[+7.890] I (8059) SdCardLogHttp:   OK: 29 URI handlers registered
+[+7.890] I (8059) SdCardLogHttp: ===== HTTP Server Ready =====
+[+7.890] I (8059) SdCardLogHttp:   Port: 8080
+[+7.890] I (8059) SdCardLogHttp:   Mount: /sdcard
+[+7.890] I (8059) SdCardLogHttp:   Handlers: 29
+[+7.891] I (8059) Application: HTTP server start called
+[+7.891] I (8059) Application: Network connected
+[+7.892] I (8059) StateMachine: State: starting -> activating
+[+7.892] I (8059) Application: Creating activation task...
+[+7.893] E (8059) Application: Failed to create activation task, ret=-1
+[+7.893] I (8059) StateMachine: State: activating -> idle
+[+7.893] I (8059) Application: PlayUiSound (zu bytes)
+[+7.893] I (8059) I2S_IF: Paired data: 0x3fce941c, current mode: playback, paired in_enable: 0, paired out_enable: 0
+[+7.894] I (8059) I2S_IF: STD: TX, data_bit: 16, slot_bit: 16, ws_width: 16, slot_mode: MONO, slot_mask: 0x1
+[+7.896] I (8059) I2S_IF: STD: TX, sample_rate_hz: 24000, mclk_multiple: 256, clk_src: 6
+[+7.912] I (8079) Adev_Codec: Open codec device OK
+[+7.913] I (8079) AudioCodec: Set output enable to true
+[+7.916] I (8079) AudioService: Resampling audio from 16000 to 24000
+[+8.376] I (8539) Application: PlayUiSound (zu bytes)
+[+9.716] I (9879) Application: PlayUiSound (zu bytes)
+[+11.724] I (11889) AttitudeDisplay: WiFi fisheye status -> 1
+[+11.725] I (11889) Application: PlayUiSound (zu bytes)
+[+12.579] I (12739) AttitudeDisplay: DebugInfoCard shown: title=WiFi 已连接 hidden=0 card_hidden=0
+[+12.579] I (12739) AttitudeDisplay: DebugInfo: WiFi 已连接 | HUAWEI-9YQAVW (hold=5000ms builtin_font=1)
+[+13.160] I (13329) AttitudeDisplay: WiFi fisheye status -> 2
+[+13.172] I (13339) AttitudeDisplay: DebugInfoCard shown: title=状态 hidden=0 card_hidden=0
+[+13.172] I (13339) AttitudeDisplay: DebugInfo: 状态 | 待命 (hold=5000ms builtin_font=1)
+[+13.173] I (13339) AudioService: EnableWakeWordDetection called: enable=1 wake_word_=0
+[+13.174] W (13339) AudioService: EnableWakeWordDetection: wake_word_ is nullptr, cannot enable
+[+22.015] I (22179) SystemInfo: free sram: 25583 minimal sram: 143

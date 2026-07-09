@@ -56,6 +56,9 @@ curl -o boot.log http://<IP>:8080/api/sdcard/logs/xiaozhi_boot_1.log
 
 # Delete log
 curl -X DELETE http://<IP>:8080/api/sdcard/logs/xiaozhi_boot_1.log
+
+# Delete all logs (skips active log file)
+curl -X DELETE http://<IP>:8080/api/sdcard/logs
 ```
 
 ### SD Card Management
@@ -79,7 +82,8 @@ curl -X DELETE http://<IP>:8080/api/sdcard/files/<filename>
 | `/api/device/clear-nvs` | POST | Clear NVS ota_url/websocket_url |
 | `/api/sdcard/info` | GET | SD card info |
 | `/api/sdcard/logs` | GET | Log file list |
-| `/api/sdcard/logs/<filename>` | GET/DELETE | Download/delete log |
+| `/api/sdcard/logs` | DELETE | Delete all log files (skips active log) |
+| `/api/sdcard/logs/<filename>` | GET/DELETE | Download/delete single log |
 | `/api/sdcard/shots` | GET/POST | List/trigger screenshots |
 | `/api/sdcard/shots/<filename>` | GET/DELETE | Download/delete screenshot |
 | `/api/sdcard/files/<filename>` | DELETE | Delete any file |

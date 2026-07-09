@@ -933,8 +933,9 @@ bool SdCardLogHttpTriggerSnapshot(void);
 |------|------|------|
 | `/api/sdcard/info` | GET | SD 卡信息（日志状态等） |
 | `/api/sdcard/logs` | GET | 日志文件列表 |
+| `/api/sdcard/logs` | DELETE | 一键删除所有日志（跳过当前写入中的日志） |
 | `/api/sdcard/logs/<filename>` | GET | 下载日志 |
-| `/api/sdcard/logs/<filename>` | DELETE | 删除日志 |
+| `/api/sdcard/logs/<filename>` | DELETE | 删除指定日志 |
 | `/api/sdcard/shots` | GET | 截图列表 |
 | `/api/sdcard/shots` | POST | 触发截图（保存 SD 卡） |
 | `/api/sdcard/shots/<filename>` | GET | 下载截图（JPEG） |
@@ -951,6 +952,7 @@ bool SdCardLogHttpTriggerSnapshot(void);
 curl http://<IP>:8080/api/sdcard/logs
 curl -o boot.log http://<IP>:8080/api/sdcard/logs/xiaozhi_boot_1.log
 curl -X DELETE http://<IP>:8080/api/sdcard/logs/xiaozhi_boot_1.log
+curl -X DELETE http://<IP>:8080/api/sdcard/logs
 
 # 截图管理
 curl http://<IP>:8080/api/sdcard/shots
@@ -1015,7 +1017,8 @@ CONFIG_FATFS_CODEPAGE=437         # FATFS 代码页
 | `/api/device/clear-nvs` | POST | 清除 NVS 中 ota_url/websocket_url |
 | `/api/sdcard/info` | GET | SD 卡信息 |
 | `/api/sdcard/logs` | GET | 日志文件列表 |
-| `/api/sdcard/logs/<filename>` | GET/DELETE | 下载/删除日志 |
+| `/api/sdcard/logs` | DELETE | 一键删除所有日志（跳过当前写入中的日志） |
+| `/api/sdcard/logs/<filename>` | GET/DELETE | 下载/删除指定日志 |
 | `/api/sdcard/shots` | GET/POST | 截图列表 / 触发截图 |
 | `/api/sdcard/shots/<filename>` | GET/DELETE | 下载/删除截图 |
 | `/api/sdcard/files/<filename>` | DELETE | 删除 SD 卡任意文件 |

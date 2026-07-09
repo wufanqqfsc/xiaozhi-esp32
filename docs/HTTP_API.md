@@ -31,8 +31,9 @@ http://<设备IP>:8080
 | `/api/device/clear-nvs` | POST | 清除 NVS 中存储的 ota_url 和 websocket_url |
 | `/api/sdcard/info` | GET | 获取 SD 卡信息 |
 | `/api/sdcard/logs` | GET | 获取日志文件列表 |
+| `/api/sdcard/logs` | DELETE | 一键删除 SD 卡根目录下所有日志文件（跳过当前正在写入的日志） |
 | `/api/sdcard/logs/<filename>` | GET | 下载日志文件 |
-| `/api/sdcard/logs/<filename>` | DELETE | 删除日志文件 |
+| `/api/sdcard/logs/<filename>` | DELETE | 删除指定日志文件 |
 | `/api/sdcard/shots` | GET | 获取截图文件列表 |
 | `/api/sdcard/shots` | POST | 触发屏幕截图 |
 | `/api/sdcard/shots/<filename>` | GET | 下载截图文件 |
@@ -278,7 +279,45 @@ DELETE /api/sdcard/logs/<filename>
 
 ---
 
-### 10. 获取截图文件列表
+### 10. 一键删除所有日志文件
+
+**请求**
+```
+DELETE /api/sdcard/logs
+```
+
+**说明**
+- 删除 SD 卡根目录下所有 `.log` 文件（兼容 FAT 8.3 短文件名，如 `XZHI.LOG`）
+- **跳过**当前正在写入的日志文件（`SdCardLog` 激活时），避免影响运行中日志
+- 不删除子目录中的文件
+
+**响应示例**
+```json
+{
+  "ok": true,
+  "deleted": 3,
+  "skipped": 1,
+  "failed": 0
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `deleted` | 成功删除的文件数 |
+| `skipped` | 跳过的文件数（通常为当前活跃日志） |
+| `failed` | 删除失败的文件数 |
+| `ok` | `failed == 0` 时为 `true` |
+
+**使用示例**
+```bash
+curl -X DELETE http://192.168.3.22:8080/api/sdcard/logs
+```
+
+Web 管理界面（`GET /`）Log Files 区域提供 **Delete All Logs** 按钮，调用此接口。
+
+---
+
+### 11. 获取截图文件列表
 
 **请求**
 ```
@@ -314,7 +353,7 @@ GET /api/sdcard/shots
 
 ---
 
-### 11. 触发屏幕截图
+### 12. 触发屏幕截图
 
 **请求**
 ```
@@ -336,7 +375,7 @@ POST /api/sdcard/shots
 
 ---
 
-### 12. 下载截图文件
+### 13. 下载截图文件
 
 **请求**
 ```
@@ -354,7 +393,7 @@ curl -o shot.jpg http://192.168.3.22:8080/api/sdcard/shots/shot_20250624_143052.
 
 ---
 
-### 13. 删除截图文件
+### 14. 删除截图文件
 
 **请求**
 ```
@@ -370,7 +409,7 @@ DELETE /api/sdcard/shots/<filename>
 
 ---
 
-### 14. 删除 SD 卡任意文件
+### 15. 删除 SD 卡任意文件
 
 **请求**
 ```
@@ -396,7 +435,7 @@ DELETE /api/sdcard/files/
 
 与日志、截图 API 不同，这组 API 支持**任意扩展名**和**子目录**，可由调用方任意组织文件结构。
 
-### 15. 列出 SD 卡文件
+### 16. 列出 SD 卡文件
 
 **请求**
 ```
@@ -457,7 +496,7 @@ curl "http://192.168.3.22:8080/api/sdcard/files?recursive=1"
 
 ---
 
-### 16. 上传文件到 SD 卡
+### 17. 上传文件到 SD 卡
 
 **请求**
 ```
@@ -536,7 +575,7 @@ curl -X POST \
 
 ---
 
-### 17. 下载 SD 卡文件
+### 18. 下载 SD 卡文件
 
 **请求**
 ```
@@ -572,7 +611,7 @@ curl -H "Accept: */*" --output - http://192.168.3.22:8080/api/sdcard/files/image
 
 ---
 
-### 18. 删除 SD 卡任意文件（增强版）
+### 19. 删除 SD 卡任意文件（增强版）
 
 > 第 14 节描述的是根目录文件删除。此版本支持**任意子目录**和**任意文件名**。
 
@@ -600,7 +639,7 @@ curl -X DELETE http://192.168.3.22:8080/api/sdcard/files/images/old.gif
 
 支持两种方式触发设备显示 SD 卡上的资源（图片、GIF 等）：
 
-### 19. 独立触发显示：POST /api/display/show
+### 20. 独立触发显示：POST /api/display/show
 
 **请求**
 ```
@@ -670,7 +709,7 @@ curl -X POST -H "Content-Type: application/json" \
 
 ---
 
-### 20. 上传时自动显示：POST /api/sdcard/files/<path>?display=1
+### 21. 上传时自动显示：POST /api/sdcard/files/<path>?display=1
 
 在上传文件时通过 query 参数触发自动显示，一步完成 **上传 + 显示**。
 
@@ -724,7 +763,7 @@ curl -X POST --data-binary @icon.jpg \
 
 ---
 
-### 21. 隐藏当前资源：POST /api/display/hide
+### 22. 隐藏当前资源：POST /api/display/hide
 
 **请求**
 ```
@@ -791,7 +830,7 @@ I (4082) waveshare_lcd_1_85: SD已挂载 58.04 GB
 [+6.536] I (6697) WifiConfigBackup: Synced 1 networks to /sdcard/wifi_config.json
 ```
 
-### 22. 查看 WiFi 配置状态
+### 23. 查看 WiFi 配置状态
 
 ```
 GET /api/wifi/status
@@ -820,7 +859,7 @@ GET /api/wifi/status
 - `backup_file`：备份文件路径
 - `nvs_networks`：NVS 中所有 SSID（不含密码，避免泄露）
 
-### 23. 清空 NVS WiFi 凭据（保留 SD 卡备份）
+### 24. 清空 NVS WiFi 凭据（保留 SD 卡备份）
 
 ```
 POST /api/wifi/clear-nvs
@@ -846,7 +885,7 @@ POST /api/wifi/clear-nvs
 - 切换到其他 WiFi 网络
 - 重置所有 WiFi 配置
 
-### 24. 手动从 SD 卡恢复 WiFi 凭据
+### 25. 手动从 SD 卡恢复 WiFi 凭据
 
 ```
 POST /api/wifi/restore
@@ -904,7 +943,8 @@ POST /api/wifi/restore
 | `/api/wifi/restore` | POST | `self.wifi.restore_from_sd` | 从 SD 卡恢复 WiFi 凭据到 NVS |
 | `/api/sdcard/info` | GET | `self.sdcard.get_info` | SD 卡信息 |
 | `/api/sdcard/logs` | GET | `self.sdcard.list_logs` | 日志文件列表 |
-| `/api/sdcard/logs/` | DELETE | `self.sdcard.delete_log` | 删除日志（参数：`name`） |
+| `/api/sdcard/logs` | DELETE | — | 一键删除所有日志（跳过当前写入中的日志；Web UI **Delete All Logs**） |
+| `/api/sdcard/logs/<filename>` | DELETE | `self.sdcard.delete_log` | 删除指定日志（参数：`name`） |
 | `/api/sdcard/shots` | GET | `self.sdcard.list_shots` | 截图文件列表 |
 | `/api/sdcard/shots` | POST | `self.sdcard.trigger_snapshot` | 触发屏幕截图 |
 | `/api/sdcard/shots/` | DELETE | `self.sdcard.delete_shot` | 删除截图（参数：`name`） |
@@ -1014,9 +1054,10 @@ GET /
 ```
 
 **响应**
-- 返回 HTML 页面，提供简洁的管理界面
-- 支持查看设备状态、日志列表、截图列表
-- 支持下载和删除操作
+- 返回 HTML 页面，提供 SD 卡日志与其他文件管理界面
+- **Log Files**：列出根目录 `.log` 文件，支持下载、单条删除、**Delete All Logs**（`DELETE /api/sdcard/logs`）
+- **Other SD Card Files**：列出根目录非日志文件（如截图），支持下载与删除
+- 顶部显示 SD 卡容量与日志激活状态
 
 ---
 

@@ -464,7 +464,8 @@ static esp_err_t handle_root(httpd_req_t* req) {
         "</div>"
         "<div class='card'>"
         "<h2 style='color:#D4AF37;margin-top:0;'>Log Files "
-        "<a class='btn' href='#' onclick='load();return false;' style='float:right;font-size:12px;'>Refresh</a></h2>"
+        "<a class='btn del' href='#' onclick='delAllLogs();return false;' style='float:right;font-size:12px;margin-right:8px;'>Delete All Logs</a>"
+        "<a class='btn' href='#' onclick='load();return false;' style='float:right;font-size:12px;margin-right:8px;'>Refresh</a></h2>"
         "<table><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>"
         "<tbody id='files'><tr><td colspan='4' style='color:#888;'>Loading...</td></tr></tbody>"
         "</table>"
@@ -516,6 +517,12 @@ static esp_err_t handle_root(httpd_req_t* req) {
         "async function del(name){if(!confirm('Delete '+name+'?'))return;"
         "const r=await fetch('/api/sdcard/logs/'+encodeURIComponent(name),{method:'DELETE'});"
         "if(!r.ok){alert('Delete failed: '+r.status);return;}"
+        "load();}"
+        "async function delAllLogs(){if(!confirm('Delete ALL log files on SD card?\\nThe active log file in use will be kept.'))return;"
+        "const r=await fetch('/api/sdcard/logs',{method:'DELETE'});"
+        "const d=await r.json().catch(()=>({}));"
+        "if(!r.ok){alert('Delete all failed: '+(d.error||r.status));return;}"
+        "alert(`Deleted: ${d.deleted||0}, skipped: ${d.skipped||0}, failed: ${d.failed||0}`);"
         "load();}"
         "async function delFile(path){if(!confirm('Delete '+path+'?'))return;"
         "const r=await fetch('/api/sdcard/files/'+encodeURIComponent(path),{method:'DELETE'});"
@@ -688,6 +695,56 @@ static esp_err_t handle_log_delete(httpd_req_t* req) {
     }
     cJSON* root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "ok", true);
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// DELETE /api/sdcard/logs - 删除 SD 卡根目录下所有日志文件（跳过当前正在写入的日志）
+static esp_err_t handle_logs_delete_all(httpd_req_t* req) {
+    DIR* d = opendir(g_mount_point);
+    if (d == nullptr) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    const char* active_log = SdCardLogIsActive() ? SdCardLogGetPath() : nullptr;
+    const char* active_name = nullptr;
+    if (active_log != nullptr && active_log[0] != '\0') {
+        active_name = strrchr(active_log, '/');
+        active_name = (active_name != nullptr) ? active_name + 1 : active_log;
+    }
+
+    int deleted = 0;
+    int skipped = 0;
+    int failed = 0;
+    struct dirent* entry;
+    char path[320];
+    while ((entry = readdir(d)) != nullptr) {
+        const char* name = entry->d_name;
+        if (!is_log_filename(name)) continue;
+        if (active_name != nullptr && strcasecmp(name, active_name) == 0) {
+            skipped++;
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/%s", g_mount_point, name);
+        if (unlink(path) == 0) {
+            deleted++;
+        } else {
+            failed++;
+            ESP_LOGW(TAG, "delete log failed: %s errno=%d", path, errno);
+        }
+    }
+    closedir(d);
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", failed == 0);
+    cJSON_AddNumberToObject(root, "deleted", deleted);
+    cJSON_AddNumberToObject(root, "skipped", skipped);
+    cJSON_AddNumberToObject(root, "failed", failed);
     char* json_str = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json_str ? json_str : "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
@@ -1123,6 +1180,15 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_list);
+    handler_count++;
+
+    httpd_uri_t uri_logs_delete_all = {
+        .uri = "/api/sdcard/logs",
+        .method = HTTP_DELETE,
+        .handler = handle_logs_delete_all,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_logs_delete_all);
     handler_count++;
 
     // wildcard: /api/sdcard/logs/<filename>

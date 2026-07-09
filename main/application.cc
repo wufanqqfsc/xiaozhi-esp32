@@ -533,6 +533,10 @@ void Application::HandleNetworkConnectedEvent() {
                     }
                 }
             }
+            
+            // 关键修复：既然激活任务没能跑起来（也没法发出 MAIN_EVENT_ACTIVATION_DONE 信号），
+            // 必须手动把状态切回 Idle，否则设备永远卡在 Activating 状态，导致无法启动语音唤醒等功能。
+            SetDeviceState(kDeviceStateIdle);
         } else {
             ESP_LOGI(TAG, "Activation task created successfully");
         }
