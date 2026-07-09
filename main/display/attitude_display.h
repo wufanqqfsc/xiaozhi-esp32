@@ -205,7 +205,7 @@ private:
     lv_obj_t* fortune_menu_labels_[FORTUNE_MENU_COUNT] = {};
     int fortune_menu_center_x_[FORTUNE_MENU_COUNT] = {};
     int fortune_menu_center_y_[FORTUNE_MENU_COUNT] = {};
-    int fortune_menu_selected_index_ = 0;
+    int fortune_menu_selected_index_ = -1;
     bool fortune_menu_selection_active_ = false;
     int fortune_menu_applied_scale_[FORTUNE_MENU_COUNT] = {};
 

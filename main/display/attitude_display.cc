@@ -724,7 +724,7 @@ void AttitudeDisplay::CreateFortuneMenuRing()
         lv_obj_clear_flag(fortune_menu_labels_[i], LV_OBJ_FLAG_CLICKABLE);
     }
 
-    fortune_menu_selected_index_ = 0;
+    fortune_menu_selected_index_ = -1;
     fortune_menu_selection_active_ = false;
     UpdateFortuneMenuSelection();
 
@@ -900,8 +900,7 @@ void AttitudeDisplay::HideTaijiPressOverlayUnlocked()
         CompassTaiji::SetAutoRotationPaused(false);
         taiji_rotation_paused_by_press_ = false;
     }
-    lv_color_t taiji_color = (ble_status_ == BleStatus::CONNECTED) ? COLOR_BT_BLUE : COLOR_TEXT_MAIN;
-    UpdateTaijiGoldRingColor(taiji_color);
+    UpdateOuterRingColor();
 }
 
 void AttitudeDisplay::PlayFortuneMenuSelectSound()
@@ -1674,23 +1673,26 @@ void AttitudeDisplay::UpdateBleFisheye(BleStatus status)
     DisplayLockGuard lock(this);
     ble_status_ = status;
     ApplyBleFisheyeStyle(status);
-    // BLE 连接时只改变太极圈颜色，断开时恢复金色
-    lv_color_t taiji_color = (status == BleStatus::CONNECTED) ? COLOR_BT_BLUE : COLOR_TEXT_MAIN;
-    UpdateTaijiGoldRingColor(taiji_color);
     UpdateOuterRingColor();
     ESP_LOGI(TAG, "BLE fisheye status -> %d", static_cast<int>(status));
 }
 
 void AttitudeDisplay::UpdateOuterRingColor()
 {
-    if (layer4_outer_ring_ == nullptr) {
-        return;
-    }
     lv_color_t color = COLOR_TEXT_MAIN;
     if (wifi_status_ == WifiStatus::CONNECTED) {
         color = COLOR_WIFI_GREEN;
+    } else if (ble_status_ == BleStatus::CONNECTED) {
+        color = COLOR_BT_BLUE;
     }
-    lv_obj_set_style_arc_color(layer4_outer_ring_, color, LV_PART_INDICATOR);
+
+    if (layer4_outer_ring_ != nullptr) {
+        lv_obj_set_style_arc_color(layer4_outer_ring_, color, LV_PART_INDICATOR);
+    }
+
+    if (!taiji_rotation_paused_by_press_) {
+        UpdateTaijiGoldRingColor(color);
+    }
 }
 
 void AttitudeDisplay::UpdateTaijiGoldRingColor(lv_color_t color)
@@ -1709,7 +1711,7 @@ void AttitudeDisplay::EnterIdleState()
     ApplyWifiFisheyeStyle(wifi_status_);
     ApplyBleFisheyeStyle(ble_status_);
 
-    fortune_menu_selected_index_ = 0;
+    fortune_menu_selected_index_ = -1;
     fortune_menu_selection_active_ = false;
     SetFortuneMenuVisible(true);
     UpdateFortuneMenuSelection();
@@ -1904,7 +1906,7 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
     // 此函数由 ShowNotification 等 UI 调用方持有 DisplayLockGuard，本身为非 LVGL 任务上下文，
     // 故移除 lv_refr_now()；下次 LVGL 周期会自动刷新（典型 < 30ms）。
 
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
+    // Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
 
     ESP_LOGI(TAG, "DebugInfoCard shown: title=%s hidden=%d card_hidden=%d",
              title.c_str(),

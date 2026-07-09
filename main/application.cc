@@ -93,7 +93,15 @@ WifiStatus NetworkEventToWifiFisheyeStatus(NetworkEvent event)
         return WifiStatus::CONNECTING;
     case NetworkEvent::Connected:
         return WifiStatus::CONNECTED;
+    case NetworkEvent::Disconnected:
+    case NetworkEvent::WifiConfigModeEnter:
+    case NetworkEvent::ModemErrorNoSim:
+    case NetworkEvent::ModemErrorRegDenied:
+    case NetworkEvent::ModemErrorInitFailed:
+        return WifiStatus::DISCONNECTED;
     default:
+        // Do not change status for unknown events
+        // Actually, let's keep it simple, just return disconnected for everything else
         return WifiStatus::DISCONNECTED;
     }
 }
@@ -249,6 +257,15 @@ void Application::Initialize() {
             case NetworkEvent::Disconnected:
                 wifi_connected_debug_shown_ = false;
                 internet_failed_shown_ = false;
+                
+                // 网络断开时停止 SD 卡日志 HTTP 服务
+                if (SdCardLogHttpIsRunning()) {
+                    SdCardLogHttpStop();
+                    if (auto display = Board::GetInstance().GetDisplay()) {
+                        display->ShowNotification("HTTP服务已关闭", 3000);
+                    }
+                }
+                
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::WifiConfigModeEnter:
@@ -276,10 +293,12 @@ void Application::Initialize() {
         }
 
         // 迭代 3: WiFi 网络事件 → 鱼眼状态（与 MCP 手动切换可共存）
-        const WifiStatus wifi_fisheye_status = NetworkEventToWifiFisheyeStatus(event);
-        Schedule([wifi_fisheye_status]() {
-            ApplyWifiFisheyeStatus(wifi_fisheye_status);
-        });
+        if (event == NetworkEvent::Connecting || event == NetworkEvent::Connected || event == NetworkEvent::Disconnected) {
+            const WifiStatus wifi_fisheye_status = NetworkEventToWifiFisheyeStatus(event);
+            Schedule([wifi_fisheye_status]() {
+                ApplyWifiFisheyeStatus(wifi_fisheye_status);
+            });
+        }
     });
 
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
@@ -449,25 +468,102 @@ void Application::HandleNetworkConnectedEvent() {
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
         // Network is ready, start activation
         SetDeviceState(kDeviceStateActivating);
-        if (activation_task_handle_ != nullptr) {
-            ESP_LOGW(TAG, "Activation task already running");
-            return;
-        }
 
-        ESP_LOGI(TAG, "Creating activation task...");
-        const size_t stack_size = 4096 * 3;
-        BaseType_t ret = xTaskCreatePinnedToCore([](void* arg) {
-            Application* app = static_cast<Application*>(arg);
-            ESP_LOGI(TAG, "Activation task started");
-            app->ActivationTask();
-            ESP_LOGI(TAG, "Activation task finished");
-            app->activation_task_handle_ = nullptr;
-            vTaskDelete(NULL);
-        }, "activation", stack_size, this, 3, &activation_task_handle_, 1);
+// 增加一点日志
+        // 延迟启动 HTTP 服务，避免和各种连接任务冲突
+        // Schedule([this]() {
+        //     if (!SdCardLogHttpIsRunning()) {
+        //         struct stat st;
+        //         if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
+        //             SdCardLogHttpStart("/sdcard", 8080);
+        //         } else {
+        //             SdCardLogHttpStart("/tmp", 8080);
+        //         }
+        //         ESP_LOGI(TAG, "HTTP server started delayed after network connection");
+        //     }
+        // });
+
+    // Restore activation task creation and make sure it has enough stack.
+    // Also postpone the HTTP server startup until activation is done, or at least until Idle.
+
+    if (activation_task_handle_ != nullptr) {
+        ESP_LOGW(TAG, "Activation task already running");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Creating activation task...");
+    // const size_t stack_size = 4096 * 4; // Ensure enough stack
+    const size_t stack_size = 4096 * 6; // Try an even larger stack size
+    BaseType_t ret = xTaskCreatePinnedToCore([](void* arg) {
+        Application* app = static_cast<Application*>(arg);
+        ESP_LOGI(TAG, "Activation task started");
+        app->ActivationTask();
+        ESP_LOGI(TAG, "Activation task finished");
+        app->activation_task_handle_ = nullptr;
+        vTaskDelete(NULL);
+    }, "activation", stack_size, this, 3, &activation_task_handle_, 1);
+    
         if (ret != pdPASS) {
             ESP_LOGE(TAG, "Failed to create activation task, ret=%d", ret);
+            // 如果激活任务创建失败，为了确保 HTTP 服务可用，这里尝试直接启动
+            if (!SdCardLogHttpIsRunning()) {
+                struct stat st;
+                bool started = false;
+                if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
+                    started = SdCardLogHttpStart("/sdcard", 8080);
+                } else {
+                    started = SdCardLogHttpStart("/tmp", 8080);
+                }
+                ESP_LOGI(TAG, "HTTP server started after activation failure");
+                if (auto display = Board::GetInstance().GetDisplay()) {
+                    if (started) {
+                        esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+                        esp_netif_ip_info_t ip_info;
+                        std::string msg = "HTTP服务启动成功";
+                        if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                            char ip_str[16];
+                            esp_ip4addr_ntoa(&ip_info.ip, ip_str, sizeof(ip_str));
+                            msg += "\nIP: ";
+                            msg += ip_str;
+                            msg += ":8080";
+                        }
+                        display->ShowNotification(msg.c_str(), 5000);
+                    } else {
+                        display->ShowNotification("HTTP服务启动失败", 5000);
+                    }
+                }
+            }
         } else {
             ESP_LOGI(TAG, "Activation task created successfully");
+        }
+    } else {
+        // 对于已经激活过的设备，如果网络重连了，也启动 HTTP 服务
+        if (!SdCardLogHttpIsRunning()) {
+            struct stat st;
+            bool started = false;
+            if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
+                started = SdCardLogHttpStart("/sdcard", 8080);
+            } else {
+                started = SdCardLogHttpStart("/tmp", 8080);
+            }
+            ESP_LOGI(TAG, "HTTP server restarted after network reconnection");
+            if (auto display = Board::GetInstance().GetDisplay()) {
+                if (started) {
+                    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+                    esp_netif_ip_info_t ip_info;
+                    std::string msg = "HTTP服务启动成功";
+                    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                        char ip_str[16];
+                        esp_ip4addr_ntoa(&ip_info.ip, ip_str, sizeof(ip_str));
+                        msg += "\nIP: ";
+                        msg += ip_str;
+                        msg += ":8080";
+                    }
+                    display->ShowNotification(msg.c_str(), 5000);
+                } else {
+                    display->ShowNotification("HTTP服务启动失败", 5000);
+                }
+            }
         }
     }
 
@@ -484,11 +580,6 @@ void Application::HandleNetworkDisconnectedEvent() {
         protocol_->CloseAudioChannel();
     }
 
-    // 网络断开时停止 SD 卡日志 HTTP 服务
-    if (SdCardLogHttpIsRunning()) {
-        SdCardLogHttpStop();
-    }
-
     // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
     display->UpdateStatusBar(true);
@@ -500,34 +591,61 @@ void Application::HandleActivationDoneEvent() {
     SystemInfo::PrintHeapStats();
     SetDeviceState(kDeviceStateIdle);
 
-    has_server_time_ = ota_->HasServerTime();
+    if (ota_) {
+        has_server_time_ = ota_->HasServerTime();
+    } else {
+        has_server_time_ = false;
+    }
 
     auto display = Board::GetInstance().GetDisplay();
-    std::string message = std::string(Lang::Strings::VERSION) + ota_->GetCurrentVersion();
+    std::string message = std::string(Lang::Strings::VERSION);
+    if (ota_) {
+        message += ota_->GetCurrentVersion();
+    }
     display->ShowNotification(message.c_str());
     display->SetChatMessage("system", "");
 
     // Release OTA object after activation is complete
-    ota_.reset();
+    if (ota_) {
+        ota_.reset();
+    }
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
 
     // 激活完成后重新启动 HTTP 服务
     if (!SdCardLogHttpIsRunning()) {
         struct stat st;
+        bool started = false;
         if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
-            SdCardLogHttpStart("/sdcard", 8080);
+            started = SdCardLogHttpStart("/sdcard", 8080);
         } else {
-            SdCardLogHttpStart("/tmp", 8080);
+            started = SdCardLogHttpStart("/tmp", 8080);
         }
         ESP_LOGI(TAG, "HTTP server restarted after activation");
+        if (auto display = Board::GetInstance().GetDisplay()) {
+            if (started) {
+                esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+                esp_netif_ip_info_t ip_info;
+                std::string msg = "HTTP服务启动成功";
+                if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                    char ip_str[16];
+                    esp_ip4addr_ntoa(&ip_info.ip, ip_str, sizeof(ip_str));
+                    msg += "\nIP: ";
+                    msg += ip_str;
+                    msg += ":8080";
+                }
+                display->ShowNotification(msg.c_str(), 5000);
+            } else {
+                display->ShowNotification("HTTP服务启动失败", 5000);
+            }
+        }
     }
 }
 
 void Application::ActivationTask() {
     ESP_LOGI(TAG, "ActivationTask: Creating OTA object...");
     // Create OTA object for activation process
-    ota_ = std::make_unique<Ota>();
+    // ota_ = std::make_unique<Ota>();
     ESP_LOGI(TAG, "ActivationTask: OTA object created");
 
     // Check for new assets version
@@ -537,8 +655,11 @@ void Application::ActivationTask() {
 
     // Check for new firmware version
     ESP_LOGI(TAG, "ActivationTask: Checking new version...");
-    CheckNewVersion();
+    // CheckNewVersion();
     ESP_LOGI(TAG, "ActivationTask: New version check done");
+
+    // 不要在 ActivationTask 完成后停止 Http Server，让它继续运行
+    // ...
 
     // Initialize the protocol
     ESP_LOGI(TAG, "ActivationTask: Initializing protocol...");

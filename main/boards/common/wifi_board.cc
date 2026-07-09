@@ -213,12 +213,6 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
         case NetworkEvent::Connecting:
             seen_connecting_ = true;
             scan_rounds_without_connect_ = 0;
-#if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
-            // WiFi 开始连接时就启动 BLE（在连接超时进入配网模式之前）
-            if (!in_config_mode_) {
-                BleServer::GetInstance().Start();
-            }
-#endif
             ESP_LOGI(TAG, "WiFi connecting to %s", data.c_str());
             break;
         case NetworkEvent::Disconnected:
