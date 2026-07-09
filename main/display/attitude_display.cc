@@ -983,8 +983,26 @@ void AttitudeDisplay::UpdateFortuneDivinationMarqueeVisual(int active_index)
         const int cx = fortune_menu_center_x_[i];
         const int cy = fortune_menu_center_y_[i];
 
-        if (i == active_index) {
-            if (fortune_divination_state_ == FortuneDivinationState::Result) {
+        if (fortune_divination_state_ == FortuneDivinationState::Result) {
+            // Result state: active icon is scaled up, but all icons restore to gold
+            if (i == active_index) {
+                if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE_SELECTED) {
+                    lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE_SELECTED, 0);
+                    fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
+                    lv_obj_update_layout(label);
+                }
+            } else {
+                if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE) {
+                    lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE, 0);
+                    fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE;
+                    lv_obj_update_layout(label);
+                }
+            }
+            lv_obj_set_style_text_color(label, COLOR_TEXT_MAIN, 0);
+        } else {
+            // Animating state: highlight a trail of icons
+            int distance = (active_index - i + FORTUNE_MENU_COUNT) % FORTUNE_MENU_COUNT;
+            if (distance < FORTUNE_DIVINATION_HIGHLIGHT_COUNT) {
                 if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE_SELECTED) {
                     lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE_SELECTED, 0);
                     fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
@@ -992,20 +1010,13 @@ void AttitudeDisplay::UpdateFortuneDivinationMarqueeVisual(int active_index)
                 }
                 lv_obj_set_style_text_color(label, fortune_divination_current_color_, 0);
             } else {
-                if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE_SELECTED) {
-                    lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE_SELECTED, 0);
-                    fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
+                if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE) {
+                    lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE, 0);
+                    fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE;
                     lv_obj_update_layout(label);
                 }
-                lv_obj_set_style_text_color(label, fortune_divination_current_color_, 0);
+                lv_obj_set_style_text_color(label, COLOR_TEXT_MAIN, 0);
             }
-        } else {
-            if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE) {
-                lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE, 0);
-                fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE;
-                lv_obj_update_layout(label);
-            }
-            lv_obj_set_style_text_color(label, COLOR_TEXT_MAIN, 0);
         }
         const int w = lv_obj_get_width(label);
         const int h = lv_obj_get_height(label);
@@ -1084,6 +1095,7 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
     
     UpdateFortuneDivinationMarqueeVisual(0);
     PlayFortuneDivinationMarqueeSound();
+    fortune_divination_sound_next_play_ms_ = lv_tick_get() + FORTUNE_DIVINATION_SOUND_INTERVAL_MS;
 
     fortune_divination_timer_ = lv_timer_create(OnFortuneDivinationTick,
                                                 FORTUNE_DIVINATION_TICK_MS, this);
@@ -1132,6 +1144,11 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
     }
 
     uint32_t now = lv_tick_get();
+
+    if (now >= self->fortune_divination_sound_next_play_ms_) {
+        self->PlayFortuneDivinationMarqueeSound();
+        self->fortune_divination_sound_next_play_ms_ = now + FORTUNE_DIVINATION_SOUND_INTERVAL_MS;
+    }
     
     if (self->fortune_divination_finish_deadline_ms_ != 0 && now >= self->fortune_divination_finish_deadline_ms_) {
         self->FinishFortuneDivinationUnlocked(self->fortune_divination_result_);
