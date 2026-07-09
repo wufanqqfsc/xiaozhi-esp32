@@ -96,7 +96,7 @@ void LvglDisplay::ShowNotification(const char* notification, int duration_ms) {
         ESP_LOGW(TAG, "ShowNotification('%s') called before SetupUI() - message will be lost!", notification);
     }
     
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
 
     DisplayLockGuard lock(this);
     if (notification_label_ == nullptr) {

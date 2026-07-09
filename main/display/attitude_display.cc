@@ -423,7 +423,7 @@ void AttitudeDisplay::ShowNotification(const char* notification, int duration_ms
     if (hold_ms < 500) hold_ms = 500;
     if (hold_ms > DEBUG_INFO_HOLD_MAX_MS) hold_ms = DEBUG_INFO_HOLD_MAX_MS;
     
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
 
     // 加 LVGL 互斥锁：SdCardReportTask 等非 LVGL 任务也会调用 ShowNotification
     // 没有锁的话会在 lv_refr_now 阶段触发 LoadProhibited
@@ -1108,12 +1108,12 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
     fortune_menu_selection_active_ = true;
     fortune_menu_selected_index_ = result_index;
 
+    fortune_divination_sound_playing_ = false;
+    Application::GetInstance().StopUiSound();
+
     UpdateFortuneDivinationMarqueeVisual(result_index);
     ShowFortuneFeatureCategoryUnlocked(result_index);
     fortune_divination_last_tick_index_ = result_index;
-
-    fortune_divination_sound_playing_ = false;
-    Application::GetInstance().StopUiSound();
 
     ESP_LOGI(TAG, "Fortune divination finished -> %d (%s)",
              result_index, kFortuneMenuDefs[result_index].func_label);
