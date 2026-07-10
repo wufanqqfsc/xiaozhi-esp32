@@ -11,7 +11,6 @@
 #include "assets.h"
 #include "settings.h"
 #include "sdcard_log_http.h"
-#include "lvgl_image.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -1268,21 +1267,9 @@ void Application::HandleWakeWordDetectedEvent() {
             // 短促本地提示音 + 显示卡（默认 30s，有语音交互则由 RefreshDebugInfoTimer 重计时）
             attitude->ShowDebugInfo("唤醒成功", detail, 30000);
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
-
-            // 显示 GIF 背景（ark-reactor-normal.gif）
-            void* gif_data = nullptr;
-            size_t gif_size = 0;
-            if (Assets::GetInstance().GetAssetData("ark-reactor-normal.gif", gif_data, gif_size)) {
-                auto gif_image = std::make_unique<LvglRawImage>(gif_data, gif_size);
-                if (gif_image->IsGif()) {
-                    attitude->SetPreviewImage(std::move(gif_image));
-                    ESP_LOGI(TAG, "Wakeup GIF displayed: %zu bytes", gif_size);
-                } else {
-                    ESP_LOGW(TAG, "Wakeup GIF has invalid magic bytes");
-                }
-            } else {
-                ESP_LOGW(TAG, "Wakeup GIF not found in assets");
-            }
+            // 唤醒时进入 JARVIS 动效界面
+            attitude->ShowJarvisWatchface();
+            attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
         });
     }
     // 不在此处触发服务端 TTS：唤醒词后 LLM 即将开始接管对话，避免双声道冲突
@@ -1391,6 +1378,7 @@ void Application::HandleStateChangedEvent() {
     auto display = board.GetDisplay();
     auto led = board.GetLed();
     led->OnStateChanged();
+    auto* attitude = GetAttitudeDisplay();
     
     switch (new_state) {
         case kDeviceStateUnknown:
@@ -1400,15 +1388,26 @@ void Application::HandleStateChangedEvent() {
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
+            if (attitude != nullptr) {
+                attitude->HideJarvisWatchface();
+            }
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
+            if (attitude != nullptr) {
+                attitude->ShowJarvisWatchface();
+                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
+            }
             break;
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+            if (attitude != nullptr) {
+                attitude->ShowJarvisWatchface();
+                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Listening);
+            }
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
@@ -1439,6 +1438,10 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
+            if (attitude != nullptr) {
+                attitude->ShowJarvisWatchface();
+                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Speaking);
+            }
 
             if (!audio_service_.IsRunning()) {
                 audio_service_.Start();
@@ -1453,6 +1456,9 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateWifiConfiguring:
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(false);
+            if (attitude != nullptr) {
+                attitude->HideJarvisWatchface();
+            }
             break;
         default:
             // Do nothing
