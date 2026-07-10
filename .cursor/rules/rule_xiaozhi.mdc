@@ -5,8 +5,8 @@ globs: *
 # Xiaozhi ESP32 开发规则
 
 > **项目**: Xiaozhi ESP32 AI 罗盘项目  
-> **版本**: v1.4  
-> **更新日期**: 2026-07-09
+> **版本**: v1.5  
+> **更新日期**: 2026-07-10
 
 ---
 
@@ -68,6 +68,14 @@ globs: *
 
 > **重要**: 所有的编译和烧录都需要使用项目中固定的 `build_and_flash.sh` 脚本进行，不能使用其他方式。
 
+#### Windows 系统专用规则（v1.5 新增）
+
+- 当开发环境为 **Windows** 时，禁止直接调用 `build_and_flash.sh`。
+- 必须使用项目内 Windows 脚本：
+  - `build_and_flash.bat`（推荐，统一入口）
+  - 或 `build_and_flash.ps1`
+- 目的：避免依赖 WSL/bash 环境导致构建或烧录流程异常中断。
+
 #### 为什么必须使用 `build_and_flash.sh`？
 
 - **错误信息完整性** - 不要使用 `2>&1` 重定向，否则会导致编译和烧录过程中输出的错误信息被忽略
@@ -85,6 +93,17 @@ globs: *
 
 ```bash
 ./build_and_flash.sh <board_type> <port>
+```
+
+Windows 示例：
+
+```powershell
+# 推荐入口（自动转调 PowerShell 脚本）
+.\build_and_flash.bat
+
+# 或直接使用 PowerShell 脚本
+.\build_and_flash.ps1
+.\build_and_flash.ps1 -Port COM9
 ```
 
 > **注意**: 如果脚本不存在或有问题，请先检查脚本内容或创建符合项目需求的编译烧录脚本。

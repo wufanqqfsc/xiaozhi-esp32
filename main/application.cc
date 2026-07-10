@@ -195,8 +195,15 @@ void Application::Initialize() {
     callbacks.on_vad_change = [this](bool speaking) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
-    // 播放队列清空回调：勿在此隐藏提示卡——UI 短音效（POPUP/SUCCESS）结束会误关运势功能卡
-    callbacks.on_playback_finished = nullptr;
+    // 播放队列清空回调：仅转发给 AttitudeDisplay 的占卜结果延迟展示逻辑。
+    // 由显示层内部做状态门控，避免影响普通 TTS/提示音流程。
+    callbacks.on_playback_finished = [this]() {
+        Schedule([]() {
+            if (auto* attitude = GetAttitudeDisplay()) {
+                attitude->OnUiPlaybackFinished();
+            }
+        });
+    };
     audio_service_.SetCallbacks(callbacks);
 
     // Add state change listeners

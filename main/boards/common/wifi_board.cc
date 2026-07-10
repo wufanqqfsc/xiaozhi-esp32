@@ -168,7 +168,7 @@ void WifiBoard::TryWifiConnect() {
 
 void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
     switch (event) {
-        case NetworkEvent::Connected:
+        case NetworkEvent::Connected: {
             // Stop timeout timer
             seen_connecting_ = true;
             scan_rounds_without_connect_ = 0;
@@ -182,11 +182,20 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             if (ble_start_timer_) {
                 esp_timer_stop(ble_start_timer_);
             }
-            BleServer::GetInstance().Start();
+            auto& ble_server = BleServer::GetInstance();
+            if (ble_server.IsPaused()) {
+                ble_server.Resume();
+            } else if (!ble_server.IsRunning() && !ble_server.IsStarting()) {
+                ble_server.Start();
+            } else {
+                ESP_LOGI(TAG, "BLE startup already handled (running=%d, starting=%d)",
+                         ble_server.IsRunning(), ble_server.IsStarting());
+            }
 #endif
             in_config_mode_ = false;
             ESP_LOGI(TAG, "Connected to WiFi: %s", data.c_str());
             break;
+        }
         case NetworkEvent::Scanning:
             ESP_LOGI(TAG, "WiFi scanning");
             if (!in_config_mode_ && !seen_connecting_ && connect_timer_ != nullptr
@@ -261,8 +270,14 @@ void WifiBoard::OnBleStartTimeout(void* arg) {
         ESP_LOGI(TAG, "BLE delayed start skipped: WiFi config mode active");
         return;
     }
+    auto& ble_server = BleServer::GetInstance();
+    if (ble_server.IsRunning() || ble_server.IsStarting()) {
+        ESP_LOGI(TAG, "BLE delayed start skipped: running=%d, starting=%d",
+                 ble_server.IsRunning(), ble_server.IsStarting());
+        return;
+    }
     ESP_LOGI(TAG, "BLE delayed start timer fired, starting BLE now...");
-    BleServer::GetInstance().Start();
+    ble_server.Start();
 #else
     (void)arg;
 #endif

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <esp_err.h>
 #include "display/attitude_display.h"
@@ -23,6 +24,7 @@ public:
     void SetStatusCallback(StatusCallback callback);
     BleStatus GetStatus() const { return status_; }
     bool IsRunning() const { return running_; }
+    bool IsStarting() const { return starting_.load(); }
     bool IsPaused() const { return paused_; }
 
     /** Called from NimBLE GAP callbacks (not for external use). */
@@ -30,6 +32,8 @@ public:
 
     /** Called from async start task to mark initialization complete. */
     void OnInitComplete();
+    /** Called from async start task when initialization fails. */
+    void OnInitFailed();
 
     BleServer(const BleServer&) = delete;
     BleServer& operator=(const BleServer&) = delete;
@@ -41,5 +45,6 @@ private:
     StatusCallback status_callback_;
     BleStatus status_ = BleStatus::DISABLED;
     bool running_ = false;
+    std::atomic<bool> starting_{false};
     bool paused_ = false;
 };
