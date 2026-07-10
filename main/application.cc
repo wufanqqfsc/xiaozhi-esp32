@@ -28,6 +28,9 @@
 #define TAG "Application"
 
 namespace {
+// 临时关闭本地提示音（popup/exclamation/低电等），避免高频报错时持续蜂鸣。
+// 服务端 TTS 走解码播放链路，不受此开关影响。
+constexpr bool kLocalPromptSoundEnabled = false;
 
 AttitudeDisplay* GetAttitudeDisplay()
 {
@@ -183,7 +186,6 @@ void Application::Initialize() {
     // Setup the audio service
     auto codec = board.GetAudioCodec();
     audio_service_.Initialize(codec);
-    audio_service_.Start();
 
     AudioServiceCallbacks callbacks;
     callbacks.on_send_queue_available = [this]() {
@@ -205,6 +207,7 @@ void Application::Initialize() {
         });
     };
     audio_service_.SetCallbacks(callbacks);
+    audio_service_.Start();
 
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
@@ -654,9 +657,11 @@ void Application::HandleActivationDoneEvent() {
 
 void Application::ActivationTask() {
     ESP_LOGI(TAG, "ActivationTask: Creating OTA object...");
-    // Create OTA object for activation process
-    // ota_ = std::make_unique<Ota>();
-    ESP_LOGI(TAG, "ActivationTask: OTA object created");
+    // OTA config is required by InitializeProtocol(); ensure it always exists.
+    if (!ota_) {
+        ota_ = std::make_unique<Ota>();
+    }
+    ESP_LOGI(TAG, "ActivationTask: OTA object ready");
 
     // Check for new assets version
     ESP_LOGI(TAG, "ActivationTask: Checking assets version...");
@@ -831,6 +836,11 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
+    if (!ota_) {
+        ESP_LOGW(TAG, "OTA object missing in InitializeProtocol, creating fallback instance");
+        ota_ = std::make_unique<Ota>();
+    }
+
     if (ota_->HasMqttConfig()) {
         protocol_ = std::make_unique<MqttProtocol>();
     } else if (ota_->HasWebsocketConfig()) {
@@ -866,7 +876,7 @@ void Application::InitializeProtocol() {
             Schedule([this, attitude, detail]() {
                 // 短促本地提示音 + 显示卡
                 attitude->ShowDebugInfo("握手成功", detail, 5000);
-                audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+                PlaySound(Lang::Sounds::OGG_POPUP);
             });
         }
         // 服务端 TTS 朗读（已存在通道，复用）
@@ -1058,7 +1068,7 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
         auto it = std::find_if(digit_sounds.begin(), digit_sounds.end(),
             [digit](const digit_sound& ds) { return ds.digit == digit; });
         if (it != digit_sounds.end()) {
-            audio_service_.PlaySound(it->sound);
+            PlaySound(it->sound);
         }
     }
 }
@@ -1070,7 +1080,7 @@ void Application::Alert(const char* status, const char* message, const char* emo
     display->SetEmotion(emotion);
     display->SetChatMessage("system", message);
     if (!sound.empty()) {
-        audio_service_.PlaySound(sound);
+        PlaySound(sound);
     }
 }
 
@@ -1116,7 +1126,7 @@ void Application::ShowInternetFailedNotification(const char* reason) {
         });
     }
     // 用失败提示音而非默认成功音，避免与配网成功音效混淆
-    audio_service_.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
+    PlaySound(Lang::Sounds::OGG_EXCLAMATION);
 }
 
 void Application::ToggleChatState() {
@@ -1273,7 +1283,7 @@ void Application::HandleWakeWordDetectedEvent() {
         Schedule([this, attitude, detail]() {
             // 短促本地提示音 + 显示卡（默认 30s，有语音交互则由 RefreshDebugInfoTimer 重计时）
             attitude->ShowDebugInfo("唤醒成功", detail, 30000);
-            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            PlaySound(Lang::Sounds::OGG_POPUP);
             // 唤醒时进入 JARVIS 动效界面
             attitude->ShowJarvisWatchface();
             attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
@@ -1328,7 +1338,7 @@ void Application::HandleWakeWordDetectedEvent() {
 
         if (state == kDeviceStateListening) {
             audio_service_.ResetDecoder();
-            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            PlaySound(Lang::Sounds::OGG_POPUP);
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
         } else {
@@ -1440,7 +1450,7 @@ void Application::HandleStateChangedEvent() {
             // Play popup sound after ResetDecoder (in EnableVoiceProcessing) has been called
             if (play_popup_on_listening_) {
                 play_popup_on_listening_ = false;
-                audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+                PlaySound(Lang::Sounds::OGG_POPUP);
             }
             break;
         case kDeviceStateSpeaking:
@@ -1662,6 +1672,9 @@ void Application::SetAecMode(AecMode mode) {
 }
 
 void Application::PlaySound(const std::string_view& sound) {
+    if (!kLocalPromptSoundEnabled || sound.empty()) {
+        return;
+    }
     audio_service_.PlaySound(sound);
 }
 
@@ -1675,7 +1688,7 @@ void Application::PlayUiSound(const std::string_view& sound) {
     }
     Schedule([this, sound]() {
         ESP_LOGI(TAG, "PlayUiSound (%zu bytes)", sound.size());
-        audio_service_.PlaySound(sound);
+        PlaySound(sound);
     });
 }
 
