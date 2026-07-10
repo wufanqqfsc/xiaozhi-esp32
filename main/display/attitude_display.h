@@ -3,6 +3,7 @@
 
 #include "lcd_display.h"
 #include "lvgl_image.h"
+#include "jarvis_watchface.h"
 #include <string>
 #include <lvgl.h>
 
@@ -187,6 +188,16 @@ public:
     int GetFortuneDivinationResult() const;
     /** 获取当前占卜状态 */
     int GetFortuneDivinationState() const;
+
+    // ================================================================
+    // JARVIS Watchface 唤醒界面
+    // ================================================================
+    /** 显示 JARVIS Watchface（语音唤醒时调用） */
+    void ShowJarvisWatchface();
+    /** 隐藏 JARVIS Watchface（返回待机状态时调用） */
+    void HideJarvisWatchface();
+    /** 设置 JARVIS Watchface 状态（Listening/Speaking/Active） */
+    void SetJarvisWatchfaceState(JarvisWatchface::State state);
 
 private:
     lv_obj_t* attitude_container_ = nullptr;

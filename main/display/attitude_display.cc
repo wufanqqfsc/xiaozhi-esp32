@@ -2147,7 +2147,23 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
     return true;
 }
 
+// =================================================================
+// JARVIS Watchface 唤醒界面实现
+// =================================================================
 
+void AttitudeDisplay::ShowJarvisWatchface() {
+    ESP_LOGI(TAG, "Showing JARVIS Watchface");
+    JarvisWatchface::GetInstance().Show();
+}
+
+void AttitudeDisplay::HideJarvisWatchface() {
+    ESP_LOGI(TAG, "Hiding JARVIS Watchface");
+    JarvisWatchface::GetInstance().Hide();
+}
+
+void AttitudeDisplay::SetJarvisWatchfaceState(JarvisWatchface::State state) {
+    JarvisWatchface::GetInstance().SetState(state);
+}
 
 // =================================================================
 // 迷宫游戏实现（心情卦）
