@@ -1,0 +1,28 @@
+07-10 14:35:50.618 [tomcat-handler-2507] [34mINFO [0;39m [36mc.x.c.s.w.WebSocketHandler:145[0;39m - 收到hello消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, JsonNode: HelloMessage(features=HelloFeatures(mcp=true, aec=false), audioParams=null)
+2026-07-10 14:35:50.618 [tomcat-handler-2507] INFO  c.x.c.s.w.WebSocketHandler:145 - 收到hello消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, JsonNode: HelloMessage(features=HelloFeatures(mcp=true, aec=false), audioParams=null)
+07-10 14:35:50.651 [tomcat-handler-2512] [34mINFO [0;39m [36mc.x.c.common.MessageHandler:357[0;39m - 收到listen消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, State: Detect, Mode: null
+2026-07-10 14:35:50.651 [tomcat-handler-2512] INFO  c.x.c.common.MessageHandler:357 - 收到listen消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, State: Detect, Mode: null
+07-10 14:35:50.651 [tomcat-handler-2512] [39mDEBUG[0;39m [36mc.x.c.common.ChatSession:73[0;39m - 状态转换: IDLE -> SPEAKING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+2026-07-10 14:35:50.651 [tomcat-handler-2512] DEBUG c.x.c.common.ChatSession:73 - 状态转换: IDLE -> SPEAKING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+07-10 14:35:50.959 [tomcat-handler-2513] [34mINFO [0;39m [36mc.x.c.common.MessageHandler:357[0;39m - 收到listen消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, State: Start, Mode: Auto
+2026-07-10 14:35:50.959 [tomcat-handler-2513] INFO  c.x.c.common.MessageHandler:357 - 收到listen消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, State: Start, Mode: Auto
+07-10 14:35:50.960 [tomcat-handler-2513] [39mDEBUG[0;39m [36mc.x.c.common.ChatSession:73[0;39m - 状态转换: SPEAKING -> LISTENING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+2026-07-10 14:35:50.960 [tomcat-handler-2513] DEBUG c.x.c.common.ChatSession:73 - 状态转换: SPEAKING -> LISTENING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+07-10 14:35:54.228 [HttpClient-5-Worker-0] [34mINFO [0;39m [36mc.x.c.message.MessageSender:41[0;39m - sendTtsMessage发送消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, Message: {"type":"tts","state":"start"}
+2026-07-10 14:35:54.228 [HttpClient-5-Worker-0] INFO  c.x.c.message.MessageSender:41 - sendTtsMessage发送消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, Message: {"type":"tts","state":"start"}
+07-10 14:35:54.229 [HttpClient-5-Worker-0] [39mDEBUG[0;39m [36mc.x.c.common.ChatSession:73[0;39m - 状态转换: LISTENING -> SPEAKING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+2026-07-10 14:35:54.229 [HttpClient-5-Worker-0] DEBUG c.x.c.common.ChatSession:73 - 状态转换: LISTENING -> SPEAKING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+07-10 14:35:55.162 [virtual-2791] [34mINFO [0;39m [36mc.x.c.message.MessageSender:89[0;39m - sendEmotion发送Emotion消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, Message: {"session_id":"6843515b-94c7-bf01-533d-52cc130db56d","type":"llm","emotion":"winking","text":"winking"}
+2026-07-10 14:35:55.162 [virtual-2791] INFO  c.x.c.message.MessageSender:89 - sendEmotion发送Emotion消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, Message: {"session_id":"6843515b-94c7-bf01-533d-52cc130db56d","type":"llm","emotion":"winking","text":"winking"}
+07-10 14:35:55.162 [virtual-2791] [34mINFO [0;39m [36mc.x.c.message.MessageSender:41[0;39m - sendTtsMessage发送消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, Message: {"type":"tts","state":"sentence_start","text":"随时为您效劳，先生。"}
+2026-07-10 14:35:55.162 [virtual-2791] INFO  c.x.c.message.MessageSender:41 - sendTtsMessage发送消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, Message: {"type":"tts","state":"sentence_start","text":"随时为您效劳，先生。"}
+07-10 14:35:55.207 [loomBoundedElastic-7] [34mINFO [0;39m [36mc.x.common.utils.LatencyTracer:95[0;39m - [LATENCY][6843515b-94c7-bf01-533d-52cc130db56d] TTS_FIRST_CHUNK ORPHAN (no start)
+2026-07-10 14:35:55.207 [loomBoundedElastic-7] INFO  c.x.common.utils.LatencyTracer:95 - [LATENCY][6843515b-94c7-bf01-533d-52cc130db56d] TTS_FIRST_CHUNK ORPHAN (no start)
+07-10 14:35:57.107 [virtual-2791] [34mINFO [0;39m [36mc.x.c.message.MessageSender:41[0;39m - sendTtsMessage发送消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, Message: {"type":"tts","state":"stop"}
+2026-07-10 14:35:57.107 [virtual-2791] INFO  c.x.c.message.MessageSender:41 - sendTtsMessage发送消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, Message: {"type":"tts","state":"stop"}
+07-10 14:35:57.110 [virtual-2791] [39mDEBUG[0;39m [36mc.x.c.common.ChatSession:73[0;39m - 状态转换: SPEAKING -> LISTENING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+2026-07-10 14:35:57.110 [virtual-2791] DEBUG c.x.c.common.ChatSession:73 - 状态转换: SPEAKING -> LISTENING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+07-10 14:35:57.293 [tomcat-handler-2560] [34mINFO [0;39m [36mc.x.c.common.MessageHandler:357[0;39m - 收到listen消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, State: Start, Mode: Auto
+2026-07-10 14:35:57.293 [tomcat-handler-2560] INFO  c.x.c.common.MessageHandler:357 - 收到listen消息 - SessionId: 6843515b-94c7-bf01-533d-52cc130db56d, State: Start, Mode: Auto
+07-10 14:36:02.000 [tomcat-handler-2635] [39mDEBUG[0;39m [36mc.x.c.common.ChatSession:73[0;39m - 状态转换: LISTENING -> THINKING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)
+2026-07-10 14:36:02.000 [tomcat-handler-2635] DEBUG c.x.c.common.ChatSession:73 - 状态转换: LISTENING -> THINKING (SessionId: 6843515b-94c7-bf01-533d-52cc130db56d)

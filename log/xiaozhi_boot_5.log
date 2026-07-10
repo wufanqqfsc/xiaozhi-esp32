@@ -1,0 +1,1127 @@
+==== xiaozhi boot log, uptime=4.009s, sdk=v5.5.4 ====
+[+4.012] I (4183) SdCardLog: SD card log redirect started, file=/sdcard/xiaozhi_2026-07-10_14-32-49_03941.log
+[+4.015] I (4183) SdCardLog:   log history: /sdcard/xiaozhi_2026-07-10_14-05-26_03941.log
+[+4.028] I (4193) SdCardLog:   log history: /sdcard/xiaozhi_2026-07-10_14-22-45_03941.log
+[+4.029] I (4193) SdCardLog:   log history: /sdcard/xiaozhi_2026-07-10_14-27-51_03941.log
+[+4.030] I (4203) waveshare_lcd_1_85: 启动日志已重定向到 TF 卡: /sdcard/xiaozhi_2026-07-10_14-32-49_03941.log
+[+4.658] I (4823) WifiStation: Found AP: Zikkoy, BSSID: 5c:7d:ae:fb:6c:60, RSSI: -15, Channel: 11, Authmode: 7
+[+4.659] I (4823) WifiBoard: WiFi connecting to Zikkoy
+[+4.775] W (4943) wifi:[+4.775] Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2[+4.775] 
+[+5.990] I (6163) wifi:[+5.990] new:<11,2>, old:<1,0>, ap:<255,255>, sta:<11,2>, prof:1, snd_ch_cfg:0x0[+5.991] 
+[+5.991] I (6163) wifi:[+5.991] state: init -> auth (0xb0)[+5.991] 
+[+6.602] I (6773) wifi:[+6.602] state: auth -> assoc (0x0)[+6.602] 
+[+6.609] I (6783) wifi:[+6.609] Association refused temporarily time 1000, comeback time 1100 (TUs)[+6.610] 
+[+7.736] I (7903) wifi:[+7.736] state: assoc -> auth (0xb0)[+7.737] 
+[+8.035] I (8203) SdCardLogHttp:   OK: Config ready (max_uri_handlers=30, stack_size=20480, timeout=10s)
+[+8.035] I (8203) SdCardLogHttp: [3/5] Initializing display request queue...
+[+8.035] I (8203) SdCardLogHttp: Display request queue + timer initialized (queue=4 slots, timer=50ms)
+[+8.037] I (8203) SdCardLogHttp:   OK: Display request queue ready
+[+8.037] I (8203) SdCardLogHttp: [4/5] Starting HTTP server...
+[+8.039] I (8203) SdCardLogHttp:   OK: Server started on port 8080
+[+8.039] I (8213) SdCardLogHttp: [5/5] Registering URI handlers...
+[+8.040] I (8213) SdCardLogHttp:   [GET] /  -> Web UI
+[+8.041] I (8213) SdCardLogHttp:   OK: 28 URI handlers registered
+[+8.041] I (8213) SdCardLogHttp: ===== HTTP Server Ready =====
+[+8.041] I (8213) SdCardLogHttp:   Port: 8080
+[+8.042] I (8213) SdCardLogHttp:   Mount: /sdcard
+[+8.042] I (8213) SdCardLogHttp:   Handlers: 28
+[+8.043] I (8213) Application: HTTP server start called
+[+8.333] I (8503) wifi:[+8.333] state: auth -> assoc (0x0)[+8.334] 
+[+8.352] I (8523) wifi:[+8.352] state: assoc -> run (0x10)[+8.352] 
+[+8.404] I (8573) wifi:[+8.404] connected with Zikkoy, aid = 1, channel 11, 40D, bssid = 5c:7d:ae:fb:6c:60[+8.404] 
+[+8.404] I (8573) wifi:[+8.404] security: WPA3-SAE H2E, phy: bgn, rssi: -12, cipher(pairwise:0x3, group:0x3), pmf:1[+8.406] 
+[+8.406] I (8573) wifi:[+8.406] pm start, type: 1
+[+8.406] 
+[+8.406] I (8573) wifi:[+8.406] dp: 1, bi: 102400, li: 10, scale listen interval from 1024000 us to 1024000 us[+8.406] 
+[+8.406] I (8573) wifi:[+8.406] set rx beacon pti, rx_bcn_pti: 14, bcn_timeout: 25000, mt_pti: 14, mt_time: 10000[+8.407] 
+[+8.435] I (8603) wifi:[+8.435] AP's beacon interval = 102400 us, DTIM period = 1[+8.435] 
+[+8.902] I (9073) AttitudeDisplay: WiFi fisheye status -> 1
+[+9.429] I (9603) esp_netif_handlers: sta ip: 192.168.0.152, mask: 255.255.255.0, gw: 192.168.0.1
+[+9.431] I (9603) WifiStation: Got IP: 192.168.0.152
+[+9.431] I (9603) WifiBoard: Connected to WiFi: Zikkoy
+[+9.444] I (9613) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
+[+9.444] I (9613) AttitudeDisplay: DebugInfo: 通知 | 已连接 Zikkoy (hold=10000ms builtin_font=1)
+[+9.445] I (9613) Application: Network connected
+[+9.445] I (9613) StateMachine: State: starting -> activating
+[+9.445] I (9613) Application: Creating activation task...
+[+9.446] I (9613) Application: Activation task created successfully
+[+9.447] I (9613) Assets: The storage free size is 19840 KB
+[+9.447] I (9613) Assets: The partition size is 3968 KB
+[+9.458] I (9623) AttitudeDisplay: DebugInfoCard shown: title=WiFi 已连接 hidden=0 card_hidden=0
+[+9.459] I (9623) AttitudeDisplay: DebugInfo: WiFi 已连接 | Zikkoy (hold=5000ms builtin_font=1)
+[+9.618] I (9783) Assets: The checksum calculation time is 170 ms
+[+9.620] I (9793) MODEL_LOADER: Successfully load srmodels
+[+9.623] I (9793) Assets: Refreshing display theme...
+[+9.624] I (9793) Application: ActivationTask: Assets version check done
+[+9.624] I (9793) Application: ActivationTask: Checking new version...
+[+10.042] I (10213) AttitudeDisplay: WiFi fisheye status -> 2
+[+10.052] I (10223) AttitudeDisplay: DebugInfoCard shown: title=状态 hidden=0 card_hidden=0
+[+10.052] I (10223) AttitudeDisplay: DebugInfo: 状态 | 检查新版本... (hold=5000ms builtin_font=0)
+[+10.052] I (10223) Ota: Current version: 2.2.6
+[+10.089] I (10263) wifi:[+10.090] [ADDBA]RX DELBA, reason:39, delete tid:0, initiator:1(originator)[+10.090] 
+[+10.091] I (10263) wifi:[+10.091] <ba-add>idx:0 (ifx:0, 5c:7d:ae:fb:6c:60), tid:0, ssn:2, winSize:64[+10.092] 
+[+10.093] I (10263) HttpClient: Established new connection to 192.168.0.198:8091
+[+10.603] E (10773) EspTcp: TCP receive failed: -1
+[+10.604] I (10773) HttpClient: HTTP connection closed
+[+10.605] I (10773) Ota: No mqtt section found !
+[+10.606] I (10773) Ota: Current is the latest version
+[+10.608] I (10773) Ota: Running partition: ota_0
+[+10.608] I (10773) Application: ActivationTask: New version check done
+[+10.608] I (10773) Application: ActivationTask: Initializing protocol...
+[+10.792] I (10963) Application: ActivationTask: Protocol initialized
+[+10.792] I (10963) Application: ActivationTask: Setting activation done event
+[+10.793] I (10963) Application: Activation task finished
+[+10.801] I (10973) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
+[+10.802] I (10973) AttitudeDisplay: DebugInfo: 通知 | 版本 2.2.6 (hold=3000ms builtin_font=0)
+[+10.803] I (10973) WifiStation: Setting WiFi power save level: LOW_POWER (MAX_MODEM)
+[+10.804] I (10973) wifi:[+10.804] Set ps type: 2, coexist: 0
+[+10.804] 
+[+11.118] I (11283) AttitudeDisplay: DebugInfoCard shown: title=状态 hidden=0 card_hidden=0
+[+11.118] I (11283) AttitudeDisplay: DebugInfo: 状态 | 待命 (hold=5000ms builtin_font=0)
+[+11.119] I (11283) AudioService: EnableWakeWordDetection called: enable=1 wake_word_=0x3fcf3374
+[+11.120] I (11293) AudioService: Enabling wake word detection (initialized=0)
+[+11.120] I (11293) AfeWakeWord: Model 0: wn9_jarvis_tts
+[+11.121] I (11293) AFE_CONFIG: Set WakeNet Model: wn9_jarvis_tts
+[+11.121] W (11293) AFE_CONFIG: wakenet is activated, disable WebRTC AGC.
+[+11.170] I (11343) AFE: AFE Version: (1MIC_V251128)
+[+11.170] I (11343) AFE: Input PCM Config: total 1 channels(1 microphone, 0 playback), sample rate:16000
+[+11.170] I (11343) AFE: AFE Pipeline: [input] -> |VAD(WebRTC)| -> |WakeNet(wn9_jarvis_tts,)| -> |AGC(WakeNet)| -> [output]
+[+11.176] I (11343) AfeWakeWord: Set WakeNet threshold to 0.4: success
+[+11.176] I (11343) AfeWakeWord: Audio detection task started, feed size: 512 fetch size: 512
+[+11.177] I (11343) I2S_IF: Paired data: 0x3fce461c, current mode: record, paired in_enable: 0, paired out_enable: 0
+[+11.177] I (11343) I2S_IF: TDM: RX, data_bit: 16, slot_bit: 16, ws_width: 32, total_slot: 4, slot_mask: 0x1
+[+11.178] I (11343) I2S_IF: TDM: RX, sample_rate_hz: 24000, mclk_multiple: 256, clk_src: 6
+[+11.179] I (11353) I2S_IF: STD: TX, data_bit: 32, slot_bit: 32, ws_width: 32, slot_mode: STEREO, slot_mask: 0x1
+[+11.180] I (11353) I2S_IF: STD: TX, sample_rate_hz: 24000, mclk_multiple: 256, clk_src: 6
+[+11.181] I (11353) ES7210: Bits 16
+[+11.188] I (11353) ES7210: Enable ES7210_INPUT_MIC1
+[+11.192] I (11363) ES7210: Enable ES7210_INPUT_MIC2
+[+11.195] I (11363) ES7210: Enable ES7210_INPUT_MIC3
+[+11.198] I (11363) ES7210: Enable ES7210_INPUT_MIC4
+[+11.201] I (11373) ES7210: Enable TDM mode
+[+11.209] I (11373) ES7210: Unmuted
+[+11.209] I (11383) Adev_Codec: Open codec device OK
+[+11.210] I (11383) AudioCodec: Set input enable to true
+[+11.211] I (11383) AfeWakeWord: [MicLevel] fed 1 chunks RMS=227.9 (max=12)
+[+11.225] I (11393) AfeWakeWord: [WakeNet-Fetch] count=1 wakeup_state=0 wakenet_model_index=0
+[+16.181] I (16353) AudioService: [WakeWordFeed] fed 500 chunks to wake word detector
+[+16.244] I (16413) AfeWakeWord: [WakeNet-Fetch] count=158 wakeup_state=0 wakenet_model_index=0
+[+20.024] I (20193) SystemInfo: free sram: 39483 minimal sram: 14407
+[+21.181] I (21353) AudioService: [WakeWordFeed] fed 1000 chunks to wake word detector
+[+21.220] I (21393) AfeWakeWord: [MicLevel] fed 1004 chunks RMS=32.8 (max=63)
+[+21.263] I (21433) AfeWakeWord: [WakeNet-Fetch] count=315 wakeup_state=0 wakenet_model_index=0
+[+26.181] I (26353) AudioService: [WakeWordFeed] fed 1500 chunks to wake word detector
+[+26.295] I (26463) AfeWakeWord: [WakeNet-Fetch] count=472 wakeup_state=0 wakenet_model_index=0
+[+30.024] I (30193) SystemInfo: free sram: 38791 minimal sram: 14407
+[+31.180] I (31353) AudioService: [WakeWordFeed] fed 2000 chunks to wake word detector
+[+31.230] I (31403) AfeWakeWord: [MicLevel] fed 2005 chunks RMS=21.1 (max=47)
+[+31.314] I (31483) AfeWakeWord: [WakeNet-Fetch] count=629 wakeup_state=0 wakenet_model_index=0
+[+36.181] I (36353) AudioService: [WakeWordFeed] fed 2500 chunks to wake word detector
+[+36.343] I (36513) AfeWakeWord: [WakeNet-Fetch] count=786 wakeup_state=0 wakenet_model_index=0
+[+40.024] I (40193) SystemInfo: free sram: 38695 minimal sram: 14407
+[+41.180] I (41353) AudioService: [WakeWordFeed] fed 3000 chunks to wake word detector
+[+41.241] I (41413) AfeWakeWord: [MicLevel] fed 3006 chunks RMS=28.2 (max=48)
+[+41.365] I (41533) AfeWakeWord: [WakeNet-Fetch] count=943 wakeup_state=0 wakenet_model_index=0
+[+46.181] I (46353) AudioService: [WakeWordFeed] fed 3500 chunks to wake word detector
+[+46.383] I (46553) AfeWakeWord: [WakeNet-Fetch] count=1100 wakeup_state=0 wakenet_model_index=0
+[+50.024] I (50193) SystemInfo: free sram: 40523 minimal sram: 14407
+[+51.181] I (51353) AudioService: [WakeWordFeed] fed 4000 chunks to wake word detector
+[+51.250] I (51423) AfeWakeWord: [MicLevel] fed 4007 chunks RMS=25.3 (max=62)
+[+51.384] I (51553) AfeWakeWord: [WakeNet-Fetch] count=1256 wakeup_state=0 wakenet_model_index=0
+[+56.181] I (56353) AudioService: [WakeWordFeed] fed 4500 chunks to wake word detector
+[+56.403] I (56573) AfeWakeWord: [WakeNet-Fetch] count=1413 wakeup_state=0 wakenet_model_index=0
+[+60.024] I (60193) SystemInfo: free sram: 38699 minimal sram: 14407
+[+61.180] I (61353) AudioService: [WakeWordFeed] fed 5000 chunks to wake word detector
+[+61.260] I (61433) AfeWakeWord: [MicLevel] fed 5008 chunks RMS=32.3 (max=59)
+[+61.425] I (61593) AfeWakeWord: [WakeNet-Fetch] count=1570 wakeup_state=0 wakenet_model_index=0
+[+66.181] I (66353) AudioService: [WakeWordFeed] fed 5500 chunks to wake word detector
+[+66.454] I (66623) AfeWakeWord: [WakeNet-Fetch] count=1727 wakeup_state=0 wakenet_model_index=0
+[+70.024] I (70193) SystemInfo: free sram: 39495 minimal sram: 14407
+[+71.181] I (71353) AudioService: [WakeWordFeed] fed 6000 chunks to wake word detector
+[+71.270] I (71443) AfeWakeWord: [MicLevel] fed 6009 chunks RMS=18.8 (max=47)
+[+71.473] I (71643) AfeWakeWord: [WakeNet-Fetch] count=1884 wakeup_state=0 wakenet_model_index=0
+[+76.180] I (76353) AudioService: [WakeWordFeed] fed 6500 chunks to wake word detector
+[+76.505] I (76673) AfeWakeWord: [WakeNet-Fetch] count=2041 wakeup_state=0 wakenet_model_index=0
+[+80.024] I (80193) SystemInfo: free sram: 39295 minimal sram: 14407
+[+81.180] I (81353) AudioService: [WakeWordFeed] fed 7000 chunks to wake word detector
+[+81.280] I (81453) AfeWakeWord: [MicLevel] fed 7010 chunks RMS=22.2 (max=72)
+[+81.524] I (81693) AfeWakeWord: [WakeNet-Fetch] count=2198 wakeup_state=0 wakenet_model_index=0
+[+86.180] I (86353) AudioService: [WakeWordFeed] fed 7500 chunks to wake word detector
+[+86.543] I (86713) AfeWakeWord: [WakeNet-Fetch] count=2355 wakeup_state=0 wakenet_model_index=0
+[+90.024] I (90193) SystemInfo: free sram: 39491 minimal sram: 14407
+[+91.181] I (91353) AudioService: [WakeWordFeed] fed 8000 chunks to wake word detector
+[+91.291] I (91463) AfeWakeWord: [MicLevel] fed 8011 chunks RMS=24.8 (max=47)
+[+91.575] I (91743) AfeWakeWord: [WakeNet-Fetch] count=2512 wakeup_state=0 wakenet_model_index=0
+[+96.181] I (96353) AudioService: [WakeWordFeed] fed 8500 chunks to wake word detector
+[+96.594] I (96763) AfeWakeWord: [WakeNet-Fetch] count=2669 wakeup_state=0 wakenet_model_index=0
+[+100.024] I (100193) SystemInfo: free sram: 38627 minimal sram: 14407
+[+101.180] I (101353) AudioService: [WakeWordFeed] fed 9000 chunks to wake word detector
+[+101.300] I (101473) AfeWakeWord: [MicLevel] fed 9012 chunks RMS=26.4 (max=50)
+[+101.623] I (101793) AfeWakeWord: [WakeNet-Fetch] count=2826 wakeup_state=0 wakenet_model_index=0
+[+106.180] I (106353) AudioService: [WakeWordFeed] fed 9500 chunks to wake word detector
+[+106.646] I (106813) AfeWakeWord: [WakeNet-Fetch] count=2983 wakeup_state=0 wakenet_model_index=0
+[+110.024] I (110193) SystemInfo: free sram: 38975 minimal sram: 14407
+[+111.180] I (111353) AudioService: [WakeWordFeed] fed 10000 chunks to wake word detector
+[+111.310] I (111483) AfeWakeWord: [MicLevel] fed 10013 chunks RMS=32.6 (max=65)
+[+111.664] I (111833) AfeWakeWord: [WakeNet-Fetch] count=3140 wakeup_state=0 wakenet_model_index=0
+[+116.180] I (116353) AudioService: [WakeWordFeed] fed 10500 chunks to wake word detector
+[+116.693] I (116863) AfeWakeWord: [WakeNet-Fetch] count=3297 wakeup_state=0 wakenet_model_index=0
+[+120.024] I (120193) SystemInfo: free sram: 39883 minimal sram: 14407
+[+121.180] I (121353) AudioService: [WakeWordFeed] fed 11000 chunks to wake word detector
+[+121.320] I (121493) AfeWakeWord: [MicLevel] fed 11014 chunks RMS=23.7 (max=52)
+[+121.715] I (121883) AfeWakeWord: [WakeNet-Fetch] count=3454 wakeup_state=0 wakenet_model_index=0
+[+126.181] I (126353) AudioService: [WakeWordFeed] fed 11500 chunks to wake word detector
+[+126.744] I (126913) AfeWakeWord: [WakeNet-Fetch] count=3611 wakeup_state=0 wakenet_model_index=0
+[+130.024] I (130193) SystemInfo: free sram: 40691 minimal sram: 14407
+[+131.180] I (131353) AudioService: [WakeWordFeed] fed 12000 chunks to wake word detector
+[+131.330] I (131503) AfeWakeWord: [MicLevel] fed 12015 chunks RMS=27.5 (max=43)
+[+131.764] I (131933) AfeWakeWord: [WakeNet-Fetch] count=3768 wakeup_state=0 wakenet_model_index=0
+[+136.181] I (136353) AudioService: [WakeWordFeed] fed 12500 chunks to wake word detector
+[+136.785] I (136953) AfeWakeWord: [WakeNet-Fetch] count=3925 wakeup_state=0 wakenet_model_index=0
+[+140.024] I (140193) SystemInfo: free sram: 42467 minimal sram: 14407
+[+141.181] I (141353) AudioService: [WakeWordFeed] fed 13000 chunks to wake word detector
+[+141.340] I (141513) AfeWakeWord: [MicLevel] fed 13016 chunks RMS=26.4 (max=53)
+[+141.814] I (141983) AfeWakeWord: [WakeNet-Fetch] count=4082 wakeup_state=0 wakenet_model_index=0
+[+146.180] I (146353) AudioService: [WakeWordFeed] fed 13500 chunks to wake word detector
+[+146.833] I (147003) AfeWakeWord: [WakeNet-Fetch] count=4239 wakeup_state=0 wakenet_model_index=0
+[+150.024] I (150193) SystemInfo: free sram: 40923 minimal sram: 14407
+[+151.182] I (151353) AudioService: [WakeWordFeed] fed 14000 chunks to wake word detector
+[+151.350] I (151523) AfeWakeWord: [MicLevel] fed 14017 chunks RMS=24.8 (max=38)
+[+151.865] I (152033) AfeWakeWord: [WakeNet-Fetch] count=4396 wakeup_state=0 wakenet_model_index=0
+[+156.181] I (156353) AudioService: [WakeWordFeed] fed 14500 chunks to wake word detector
+[+156.884] I (157053) AfeWakeWord: [WakeNet-Fetch] count=4553 wakeup_state=0 wakenet_model_index=0
+[+160.024] I (160193) SystemInfo: free sram: 41439 minimal sram: 14407
+[+161.180] I (161353) AudioService: [WakeWordFeed] fed 15000 chunks to wake word detector
+[+161.351] I (161523) AfeWakeWord: [MicLevel] fed 15017 chunks RMS=21.1 (max=30)
+[+161.903] I (162073) AfeWakeWord: [WakeNet-Fetch] count=4710 wakeup_state=0 wakenet_model_index=0
+[+166.180] I (166353) AudioService: [WakeWordFeed] fed 15500 chunks to wake word detector
+[+166.935] I (167103) AfeWakeWord: [WakeNet-Fetch] count=4867 wakeup_state=0 wakenet_model_index=0
+[+170.024] I (170193) SystemInfo: free sram: 39239 minimal sram: 14407
+[+171.181] I (171353) AudioService: [WakeWordFeed] fed 16000 chunks to wake word detector
+[+171.360] I (171533) AfeWakeWord: [MicLevel] fed 16018 chunks RMS=21.8 (max=49)
+[+171.954] I (172123) AfeWakeWord: [WakeNet-Fetch] count=5024 wakeup_state=0 wakenet_model_index=0
+[+176.181] I (176353) AudioService: [WakeWordFeed] fed 16500 chunks to wake word detector
+[+176.983] I (177153) AfeWakeWord: [WakeNet-Fetch] count=5181 wakeup_state=0 wakenet_model_index=0
+[+180.024] I (180193) SystemInfo: free sram: 39603 minimal sram: 14407
+[+181.181] I (181353) AudioService: [WakeWordFeed] fed 17000 chunks to wake word detector
+[+181.304] I (181473) Application: Wake word detected: Jarvis (state: 3)
+[+181.305] I (181473) StateMachine: State: idle -> connecting
+[+181.371] I (181543) AfeWakeWord: [MicLevel] fed 17019 chunks RMS=29.4 (max=55)
+[+181.542] I (181713) AfeWakeWord: Encode wake word opus 35 packets in 236 ms
+[+181.551] I (181723) AttitudeDisplay: DebugInfoCard shown: title=状态 hidden=0 card_hidden=0
+[+181.552] I (181723) AttitudeDisplay: DebugInfo: 状态 | 连接中... (hold=5000ms builtin_font=0)
+[+181.560] I (181733) AttitudeDisplay: DebugInfoCard shown: title=唤醒成功 hidden=0 card_hidden=0
+[+181.560] I (181733) AttitudeDisplay: DebugInfo: 唤醒成功 | Jarvis (hold=30000ms builtin_font=0)
+[+181.562] I (181733) I2S_IF: STD: TX, data_bit: 16, slot_bit: 32, ws_width: 32, slot_mode: MONO, slot_mask: 0x1
+[+181.562] I (181733) I2S_IF: STD: TX, sample_rate_hz: 24000, mclk_multiple: 256, clk_src: 6
+[+181.563] I (181733) I2S_IF: Current mode playback has extended slot bits from 32 to 64
+[+181.579] I (181753) Adev_Codec: Open codec device OK
+[+181.580] I (181753) AudioCodec: Set output enable to true
+[+181.581] I (181753) WifiStation: Setting WiFi power save level: PERFORMANCE (NONE)
+[+181.582] I (181753) wifi:[+181.583] Set ps type: 0, coexist: 0
+[+181.583] 
+[+181.585] I (181753) WS: Connecting to websocket server: ws://192.168.0.198:8092/ws/xiaozhi/v1/ with version: 1
+[+181.586] I (181753) WS: Appended device-id to URL: ws://192.168.0.198:8092/ws/xiaozhi/v1/?device-id=a0:f2:62:e4:3a:40
+[+181.719] I (181893) WS: Session ID: 6843515b-94c7-bf01-533d-52cc130db56d
+[+181.720] I (181893) WifiStation: Setting WiFi power save level: PERFORMANCE (NONE)
+[+181.720] I (181893) wifi:[+181.720] Set ps type: 0, coexist: 0
+[+181.722] 
+[+181.722] W (181893) Application: Server sample rate 48000 does not match device output sample rate 24000, resampling may cause distortion
+[+181.722] I (181893) Application: Wake word detected: Jarvis
+[+181.733] I (181903) StateMachine: State: connecting -> listening
+[+181.907] I (182073) AttitudeDisplay: DebugInfoCard shown: title=状态 hidden=0 card_hidden=0
+[+181.908] I (182073) AttitudeDisplay: DebugInfo: 状态 | 聆听中... (hold=5000ms builtin_font=0)
+[+182.046] I (182213) AFE: AFE Version: (1MIC_V251128)
+[+182.050] I (182223) AFE: Input PCM Config: total 1 channels(1 microphone, 0 playback), sample rate:16000
+[+182.050] I (182223) AFE: AFE Pipeline: [input] -> |VAD(WebRTC)| -> [output]
+[+182.051] I (182223) AfeAudioProcessor: Audio communication task started, feed size: 512 fetch size: 512
+[+182.051] I (182223) AudioService: EnableWakeWordDetection called: enable=0 wake_word_=0x3fcf3374
+[+182.052] I (182223) AudioService: Disabling wake word detection (initialized=1)
+[+182.082] I (182253) MCP: tools/list: cursor='' user_only=1 tools=zu
+[+182.226] I (182393) AttitudeDisplay: DebugInfoCard shown: title=工具调用 hidden=0 card_hidden=0
+[+182.227] I (182393) AttitudeDisplay: DebugInfo: 工具调用 | initialize (hold=2500ms builtin_font=0)
+[+182.537] I (182703) AttitudeDisplay: DebugInfoCard shown: title=握手成功 hidden=0 card_hidden=0
+[+182.537] I (182703) AttitudeDisplay: DebugInfo: 握手成功 | SR=48000Hz (hold=5000ms builtin_font=0)
+[+182.911] I (183083) AttitudeDisplay: DebugInfoCard shown: title=工具调用 hidden=0 card_hidden=0
+[+182.913] I (183083) AttitudeDisplay: DebugInfo: 工具调用 | tools/list (hold=2500ms builtin_font=0)
+[+185.331] I (185503) AudioCodec: Set output volume to 100
+[+185.496] I (185663) StateMachine: State: listening -> speaking
+[+185.509] I (185673) AttitudeDisplay: DebugInfoCard shown: title=状态 hidden=0 card_hidden=0
+[+185.509] I (185673) AttitudeDisplay: DebugInfo: 状态 | 说话中... (hold=5000ms builtin_font=0)
+[+185.509] I (185683) AudioService: EnableWakeWordDetection called: enable=1 wake_word_=0x3fcf3374
+[+185.511] I (185683) AudioService: Enabling wake word detection (initialized=1)
+[+185.511] I (185683) AudioService: Wake word detection started, AS_EVENT_WAKE_WORD_RUNNING set
+[+185.547] I (185713) AfeWakeWord: [WakeNet-Fetch] count=5317 wakeup_state=0 wakenet_model_index=1
+[+186.270] I (186443) Application: << 随时为您效劳，先生。
+[+186.378] I (186543) AttitudeDisplay: DebugInfoCard shown: title=AI 回复 #1 hidden=0 card_hidden=0
+[+186.380] I (186553) AttitudeDisplay: DebugInfo: AI 回复 #1 | 随时为您效劳，先生。 (hold=8000ms builtin_font=0)
+[+186.386] I (186553) AudioService: Resampling audio from 48000 to 24000
+[+188.210] I (188383) StateMachine: State: speaking -> listening
+[+188.383] I (188553) AttitudeDisplay: DebugInfoCard shown: title=状态 hidden=0 card_hidden=0
+[+188.384] I (188553) AttitudeDisplay: DebugInfo: 状态 | 聆听中... (hold=5000ms builtin_font=0)
+[+188.386] I (188553) AudioService: EnableWakeWordDetection called: enable=0 wake_word_=0x3fcf3374
+[+188.388] I (188553) AudioService: Disabling wake word detection (initialized=1)
+[+193.024] I (193193) Application: [LISTEN-DBG] state=listening clock=5 started=3 diff=2 timeout=5
+[+197.024] W (197193) Application: Listening timeout (no TTS response in 5s), back to idle
+[+197.025] I (197193) StateMachine: State: listening -> idle
+[+197.025] I (197193) AudioService: EnableWakeWordDetection called: enable=1 wake_word_=0x3fcf3374
+[+197.025] I (197193) AudioService: Enabling wake word detection (initialized=1)
+[+197.026] I (197193) AudioService: Wake word detection started, AS_EVENT_WAKE_WORD_RUNNING set
+[+197.042] I (197213) AfeWakeWord: [MicLevel] fed 17376 chunks RMS=300.8 (max=527)
+[+197.076] I (197243) AfeWakeWord: [WakeNet-Fetch] count=5403 wakeup_state=0 wakenet_model_index=1
+[+197.083] I (197253) AttitudeDisplay: DebugInfoCard shown: title=状态 hidden=0 card_hidden=0
+[+197.084] I (197253) AttitudeDisplay: DebugInfo: 状态 | 待命 (hold=5000ms builtin_font=0)
+[+197.085] I (197253) AudioService: EnableWakeWordDetection called: enable=1 wake_word_=0x3fcf3374
+[+197.086] I (197253) AudioService: Enabling wake word detection (initialized=1)
+[+197.086] I (197253) AudioService: Wake word detection started, AS_EVENT_WAKE_WORD_RUNNING set
+[+198.282] I (198453) AudioService: [WakeWordFeed] fed 17500 chunks to wake word detector
+[+202.096] I (202263) AfeWakeWord: [WakeNet-Fetch] count=5560 wakeup_state=0 wakenet_model_index=1
+[+203.281] I (203453) AudioService: [WakeWordFeed] fed 18000 chunks to wake word detector
+[+207.024] I (207193) SystemInfo: free sram: 32859 minimal sram: 14407
+[+207.051] I (207223) AfeWakeWord: [MicLevel] fed 18377 chunks RMS=56.3 (max=107)
+[+207.115] I (207283) AfeWakeWord: [WakeNet-Fetch] count=5717 wakeup_state=0 wakenet_model_index=1
+[+208.281] I (208453) AudioService: [WakeWordFeed] fed 18500 chunks to wake word detector
+[+212.144] I (212313) AfeWakeWord: [WakeNet-Fetch] count=5874 wakeup_state=0 wakenet_model_index=1
+[+213.281] I (213453) AudioService: [WakeWordFeed] fed 19000 chunks to wake word detector
+[+217.024] I (217193) SystemInfo: free sram: 32755 minimal sram: 14407
+[+217.061] I (217233) AfeWakeWord: [MicLevel] fed 19378 chunks RMS=24.3 (max=60)
+[+217.166] I (217333) AfeWakeWord: [WakeNet-Fetch] count=6031 wakeup_state=0 wakenet_model_index=1
+[+218.282] I (218453) AudioService: [WakeWordFeed] fed 19500 chunks to wake word detector
+[+222.195] I (222363) AfeWakeWord: [WakeNet-Fetch] count=6188 wakeup_state=0 wakenet_model_index=1
+[+223.281] I (223453) AudioService: [WakeWordFeed] fed 20000 chunks to wake word detector
+[+227.024] I (227193) SystemInfo: free sram: 34343 minimal sram: 14407
+[+227.071] I (227243) AfeWakeWord: [MicLevel] fed 20379 chunks RMS=35.9 (max=43)
+[+227.214] I (227383) AfeWakeWord: [WakeNet-Fetch] count=6345 wakeup_state=0 wakenet_model_index=1
+[+228.281] I (228453) AudioService: [WakeWordFeed] fed 20500 chunks to wake word detector
+[+232.237] I (232403) AfeWakeWord: [WakeNet-Fetch] count=6502 wakeup_state=0 wakenet_model_index=1
+[+233.281] I (233453) AudioService: [WakeWordFeed] fed 21000 chunks to wake word detector
+[+237.024] I (237193) SystemInfo: free sram: 32703 minimal sram: 14407
+[+237.081] I (237253) AfeWakeWord: [MicLevel] fed 21380 chunks RMS=26.6 (max=58)
+[+237.265] I (237433) AfeWakeWord: [WakeNet-Fetch] count=6659 wakeup_state=0 wakenet_model_index=1
+[+238.282] I (238453) AudioService: [WakeWordFeed] fed 21500 chunks to wake word detector
+[+242.284] I (242453) AfeWakeWord: [WakeNet-Fetch] count=6816 wakeup_state=0 wakenet_model_index=1
+[+243.281] I (243453) AudioService: [WakeWordFeed] fed 22000 chunks to wake word detector
+[+247.024] I (247193) SystemInfo: free sram: 32799 minimal sram: 14407
+[+247.091] I (247263) AfeWakeWord: [MicLevel] fed 22381 chunks RMS=27.9 (max=71)
+[+247.316] I (247483) AfeWakeWord: [WakeNet-Fetch] count=6973 wakeup_state=0 wakenet_model_index=1
+[+248.281] I (248453) AudioService: [WakeWordFeed] fed 22500 chunks to wake word detector
+[+252.335] I (252503) AfeWakeWord: [WakeNet-Fetch] count=7130 wakeup_state=0 wakenet_model_index=1
+[+253.281] I (253453) AudioService: [WakeWordFeed] fed 23000 chunks to wake word detector
+[+257.024] I (257193) SystemInfo: free sram: 32623 minimal sram: 14407
+[+257.101] I (257273) AfeWakeWord: [MicLevel] fed 23382 chunks RMS=22.5 (max=45)
+[+257.354] I (257523) AfeWakeWord: [WakeNet-Fetch] count=7287 wakeup_state=0 wakenet_model_index=1
+[+258.282] I (258453) AudioService: [WakeWordFeed] fed 23500 chunks to wake word detector
+[+262.386] I (262553) AfeWakeWord: [WakeNet-Fetch] count=7444 wakeup_state=0 wakenet_model_index=1
+[+263.281] I (263453) AudioService: [WakeWordFeed] fed 24000 chunks to wake word detector
+[+267.024] I (267193) SystemInfo: free sram: 32655 minimal sram: 14407
+[+267.111] I (267283) AfeWakeWord: [MicLevel] fed 24383 chunks RMS=24.3 (max=92)
+[+267.405] I (267573) AfeWakeWord: [WakeNet-Fetch] count=7601 wakeup_state=0 wakenet_model_index=1
+[+268.282] I (268453) AudioService: [WakeWordFeed] fed 24500 chunks to wake word detector
+[+272.434] I (272603) AfeWakeWord: [WakeNet-Fetch] count=7758 wakeup_state=0 wakenet_model_index=1
+[+273.281] I (273453) AudioService: [WakeWordFeed] fed 25000 chunks to wake word detector
+[+277.024] I (277193) SystemInfo: free sram: 34343 minimal sram: 14407
+[+277.122] I (277293) AfeWakeWord: [MicLevel] fed 25384 chunks RMS=44.7 (max=82)
+[+277.456] I (277623) AfeWakeWord: [WakeNet-Fetch] count=7915 wakeup_state=0 wakenet_model_index=1
+[+278.281] I (278453) AudioService: [WakeWordFeed] fed 25500 chunks to wake word detector
+[+282.475] I (282643) AfeWakeWord: [WakeNet-Fetch] count=8072 wakeup_state=0 wakenet_model_index=1
+[+283.281] I (283453) AudioService: [WakeWordFeed] fed 26000 chunks to wake word detector
+[+287.024] I (287193) SystemInfo: free sram: 33711 minimal sram: 14407
+[+287.131] I (287303) AfeWakeWord: [MicLevel] fed 26385 chunks RMS=21.3 (max=38)
+[+287.504] I (287673) AfeWakeWord: [WakeNet-Fetch] count=8229 wakeup_state=0 wakenet_model_index=1
+[+288.282] I (288453) AudioService: [WakeWordFeed] fed 26500 chunks to wake word detector
+[+292.526] I (292693) AfeWakeWord: [WakeNet-Fetch] count=8386 wakeup_state=0 wakenet_model_index=1
+[+293.281] I (293453) AudioService: [WakeWordFeed] fed 27000 chunks to wake word detector
+[+297.024] I (297193) SystemInfo: free sram: 32295 minimal sram: 14407
+[+297.142] I (297313) AfeWakeWord: [MicLevel] fed 27386 chunks RMS=22.2 (max=47)
+[+297.555] I (297723) AfeWakeWord: [WakeNet-Fetch] count=8543 wakeup_state=0 wakenet_model_index=1
+[+298.282] I (298453) AudioService: [WakeWordFeed] fed 27500 chunks to wake word detector
+[+302.574] I (302743) AfeWakeWord: [WakeNet-Fetch] count=8700 wakeup_state=0 wakenet_model_index=1
+[+303.281] I (303453) AudioService: [WakeWordFeed] fed 28000 chunks to wake word detector
+[+307.024] I (307193) SystemInfo: free sram: 33823 minimal sram: 14407
+[+307.151] I (307323) AfeWakeWord: [MicLevel] fed 28387 chunks RMS=27.3 (max=65)
+[+307.596] I (307763) AfeWakeWord: [WakeNet-Fetch] count=8857 wakeup_state=0 wakenet_model_index=1
+[+308.281] I (308453) AudioService: [WakeWordFeed] fed 28500 chunks to wake word detector
+[+312.625] I (312793) AfeWakeWord: [WakeNet-Fetch] count=9014 wakeup_state=0 wakenet_model_index=1
+[+313.281] I (313453) AudioService: [WakeWordFeed] fed 29000 chunks to wake word detector
+[+317.024] I (317193) SystemInfo: free sram: 32199 minimal sram: 14407
+[+317.161] I (317333) AfeWakeWord: [MicLevel] fed 29388 chunks RMS=24.7 (max=42)
+[+317.644] I (317813) AfeWakeWord: [WakeNet-Fetch] count=9171 wakeup_state=0 wakenet_model_index=1
+[+318.281] I (318453) AudioService: [WakeWordFeed] fed 29500 chunks to wake word detector
+[+322.676] I (322843) AfeWakeWord: [WakeNet-Fetch] count=9328 wakeup_state=0 wakenet_model_index=1
+[+323.281] I (323453) AudioService: [WakeWordFeed] fed 30000 chunks to wake word detector
+[+327.024] I (327193) SystemInfo: free sram: 33295 minimal sram: 14407
+[+327.171] I (327343) AfeWakeWord: [MicLevel] fed 30389 chunks RMS=28.6 (max=42)
+[+327.695] I (327863) AfeWakeWord: [WakeNet-Fetch] count=9485 wakeup_state=0 wakenet_model_index=1
+[+328.281] I (328453) AudioService: [WakeWordFeed] fed 30500 chunks to wake word detector
+[+332.714] I (332883) AfeWakeWord: [WakeNet-Fetch] count=9642 wakeup_state=0 wakenet_model_index=1
+[+333.281] I (333453) AudioService: [WakeWordFeed] fed 31000 chunks to wake word detector
+[+337.024] I (337193) SystemInfo: free sram: 34355 minimal sram: 14407
+[+337.181] I (337353) AfeWakeWord: [MicLevel] fed 31390 chunks RMS=36.4 (max=68)
+[+337.746] I (337913) AfeWakeWord: [WakeNet-Fetch] count=9799 wakeup_state=0 wakenet_model_index=1
+[+338.281] I (338453) AudioService: [WakeWordFeed] fed 31500 chunks to wake word detector
+[+342.765] I (342933) AfeWakeWord: [WakeNet-Fetch] count=9956 wakeup_state=0 wakenet_model_index=1
+[+343.281] I (343453) AudioService: [WakeWordFeed] fed 32000 chunks to wake word detector
+[+347.024] I (347193) SystemInfo: free sram: 32983 minimal sram: 14407
+[+347.191] I (347363) AfeWakeWord: [MicLevel] fed 32391 chunks RMS=32.0 (max=82)
+[+347.795] I (347963) AfeWakeWord: [WakeNet-Fetch] count=10113 wakeup_state=0 wakenet_model_index=1
+[+348.281] I (348453) AudioService: [WakeWordFeed] fed 32500 chunks to wake word detector
+[+352.817] I (352983) AfeWakeWord: [WakeNet-Fetch] count=10270 wakeup_state=0 wakenet_model_index=1
+[+353.281] I (353453) AudioService: [WakeWordFeed] fed 33000 chunks to wake word detector
+[+357.024] I (357193) SystemInfo: free sram: 30003 minimal sram: 14407
+[+357.201] I (357373) AfeWakeWord: [MicLevel] fed 33392 chunks RMS=29.4 (max=68)
+[+357.835] I (358003) AfeWakeWord: [WakeNet-Fetch] count=10427 wakeup_state=0 wakenet_model_index=1
+[+358.281] I (358453) AudioService: [WakeWordFeed] fed 33500 chunks to wake word detector
+[+362.864] I (363033) AfeWakeWord: [WakeNet-Fetch] count=10584 wakeup_state=0 wakenet_model_index=1
+[+363.282] I (363453) AudioService: [WakeWordFeed] fed 34000 chunks to wake word detector
+[+367.024] I (367193) SystemInfo: free sram: 32451 minimal sram: 14407
+[+367.211] I (367383) AfeWakeWord: [MicLevel] fed 34393 chunks RMS=27.9 (max=73)
+[+367.886] I (368053) AfeWakeWord: [WakeNet-Fetch] count=10741 wakeup_state=0 wakenet_model_index=1
+[+368.281] I (368453) AudioService: [WakeWordFeed] fed 34500 chunks to wake word detector
+[+372.915] I (373083) AfeWakeWord: [WakeNet-Fetch] count=10898 wakeup_state=0 wakenet_model_index=1
+[+373.281] I (373453) AudioService: [WakeWordFeed] fed 35000 chunks to wake word detector
+[+377.024] I (377193) SystemInfo: free sram: 33419 minimal sram: 14407
+[+377.221] I (377393) AfeWakeWord: [MicLevel] fed 35394 chunks RMS=26.9 (max=64)
+[+377.934] I (378103) AfeWakeWord: [WakeNet-Fetch] count=11055 wakeup_state=0 wakenet_model_index=1
+[+378.282] I (378453) AudioService: [WakeWordFeed] fed 35500 chunks to wake word detector
+[+382.956] I (383123) AfeWakeWord: [WakeNet-Fetch] count=11212 wakeup_state=0 wakenet_model_index=1
+[+383.281] I (383453) AudioService: [WakeWordFeed] fed 36000 chunks to wake word detector
+[+387.024] I (387193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+387.231] I (387403) AfeWakeWord: [MicLevel] fed 36395 chunks RMS=23.9 (max=44)
+[+387.985] I (388153) AfeWakeWord: [WakeNet-Fetch] count=11369 wakeup_state=0 wakenet_model_index=1
+[+388.281] I (388453) AudioService: [WakeWordFeed] fed 36500 chunks to wake word detector
+[+393.004] I (393173) AfeWakeWord: [WakeNet-Fetch] count=11526 wakeup_state=0 wakenet_model_index=1
+[+393.281] I (393453) AudioService: [WakeWordFeed] fed 37000 chunks to wake word detector
+[+397.024] I (397193) SystemInfo: free sram: 32715 minimal sram: 14407
+[+397.241] I (397413) AfeWakeWord: [MicLevel] fed 37396 chunks RMS=29.9 (max=94)
+[+398.036] I (398203) AfeWakeWord: [WakeNet-Fetch] count=11683 wakeup_state=0 wakenet_model_index=1
+[+398.282] I (398453) AudioService: [WakeWordFeed] fed 37500 chunks to wake word detector
+[+403.055] I (403223) AfeWakeWord: [WakeNet-Fetch] count=11840 wakeup_state=0 wakenet_model_index=1
+[+403.281] I (403453) AudioService: [WakeWordFeed] fed 38000 chunks to wake word detector
+[+407.024] I (407193) SystemInfo: free sram: 32787 minimal sram: 14407
+[+407.251] I (407423) AfeWakeWord: [MicLevel] fed 38397 chunks RMS=30.7 (max=84)
+[+408.074] I (408243) AfeWakeWord: [WakeNet-Fetch] count=11997 wakeup_state=0 wakenet_model_index=1
+[+408.281] I (408453) AudioService: [WakeWordFeed] fed 38500 chunks to wake word detector
+[+413.106] I (413273) AfeWakeWord: [WakeNet-Fetch] count=12154 wakeup_state=0 wakenet_model_index=1
+[+413.281] I (413453) AudioService: [WakeWordFeed] fed 39000 chunks to wake word detector
+[+417.024] I (417193) SystemInfo: free sram: 32607 minimal sram: 14407
+[+417.261] I (417433) AfeWakeWord: [MicLevel] fed 39398 chunks RMS=32.9 (max=67)
+[+418.125] I (418293) AfeWakeWord: [WakeNet-Fetch] count=12311 wakeup_state=0 wakenet_model_index=1
+[+418.281] I (418453) AudioService: [WakeWordFeed] fed 39500 chunks to wake word detector
+[+423.155] I (423323) AfeWakeWord: [WakeNet-Fetch] count=12468 wakeup_state=0 wakenet_model_index=1
+[+423.282] I (423453) AudioService: [WakeWordFeed] fed 40000 chunks to wake word detector
+[+427.024] I (427193) SystemInfo: free sram: 34351 minimal sram: 14407
+[+427.272] I (427443) AfeWakeWord: [MicLevel] fed 40399 chunks RMS=32.1 (max=52)
+[+428.177] I (428343) AfeWakeWord: [WakeNet-Fetch] count=12625 wakeup_state=0 wakenet_model_index=1
+[+428.281] I (428453) AudioService: [WakeWordFeed] fed 40500 chunks to wake word detector
+[+433.195] I (433363) AfeWakeWord: [WakeNet-Fetch] count=12782 wakeup_state=0 wakenet_model_index=1
+[+433.281] I (433453) AudioService: [WakeWordFeed] fed 41000 chunks to wake word detector
+[+437.024] I (437193) SystemInfo: free sram: 33731 minimal sram: 14407
+[+437.281] I (437453) AfeWakeWord: [MicLevel] fed 41400 chunks RMS=24.0 (max=54)
+[+438.224] I (438393) AfeWakeWord: [WakeNet-Fetch] count=12939 wakeup_state=0 wakenet_model_index=1
+[+438.282] I (438453) AudioService: [WakeWordFeed] fed 41500 chunks to wake word detector
+[+443.246] I (443413) AfeWakeWord: [WakeNet-Fetch] count=13096 wakeup_state=0 wakenet_model_index=1
+[+443.281] I (443453) AudioService: [WakeWordFeed] fed 42000 chunks to wake word detector
+[+447.024] I (447193) SystemInfo: free sram: 32711 minimal sram: 14407
+[+447.291] I (447463) AfeWakeWord: [MicLevel] fed 42401 chunks RMS=30.0 (max=67)
+[+448.275] I (448443) AfeWakeWord: [WakeNet-Fetch] count=13253 wakeup_state=0 wakenet_model_index=1
+[+448.282] I (448453) AudioService: [WakeWordFeed] fed 42500 chunks to wake word detector
+[+453.281] I (453453) AudioService: [WakeWordFeed] fed 43000 chunks to wake word detector
+[+453.294] I (453463) AfeWakeWord: [WakeNet-Fetch] count=13410 wakeup_state=0 wakenet_model_index=1
+[+457.024] I (457193) SystemInfo: free sram: 33335 minimal sram: 14407
+[+457.301] I (457473) AfeWakeWord: [MicLevel] fed 43402 chunks RMS=29.3 (max=89)
+[+458.281] I (458453) AudioService: [WakeWordFeed] fed 43500 chunks to wake word detector
+[+458.316] I (458483) AfeWakeWord: [WakeNet-Fetch] count=13567 wakeup_state=0 wakenet_model_index=1
+[+463.281] I (463453) AudioService: [WakeWordFeed] fed 44000 chunks to wake word detector
+[+463.345] I (463513) AfeWakeWord: [WakeNet-Fetch] count=13724 wakeup_state=0 wakenet_model_index=1
+[+467.024] I (467193) SystemInfo: free sram: 33851 minimal sram: 14407
+[+467.311] I (467483) AfeWakeWord: [MicLevel] fed 44403 chunks RMS=27.5 (max=68)
+[+468.281] I (468453) AudioService: [WakeWordFeed] fed 44500 chunks to wake word detector
+[+468.364] I (468533) AfeWakeWord: [WakeNet-Fetch] count=13881 wakeup_state=0 wakenet_model_index=1
+[+473.281] I (473453) AudioService: [WakeWordFeed] fed 45000 chunks to wake word detector
+[+473.396] I (473563) AfeWakeWord: [WakeNet-Fetch] count=14038 wakeup_state=0 wakenet_model_index=1
+[+477.024] I (477193) SystemInfo: free sram: 32263 minimal sram: 14407
+[+477.321] I (477493) AfeWakeWord: [MicLevel] fed 45404 chunks RMS=21.6 (max=48)
+[+478.282] I (478453) AudioService: [WakeWordFeed] fed 45500 chunks to wake word detector
+[+478.415] I (478583) AfeWakeWord: [WakeNet-Fetch] count=14195 wakeup_state=0 wakenet_model_index=1
+[+483.282] I (483453) AudioService: [WakeWordFeed] fed 46000 chunks to wake word detector
+[+483.434] I (483603) AfeWakeWord: [WakeNet-Fetch] count=14352 wakeup_state=0 wakenet_model_index=1
+[+487.024] I (487193) SystemInfo: free sram: 34683 minimal sram: 14407
+[+487.332] I (487503) AfeWakeWord: [MicLevel] fed 46405 chunks RMS=31.9 (max=50)
+[+488.281] I (488453) AudioService: [WakeWordFeed] fed 46500 chunks to wake word detector
+[+488.466] I (488633) AfeWakeWord: [WakeNet-Fetch] count=14509 wakeup_state=0 wakenet_model_index=1
+[+493.281] I (493453) AudioService: [WakeWordFeed] fed 47000 chunks to wake word detector
+[+493.485] I (493653) AfeWakeWord: [WakeNet-Fetch] count=14666 wakeup_state=0 wakenet_model_index=1
+[+497.024] I (497193) SystemInfo: free sram: 34347 minimal sram: 14407
+[+497.341] I (497513) AfeWakeWord: [MicLevel] fed 47406 chunks RMS=27.2 (max=67)
+[+498.282] I (498453) AudioService: [WakeWordFeed] fed 47500 chunks to wake word detector
+[+498.514] I (498683) AfeWakeWord: [WakeNet-Fetch] count=14823 wakeup_state=0 wakenet_model_index=1
+[+503.281] I (503453) AudioService: [WakeWordFeed] fed 48000 chunks to wake word detector
+[+503.536] I (503703) AfeWakeWord: [WakeNet-Fetch] count=14980 wakeup_state=0 wakenet_model_index=1
+[+507.024] I (507193) SystemInfo: free sram: 34863 minimal sram: 14407
+[+507.351] I (507523) AfeWakeWord: [MicLevel] fed 48407 chunks RMS=28.3 (max=65)
+[+508.281] I (508453) AudioService: [WakeWordFeed] fed 48500 chunks to wake word detector
+[+508.555] I (508723) AfeWakeWord: [WakeNet-Fetch] count=15137 wakeup_state=0 wakenet_model_index=1
+[+513.281] I (513453) AudioService: [WakeWordFeed] fed 49000 chunks to wake word detector
+[+513.585] I (513753) AfeWakeWord: [WakeNet-Fetch] count=15294 wakeup_state=0 wakenet_model_index=1
+[+517.024] I (517193) SystemInfo: free sram: 33407 minimal sram: 14407
+[+517.361] I (517533) AfeWakeWord: [MicLevel] fed 49408 chunks RMS=30.4 (max=95)
+[+518.281] I (518453) AudioService: [WakeWordFeed] fed 49500 chunks to wake word detector
+[+518.606] I (518773) AfeWakeWord: [WakeNet-Fetch] count=15451 wakeup_state=0 wakenet_model_index=1
+[+523.282] I (523453) AudioService: [WakeWordFeed] fed 50000 chunks to wake word detector
+[+523.635] I (523803) AfeWakeWord: [WakeNet-Fetch] count=15608 wakeup_state=0 wakenet_model_index=1
+[+527.024] I (527193) SystemInfo: free sram: 33147 minimal sram: 14407
+[+527.371] I (527543) AfeWakeWord: [MicLevel] fed 50409 chunks RMS=25.6 (max=59)
+[+528.281] I (528453) AudioService: [WakeWordFeed] fed 50500 chunks to wake word detector
+[+528.654] I (528823) AfeWakeWord: [WakeNet-Fetch] count=15765 wakeup_state=0 wakenet_model_index=1
+[+533.281] I (533453) AudioService: [WakeWordFeed] fed 51000 chunks to wake word detector
+[+533.676] I (533843) AfeWakeWord: [WakeNet-Fetch] count=15922 wakeup_state=0 wakenet_model_index=1
+[+537.024] I (537193) SystemInfo: free sram: 34347 minimal sram: 14407
+[+537.381] I (537553) AfeWakeWord: [MicLevel] fed 51410 chunks RMS=30.3 (max=61)
+[+538.281] I (538453) AudioService: [WakeWordFeed] fed 51500 chunks to wake word detector
+[+538.704] I (538873) AfeWakeWord: [WakeNet-Fetch] count=16079 wakeup_state=0 wakenet_model_index=1
+[+543.281] I (543453) AudioService: [WakeWordFeed] fed 52000 chunks to wake word detector
+[+543.724] I (543893) AfeWakeWord: [WakeNet-Fetch] count=16236 wakeup_state=0 wakenet_model_index=1
+[+547.024] I (547193) SystemInfo: free sram: 33499 minimal sram: 14407
+[+547.391] I (547563) AfeWakeWord: [MicLevel] fed 52411 chunks RMS=32.0 (max=84)
+[+548.282] I (548453) AudioService: [WakeWordFeed] fed 52500 chunks to wake word detector
+[+548.756] I (548923) AfeWakeWord: [WakeNet-Fetch] count=16393 wakeup_state=0 wakenet_model_index=1
+[+553.281] I (553453) AudioService: [WakeWordFeed] fed 53000 chunks to wake word detector
+[+553.775] I (553943) AfeWakeWord: [WakeNet-Fetch] count=16550 wakeup_state=0 wakenet_model_index=1
+[+557.024] I (557193) SystemInfo: free sram: 34863 minimal sram: 14407
+[+557.402] I (557573) AfeWakeWord: [MicLevel] fed 53412 chunks RMS=19.6 (max=43)
+[+558.281] I (558453) AudioService: [WakeWordFeed] fed 53500 chunks to wake word detector
+[+558.794] I (558963) AfeWakeWord: [WakeNet-Fetch] count=16707 wakeup_state=0 wakenet_model_index=1
+[+563.281] I (563453) AudioService: [WakeWordFeed] fed 54000 chunks to wake word detector
+[+563.826] I (563993) AfeWakeWord: [WakeNet-Fetch] count=16864 wakeup_state=0 wakenet_model_index=1
+[+567.024] I (567193) SystemInfo: free sram: 32791 minimal sram: 14407
+[+567.411] I (567583) AfeWakeWord: [MicLevel] fed 54413 chunks RMS=28.9 (max=63)
+[+568.281] I (568453) AudioService: [WakeWordFeed] fed 54500 chunks to wake word detector
+[+568.844] I (569013) AfeWakeWord: [WakeNet-Fetch] count=17021 wakeup_state=0 wakenet_model_index=1
+[+573.281] I (573453) AudioService: [WakeWordFeed] fed 55000 chunks to wake word detector
+[+573.875] I (574043) AfeWakeWord: [WakeNet-Fetch] count=17178 wakeup_state=0 wakenet_model_index=1
+[+577.024] I (577193) SystemInfo: free sram: 32611 minimal sram: 14407
+[+577.421] I (577593) AfeWakeWord: [MicLevel] fed 55414 chunks RMS=32.0 (max=74)
+[+578.282] I (578453) AudioService: [WakeWordFeed] fed 55500 chunks to wake word detector
+[+578.896] I (579063) AfeWakeWord: [WakeNet-Fetch] count=17335 wakeup_state=0 wakenet_model_index=1
+[+583.281] I (583453) AudioService: [WakeWordFeed] fed 56000 chunks to wake word detector
+[+583.914] I (584083) AfeWakeWord: [WakeNet-Fetch] count=17492 wakeup_state=0 wakenet_model_index=1
+[+587.024] I (587193) SystemInfo: free sram: 33319 minimal sram: 14407
+[+587.431] I (587603) AfeWakeWord: [MicLevel] fed 56415 chunks RMS=24.9 (max=72)
+[+588.281] I (588453) AudioService: [WakeWordFeed] fed 56500 chunks to wake word detector
+[+588.945] I (589113) AfeWakeWord: [WakeNet-Fetch] count=17649 wakeup_state=0 wakenet_model_index=1
+[+593.281] I (593453) AudioService: [WakeWordFeed] fed 57000 chunks to wake word detector
+[+593.967] I (594133) AfeWakeWord: [WakeNet-Fetch] count=17806 wakeup_state=0 wakenet_model_index=1
+[+597.024] I (597193) SystemInfo: free sram: 33451 minimal sram: 14407
+[+597.442] I (597613) AfeWakeWord: [MicLevel] fed 57416 chunks RMS=28.2 (max=54)
+[+598.282] I (598453) AudioService: [WakeWordFeed] fed 57500 chunks to wake word detector
+[+598.995] I (599163) AfeWakeWord: [WakeNet-Fetch] count=17963 wakeup_state=0 wakenet_model_index=1
+[+603.281] I (603453) AudioService: [WakeWordFeed] fed 58000 chunks to wake word detector
+[+607.024] I (607193) SystemInfo: free sram: 32187 minimal sram: 14407
+[+607.451] I (607623) AfeWakeWord: [MicLevel] fed 58417 chunks RMS=30.6 (max=75)
+[+608.281] I (608453) AudioService: [WakeWordFeed] fed 58500 chunks to wake word detector
+[+609.036] I (609203) AfeWakeWord: [WakeNet-Fetch] count=18277 wakeup_state=0 wakenet_model_index=1
+[+613.281] I (613453) AudioService: [WakeWordFeed] fed 59000 chunks to wake word detector
+[+614.064] I (614233) AfeWakeWord: [WakeNet-Fetch] count=18434 wakeup_state=0 wakenet_model_index=1
+[+617.024] I (617193) SystemInfo: free sram: 31919 minimal sram: 14407
+[+617.461] I (617633) AfeWakeWord: [MicLevel] fed 59418 chunks RMS=23.7 (max=49)
+[+618.282] I (618453) AudioService: [WakeWordFeed] fed 59500 chunks to wake word detector
+[+619.084] I (619253) AfeWakeWord: [WakeNet-Fetch] count=18591 wakeup_state=0 wakenet_model_index=1
+[+623.281] I (623453) AudioService: [WakeWordFeed] fed 60000 chunks to wake word detector
+[+624.116] I (624283) AfeWakeWord: [WakeNet-Fetch] count=18748 wakeup_state=0 wakenet_model_index=1
+[+627.024] I (627193) SystemInfo: free sram: 33415 minimal sram: 14407
+[+627.471] I (627643) AfeWakeWord: [MicLevel] fed 60419 chunks RMS=23.3 (max=46)
+[+628.282] I (628453) AudioService: [WakeWordFeed] fed 60500 chunks to wake word detector
+[+629.135] I (629303) AfeWakeWord: [WakeNet-Fetch] count=18905 wakeup_state=0 wakenet_model_index=1
+[+633.281] I (633453) AudioService: [WakeWordFeed] fed 61000 chunks to wake word detector
+[+634.154] I (634323) AfeWakeWord: [WakeNet-Fetch] count=19062 wakeup_state=0 wakenet_model_index=1
+[+637.024] I (637193) SystemInfo: free sram: 34347 minimal sram: 14407
+[+637.481] I (637653) AfeWakeWord: [MicLevel] fed 61420 chunks RMS=31.0 (max=72)
+[+638.281] I (638453) AudioService: [WakeWordFeed] fed 61500 chunks to wake word detector
+[+639.186] I (639353) AfeWakeWord: [WakeNet-Fetch] count=19219 wakeup_state=0 wakenet_model_index=1
+[+643.281] I (643453) AudioService: [WakeWordFeed] fed 62000 chunks to wake word detector
+[+644.205] I (644373) AfeWakeWord: [WakeNet-Fetch] count=19376 wakeup_state=0 wakenet_model_index=1
+[+647.024] I (647193) SystemInfo: free sram: 33739 minimal sram: 14407
+[+647.491] I (647663) AfeWakeWord: [MicLevel] fed 62421 chunks RMS=28.0 (max=52)
+[+648.281] I (648453) AudioService: [WakeWordFeed] fed 62500 chunks to wake word detector
+[+649.234] I (649403) AfeWakeWord: [WakeNet-Fetch] count=19533 wakeup_state=0 wakenet_model_index=1
+[+653.281] I (653453) AudioService: [WakeWordFeed] fed 63000 chunks to wake word detector
+[+654.256] I (654423) AfeWakeWord: [WakeNet-Fetch] count=19690 wakeup_state=0 wakenet_model_index=1
+[+657.024] I (657193) SystemInfo: free sram: 33575 minimal sram: 14407
+[+657.501] I (657673) AfeWakeWord: [MicLevel] fed 63422 chunks RMS=30.9 (max=75)
+[+658.282] I (658453) AudioService: [WakeWordFeed] fed 63500 chunks to wake word detector
+[+659.274] I (659443) AfeWakeWord: [WakeNet-Fetch] count=19847 wakeup_state=0 wakenet_model_index=1
+[+663.282] I (663453) AudioService: [WakeWordFeed] fed 64000 chunks to wake word detector
+[+664.275] I (664443) AfeWakeWord: [WakeNet-Fetch] count=20003 wakeup_state=0 wakenet_model_index=1
+[+667.024] I (667193) SystemInfo: free sram: 35883 minimal sram: 14407
+[+667.511] I (667683) AfeWakeWord: [MicLevel] fed 64423 chunks RMS=28.2 (max=55)
+[+668.281] I (668453) AudioService: [WakeWordFeed] fed 64500 chunks to wake word detector
+[+669.294] I (669463) AfeWakeWord: [WakeNet-Fetch] count=20160 wakeup_state=0 wakenet_model_index=1
+[+673.281] I (673453) AudioService: [WakeWordFeed] fed 65000 chunks to wake word detector
+[+674.316] I (674483) AfeWakeWord: [WakeNet-Fetch] count=20317 wakeup_state=0 wakenet_model_index=1
+[+677.024] I (677193) SystemInfo: free sram: 34007 minimal sram: 14407
+[+677.521] I (677693) AfeWakeWord: [MicLevel] fed 65424 chunks RMS=31.3 (max=82)
+[+678.282] I (678453) AudioService: [WakeWordFeed] fed 65500 chunks to wake word detector
+[+679.345] I (679513) AfeWakeWord: [WakeNet-Fetch] count=20474 wakeup_state=0 wakenet_model_index=1
+[+683.281] I (683453) AudioService: [WakeWordFeed] fed 66000 chunks to wake word detector
+[+684.364] I (684533) AfeWakeWord: [WakeNet-Fetch] count=20631 wakeup_state=0 wakenet_model_index=1
+[+687.024] I (687193) SystemInfo: free sram: 33943 minimal sram: 14407
+[+687.531] I (687703) AfeWakeWord: [MicLevel] fed 66425 chunks RMS=41.2 (max=84)
+[+688.282] I (688453) AudioService: [WakeWordFeed] fed 66500 chunks to wake word detector
+[+689.396] I (689563) AfeWakeWord: [WakeNet-Fetch] count=20788 wakeup_state=0 wakenet_model_index=1
+[+693.281] I (693453) AudioService: [WakeWordFeed] fed 67000 chunks to wake word detector
+[+694.415] I (694583) AfeWakeWord: [WakeNet-Fetch] count=20945 wakeup_state=0 wakenet_model_index=1
+[+697.024] I (697193) SystemInfo: free sram: 33111 minimal sram: 14407
+[+697.541] I (697713) AfeWakeWord: [MicLevel] fed 67426 chunks RMS=24.1 (max=65)
+[+698.281] I (698453) AudioService: [WakeWordFeed] fed 67500 chunks to wake word detector
+[+699.434] I (699603) AfeWakeWord: [WakeNet-Fetch] count=21102 wakeup_state=0 wakenet_model_index=1
+[+703.282] I (703453) AudioService: [WakeWordFeed] fed 68000 chunks to wake word detector
+[+704.466] I (704633) AfeWakeWord: [WakeNet-Fetch] count=21259 wakeup_state=0 wakenet_model_index=1
+[+707.024] I (707193) SystemInfo: free sram: 34339 minimal sram: 14407
+[+707.551] I (707723) AfeWakeWord: [MicLevel] fed 68427 chunks RMS=26.0 (max=54)
+[+708.281] I (708453) AudioService: [WakeWordFeed] fed 68500 chunks to wake word detector
+[+709.485] I (709653) AfeWakeWord: [WakeNet-Fetch] count=21416 wakeup_state=0 wakenet_model_index=1
+[+713.281] I (713453) AudioService: [WakeWordFeed] fed 69000 chunks to wake word detector
+[+714.514] I (714683) AfeWakeWord: [WakeNet-Fetch] count=21573 wakeup_state=0 wakenet_model_index=1
+[+717.024] I (717193) SystemInfo: free sram: 34855 minimal sram: 14407
+[+717.561] I (717733) AfeWakeWord: [MicLevel] fed 69428 chunks RMS=27.1 (max=62)
+[+718.281] I (718453) AudioService: [WakeWordFeed] fed 69500 chunks to wake word detector
+[+719.536] I (719703) AfeWakeWord: [WakeNet-Fetch] count=21730 wakeup_state=0 wakenet_model_index=1
+[+723.281] I (723453) AudioService: [WakeWordFeed] fed 70000 chunks to wake word detector
+[+724.555] I (724723) AfeWakeWord: [WakeNet-Fetch] count=21887 wakeup_state=0 wakenet_model_index=1
+[+727.024] I (727193) SystemInfo: free sram: 32191 minimal sram: 14407
+[+727.571] I (727743) AfeWakeWord: [MicLevel] fed 70429 chunks RMS=36.4 (max=75)
+[+728.281] I (728453) AudioService: [WakeWordFeed] fed 70500 chunks to wake word detector
+[+729.584] I (729753) AfeWakeWord: [WakeNet-Fetch] count=22044 wakeup_state=0 wakenet_model_index=1
+[+733.281] I (733453) AudioService: [WakeWordFeed] fed 71000 chunks to wake word detector
+[+734.606] I (734773) AfeWakeWord: [WakeNet-Fetch] count=22201 wakeup_state=0 wakenet_model_index=1
+[+737.024] I (737193) SystemInfo: free sram: 32979 minimal sram: 14407
+[+737.581] I (737753) AfeWakeWord: [MicLevel] fed 71430 chunks RMS=35.0 (max=80)
+[+738.282] I (738453) AudioService: [WakeWordFeed] fed 71500 chunks to wake word detector
+[+739.635] I (739803) AfeWakeWord: [WakeNet-Fetch] count=22358 wakeup_state=0 wakenet_model_index=1
+[+743.281] I (743453) AudioService: [WakeWordFeed] fed 72000 chunks to wake word detector
+[+744.654] I (744823) AfeWakeWord: [WakeNet-Fetch] count=22515 wakeup_state=0 wakenet_model_index=1
+[+747.024] I (747193) SystemInfo: free sram: 32895 minimal sram: 14407
+[+747.591] I (747763) AfeWakeWord: [MicLevel] fed 72431 chunks RMS=24.2 (max=42)
+[+748.282] I (748453) AudioService: [WakeWordFeed] fed 72500 chunks to wake word detector
+[+749.677] I (749843) AfeWakeWord: [WakeNet-Fetch] count=22672 wakeup_state=0 wakenet_model_index=1
+[+753.281] I (753453) AudioService: [WakeWordFeed] fed 73000 chunks to wake word detector
+[+754.705] I (754873) AfeWakeWord: [WakeNet-Fetch] count=22829 wakeup_state=0 wakenet_model_index=1
+[+757.024] I (757193) SystemInfo: free sram: 33835 minimal sram: 14407
+[+757.601] I (757773) AfeWakeWord: [MicLevel] fed 73432 chunks RMS=29.9 (max=62)
+[+758.281] I (758453) AudioService: [WakeWordFeed] fed 73500 chunks to wake word detector
+[+759.724] I (759893) AfeWakeWord: [WakeNet-Fetch] count=22986 wakeup_state=0 wakenet_model_index=1
+[+763.281] I (763453) AudioService: [WakeWordFeed] fed 74000 chunks to wake word detector
+[+764.756] I (764923) AfeWakeWord: [WakeNet-Fetch] count=23143 wakeup_state=0 wakenet_model_index=1
+[+767.024] I (767193) SystemInfo: free sram: 32743 minimal sram: 14407
+[+767.611] I (767783) AfeWakeWord: [MicLevel] fed 74433 chunks RMS=23.8 (max=68)
+[+768.282] I (768453) AudioService: [WakeWordFeed] fed 74500 chunks to wake word detector
+[+769.775] I (769943) AfeWakeWord: [WakeNet-Fetch] count=23300 wakeup_state=0 wakenet_model_index=1
+[+773.281] I (773453) AudioService: [WakeWordFeed] fed 75000 chunks to wake word detector
+[+774.794] I (774963) AfeWakeWord: [WakeNet-Fetch] count=23457 wakeup_state=0 wakenet_model_index=1
+[+777.024] I (777193) SystemInfo: free sram: 33143 minimal sram: 14407
+[+777.621] I (777793) AfeWakeWord: [MicLevel] fed 75434 chunks RMS=34.6 (max=72)
+[+778.282] I (778453) AudioService: [WakeWordFeed] fed 75500 chunks to wake word detector
+[+779.826] I (779993) AfeWakeWord: [WakeNet-Fetch] count=23614 wakeup_state=0 wakenet_model_index=1
+[+783.281] I (783453) AudioService: [WakeWordFeed] fed 76000 chunks to wake word detector
+[+784.845] I (785013) AfeWakeWord: [WakeNet-Fetch] count=23771 wakeup_state=0 wakenet_model_index=1
+[+787.024] I (787193) SystemInfo: free sram: 32355 minimal sram: 14407
+[+787.631] I (787803) AfeWakeWord: [MicLevel] fed 76435 chunks RMS=33.4 (max=82)
+[+788.281] I (788453) AudioService: [WakeWordFeed] fed 76500 chunks to wake word detector
+[+789.875] I (790043) AfeWakeWord: [WakeNet-Fetch] count=23928 wakeup_state=0 wakenet_model_index=1
+[+793.281] I (793453) AudioService: [WakeWordFeed] fed 77000 chunks to wake word detector
+[+794.896] I (795063) AfeWakeWord: [WakeNet-Fetch] count=24085 wakeup_state=0 wakenet_model_index=1
+[+797.024] I (797193) SystemInfo: free sram: 33319 minimal sram: 14407
+[+797.641] I (797813) AfeWakeWord: [MicLevel] fed 77436 chunks RMS=34.0 (max=73)
+[+798.281] I (798453) AudioService: [WakeWordFeed] fed 77500 chunks to wake word detector
+[+799.915] I (800083) AfeWakeWord: [WakeNet-Fetch] count=24242 wakeup_state=0 wakenet_model_index=1
+[+803.281] I (803453) AudioService: [WakeWordFeed] fed 78000 chunks to wake word detector
+[+804.944] I (805113) AfeWakeWord: [WakeNet-Fetch] count=24399 wakeup_state=0 wakenet_model_index=1
+[+807.024] I (807193) SystemInfo: free sram: 34863 minimal sram: 14407
+[+807.651] I (807823) AfeWakeWord: [MicLevel] fed 78437 chunks RMS=29.6 (max=73)
+[+808.281] I (808453) AudioService: [WakeWordFeed] fed 78500 chunks to wake word detector
+[+809.966] I (810133) AfeWakeWord: [WakeNet-Fetch] count=24556 wakeup_state=0 wakenet_model_index=1
+[+813.281] I (813453) AudioService: [WakeWordFeed] fed 79000 chunks to wake word detector
+[+814.995] I (815163) AfeWakeWord: [WakeNet-Fetch] count=24713 wakeup_state=0 wakenet_model_index=1
+[+817.024] I (817193) SystemInfo: free sram: 32799 minimal sram: 14407
+[+817.661] I (817833) AfeWakeWord: [MicLevel] fed 79438 chunks RMS=30.6 (max=82)
+[+818.282] I (818453) AudioService: [WakeWordFeed] fed 79500 chunks to wake word detector
+[+820.014] I (820183) AfeWakeWord: [WakeNet-Fetch] count=24870 wakeup_state=0 wakenet_model_index=1
+[+823.281] I (823453) AudioService: [WakeWordFeed] fed 80000 chunks to wake word detector
+[+825.036] I (825203) AfeWakeWord: [WakeNet-Fetch] count=25027 wakeup_state=0 wakenet_model_index=1
+[+827.024] I (827193) SystemInfo: free sram: 32831 minimal sram: 14407
+[+827.671] I (827843) AfeWakeWord: [MicLevel] fed 80439 chunks RMS=30.7 (max=74)
+[+828.281] I (828453) AudioService: [WakeWordFeed] fed 80500 chunks to wake word detector
+[+830.065] I (830233) AfeWakeWord: [WakeNet-Fetch] count=25184 wakeup_state=0 wakenet_model_index=1
+[+833.281] I (833453) AudioService: [WakeWordFeed] fed 81000 chunks to wake word detector
+[+835.084] I (835253) AfeWakeWord: [WakeNet-Fetch] count=25341 wakeup_state=0 wakenet_model_index=1
+[+837.024] I (837193) SystemInfo: free sram: 33319 minimal sram: 14407
+[+837.681] I (837853) AfeWakeWord: [MicLevel] fed 81440 chunks RMS=23.9 (max=59)
+[+838.281] I (838453) AudioService: [WakeWordFeed] fed 81500 chunks to wake word detector
+[+840.116] I (840283) AfeWakeWord: [WakeNet-Fetch] count=25498 wakeup_state=0 wakenet_model_index=1
+[+843.281] I (843453) AudioService: [WakeWordFeed] fed 82000 chunks to wake word detector
+[+845.135] I (845303) AfeWakeWord: [WakeNet-Fetch] count=25655 wakeup_state=0 wakenet_model_index=1
+[+847.024] I (847193) SystemInfo: free sram: 32715 minimal sram: 14407
+[+847.691] I (847863) AfeWakeWord: [MicLevel] fed 82441 chunks RMS=32.2 (max=65)
+[+848.281] I (848453) AudioService: [WakeWordFeed] fed 82500 chunks to wake word detector
+[+850.154] I (850323) AfeWakeWord: [WakeNet-Fetch] count=25812 wakeup_state=0 wakenet_model_index=1
+[+853.281] I (853453) AudioService: [WakeWordFeed] fed 83000 chunks to wake word detector
+[+855.186] I (855353) AfeWakeWord: [WakeNet-Fetch] count=25969 wakeup_state=0 wakenet_model_index=1
+[+857.024] I (857193) SystemInfo: free sram: 33219 minimal sram: 14407
+[+857.701] I (857873) AfeWakeWord: [MicLevel] fed 83442 chunks RMS=26.2 (max=52)
+[+858.282] I (858453) AudioService: [WakeWordFeed] fed 83500 chunks to wake word detector
+[+860.205] I (860373) AfeWakeWord: [WakeNet-Fetch] count=26126 wakeup_state=0 wakenet_model_index=1
+[+863.281] I (863453) AudioService: [WakeWordFeed] fed 84000 chunks to wake word detector
+[+865.234] I (865403) AfeWakeWord: [WakeNet-Fetch] count=26283 wakeup_state=0 wakenet_model_index=1
+[+867.024] I (867193) SystemInfo: free sram: 33319 minimal sram: 14407
+[+867.711] I (867883) AfeWakeWord: [MicLevel] fed 84443 chunks RMS=20.9 (max=53)
+[+868.281] I (868453) AudioService: [WakeWordFeed] fed 84500 chunks to wake word detector
+[+870.256] I (870423) AfeWakeWord: [WakeNet-Fetch] count=26440 wakeup_state=0 wakenet_model_index=1
+[+873.281] I (873453) AudioService: [WakeWordFeed] fed 85000 chunks to wake word detector
+[+875.275] I (875443) AfeWakeWord: [WakeNet-Fetch] count=26597 wakeup_state=0 wakenet_model_index=1
+[+877.024] I (877193) SystemInfo: free sram: 33835 minimal sram: 14407
+[+877.721] I (877893) AfeWakeWord: [MicLevel] fed 85444 chunks RMS=27.3 (max=54)
+[+878.281] I (878453) AudioService: [WakeWordFeed] fed 85500 chunks to wake word detector
+[+880.304] I (880473) AfeWakeWord: [WakeNet-Fetch] count=26754 wakeup_state=0 wakenet_model_index=1
+[+883.282] I (883453) AudioService: [WakeWordFeed] fed 86000 chunks to wake word detector
+[+885.326] I (885493) AfeWakeWord: [WakeNet-Fetch] count=26911 wakeup_state=0 wakenet_model_index=1
+[+887.024] I (887193) SystemInfo: free sram: 33319 minimal sram: 14407
+[+887.731] I (887903) AfeWakeWord: [MicLevel] fed 86445 chunks RMS=28.6 (max=62)
+[+888.281] I (888453) AudioService: [WakeWordFeed] fed 86500 chunks to wake word detector
+[+890.355] I (890523) AfeWakeWord: [WakeNet-Fetch] count=27068 wakeup_state=0 wakenet_model_index=1
+[+893.281] I (893453) AudioService: [WakeWordFeed] fed 87000 chunks to wake word detector
+[+895.374] I (895543) AfeWakeWord: [WakeNet-Fetch] count=27225 wakeup_state=0 wakenet_model_index=1
+[+897.024] I (897193) SystemInfo: free sram: 33303 minimal sram: 14407
+[+897.741] I (897913) AfeWakeWord: [MicLevel] fed 87446 chunks RMS=26.0 (max=57)
+[+898.282] I (898453) AudioService: [WakeWordFeed] fed 87500 chunks to wake word detector
+[+900.396] I (900563) AfeWakeWord: [WakeNet-Fetch] count=27382 wakeup_state=0 wakenet_model_index=1
+[+903.281] I (903453) AudioService: [WakeWordFeed] fed 88000 chunks to wake word detector
+[+905.425] I (905593) AfeWakeWord: [WakeNet-Fetch] count=27539 wakeup_state=0 wakenet_model_index=1
+[+907.024] I (907193) SystemInfo: free sram: 33131 minimal sram: 14407
+[+907.751] I (907923) AfeWakeWord: [MicLevel] fed 88447 chunks RMS=29.1 (max=46)
+[+908.281] I (908453) AudioService: [WakeWordFeed] fed 88500 chunks to wake word detector
+[+910.444] I (910613) AfeWakeWord: [WakeNet-Fetch] count=27696 wakeup_state=0 wakenet_model_index=1
+[+913.282] I (913453) AudioService: [WakeWordFeed] fed 89000 chunks to wake word detector
+[+915.476] I (915643) AfeWakeWord: [WakeNet-Fetch] count=27853 wakeup_state=0 wakenet_model_index=1
+[+917.024] I (917193) SystemInfo: free sram: 34871 minimal sram: 14407
+[+917.761] I (917933) AfeWakeWord: [MicLevel] fed 89448 chunks RMS=33.8 (max=73)
+[+918.281] I (918453) AudioService: [WakeWordFeed] fed 89500 chunks to wake word detector
+[+920.495] I (920663) AfeWakeWord: [WakeNet-Fetch] count=28010 wakeup_state=0 wakenet_model_index=1
+[+923.281] I (923453) AudioService: [WakeWordFeed] fed 90000 chunks to wake word detector
+[+925.514] I (925683) AfeWakeWord: [WakeNet-Fetch] count=28167 wakeup_state=0 wakenet_model_index=1
+[+927.024] I (927193) SystemInfo: free sram: 33819 minimal sram: 14407
+[+927.771] I (927943) AfeWakeWord: [MicLevel] fed 90449 chunks RMS=27.8 (max=83)
+[+928.282] I (928453) AudioService: [WakeWordFeed] fed 90500 chunks to wake word detector
+[+930.546] I (930713) AfeWakeWord: [WakeNet-Fetch] count=28324 wakeup_state=0 wakenet_model_index=1
+[+933.281] I (933453) AudioService: [WakeWordFeed] fed 91000 chunks to wake word detector
+[+935.565] I (935733) AfeWakeWord: [WakeNet-Fetch] count=28481 wakeup_state=0 wakenet_model_index=1
+[+937.024] I (937193) SystemInfo: free sram: 33891 minimal sram: 14407
+[+937.782] I (937953) AfeWakeWord: [MicLevel] fed 91450 chunks RMS=29.3 (max=82)
+[+938.281] I (938453) AudioService: [WakeWordFeed] fed 91500 chunks to wake word detector
+[+940.594] I (940763) AfeWakeWord: [WakeNet-Fetch] count=28638 wakeup_state=0 wakenet_model_index=1
+[+943.281] I (943453) AudioService: [WakeWordFeed] fed 92000 chunks to wake word detector
+[+945.617] I (945783) AfeWakeWord: [WakeNet-Fetch] count=28795 wakeup_state=0 wakenet_model_index=1
+[+947.024] I (947193) SystemInfo: free sram: 33719 minimal sram: 14407
+[+947.791] I (947963) AfeWakeWord: [MicLevel] fed 92451 chunks RMS=26.3 (max=63)
+[+948.281] I (948453) AudioService: [WakeWordFeed] fed 92500 chunks to wake word detector
+[+950.634] I (950803) AfeWakeWord: [WakeNet-Fetch] count=28952 wakeup_state=0 wakenet_model_index=1
+[+953.281] I (953453) AudioService: [WakeWordFeed] fed 93000 chunks to wake word detector
+[+955.635] I (955803) AfeWakeWord: [WakeNet-Fetch] count=29108 wakeup_state=0 wakenet_model_index=1
+[+957.024] I (957193) SystemInfo: free sram: 34351 minimal sram: 14407
+[+957.801] I (957973) AfeWakeWord: [MicLevel] fed 93452 chunks RMS=29.1 (max=47)
+[+958.282] I (958453) AudioService: [WakeWordFeed] fed 93500 chunks to wake word detector
+[+960.655] I (960823) AfeWakeWord: [WakeNet-Fetch] count=29265 wakeup_state=0 wakenet_model_index=1
+[+963.281] I (963453) AudioService: [WakeWordFeed] fed 94000 chunks to wake word detector
+[+965.676] I (965843) AfeWakeWord: [WakeNet-Fetch] count=29422 wakeup_state=0 wakenet_model_index=1
+[+967.024] I (967193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+967.811] I (967983) AfeWakeWord: [MicLevel] fed 94453 chunks RMS=35.8 (max=68)
+[+968.281] I (968453) AudioService: [WakeWordFeed] fed 94500 chunks to wake word detector
+[+970.705] I (970873) AfeWakeWord: [WakeNet-Fetch] count=29579 wakeup_state=0 wakenet_model_index=1
+[+973.281] I (973453) AudioService: [WakeWordFeed] fed 95000 chunks to wake word detector
+[+975.724] I (975893) AfeWakeWord: [WakeNet-Fetch] count=29736 wakeup_state=0 wakenet_model_index=1
+[+977.024] I (977193) SystemInfo: free sram: 32311 minimal sram: 14407
+[+977.821] I (977993) AfeWakeWord: [MicLevel] fed 95454 chunks RMS=25.2 (max=67)
+[+978.281] I (978453) AudioService: [WakeWordFeed] fed 95500 chunks to wake word detector
+[+980.756] I (980923) AfeWakeWord: [WakeNet-Fetch] count=29893 wakeup_state=0 wakenet_model_index=1
+[+983.281] I (983453) AudioService: [WakeWordFeed] fed 96000 chunks to wake word detector
+[+985.774] I (985943) AfeWakeWord: [WakeNet-Fetch] count=30050 wakeup_state=0 wakenet_model_index=1
+[+987.024] I (987193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+987.831] I (988003) AfeWakeWord: [MicLevel] fed 96455 chunks RMS=27.9 (max=65)
+[+988.281] I (988453) AudioService: [WakeWordFeed] fed 96500 chunks to wake word detector
+[+990.794] I (990963) AfeWakeWord: [WakeNet-Fetch] count=30207 wakeup_state=0 wakenet_model_index=1
+[+993.281] I (993453) AudioService: [WakeWordFeed] fed 97000 chunks to wake word detector
+[+995.826] I (995993) AfeWakeWord: [WakeNet-Fetch] count=30364 wakeup_state=0 wakenet_model_index=1
+[+997.024] I (997193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+997.841] I (998013) AfeWakeWord: [MicLevel] fed 97456 chunks RMS=25.1 (max=47)
+[+998.281] I (998453) AudioService: [WakeWordFeed] fed 97500 chunks to wake word detector
+[+1000.844] I (1001013) AfeWakeWord: [WakeNet-Fetch] count=30521 wakeup_state=0 wakenet_model_index=1
+[+1003.281] I (1003453) AudioService: [WakeWordFeed] fed 98000 chunks to wake word detector
+[+1005.874] I (1006043) AfeWakeWord: [WakeNet-Fetch] count=30678 wakeup_state=0 wakenet_model_index=1
+[+1007.024] I (1007193) SystemInfo: free sram: 33319 minimal sram: 14407
+[+1007.851] I (1008023) AfeWakeWord: [MicLevel] fed 98457 chunks RMS=18.9 (max=37)
+[+1008.281] I (1008453) AudioService: [WakeWordFeed] fed 98500 chunks to wake word detector
+[+1010.896] I (1011063) AfeWakeWord: [WakeNet-Fetch] count=30835 wakeup_state=0 wakenet_model_index=1
+[+1013.281] I (1013453) AudioService: [WakeWordFeed] fed 99000 chunks to wake word detector
+[+1015.914] I (1016083) AfeWakeWord: [WakeNet-Fetch] count=30992 wakeup_state=0 wakenet_model_index=1
+[+1017.024] I (1017193) SystemInfo: free sram: 32099 minimal sram: 14407
+[+1017.861] I (1018033) AfeWakeWord: [MicLevel] fed 99458 chunks RMS=33.2 (max=94)
+[+1018.282] I (1018453) AudioService: [WakeWordFeed] fed 99500 chunks to wake word detector
+[+1020.915] I (1021083) AfeWakeWord: [WakeNet-Fetch] count=31148 wakeup_state=0 wakenet_model_index=1
+[+1023.281] I (1023453) AudioService: [WakeWordFeed] fed 100000 chunks to wake word detector
+[+1025.934] I (1026103) AfeWakeWord: [WakeNet-Fetch] count=31305 wakeup_state=0 wakenet_model_index=1
+[+1027.024] I (1027193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1027.871] I (1028043) AfeWakeWord: [MicLevel] fed 100459 chunks RMS=32.0 (max=64)
+[+1028.281] I (1028453) AudioService: [WakeWordFeed] fed 100500 chunks to wake word detector
+[+1030.956] I (1031123) AfeWakeWord: [WakeNet-Fetch] count=31462 wakeup_state=0 wakenet_model_index=1
+[+1033.281] I (1033453) AudioService: [WakeWordFeed] fed 101000 chunks to wake word detector
+[+1035.985] I (1036153) AfeWakeWord: [WakeNet-Fetch] count=31619 wakeup_state=0 wakenet_model_index=1
+[+1037.024] I (1037193) SystemInfo: free sram: 33235 minimal sram: 14407
+[+1037.882] I (1038053) AfeWakeWord: [MicLevel] fed 101460 chunks RMS=30.9 (max=76)
+[+1038.282] I (1038453) AudioService: [WakeWordFeed] fed 101500 chunks to wake word detector
+[+1041.004] I (1041173) AfeWakeWord: [WakeNet-Fetch] count=31776 wakeup_state=0 wakenet_model_index=1
+[+1043.281] I (1043453) AudioService: [WakeWordFeed] fed 102000 chunks to wake word detector
+[+1046.036] I (1046203) AfeWakeWord: [WakeNet-Fetch] count=31933 wakeup_state=0 wakenet_model_index=1
+[+1047.024] I (1047193) SystemInfo: free sram: 33227 minimal sram: 14407
+[+1047.891] I (1048063) AfeWakeWord: [MicLevel] fed 102461 chunks RMS=25.8 (max=48)
+[+1048.281] I (1048453) AudioService: [WakeWordFeed] fed 102500 chunks to wake word detector
+[+1051.055] I (1051223) AfeWakeWord: [WakeNet-Fetch] count=32090 wakeup_state=0 wakenet_model_index=1
+[+1053.281] I (1053453) AudioService: [WakeWordFeed] fed 103000 chunks to wake word detector
+[+1056.074] I (1056243) AfeWakeWord: [WakeNet-Fetch] count=32247 wakeup_state=0 wakenet_model_index=1
+[+1057.024] I (1057193) SystemInfo: free sram: 34867 minimal sram: 14407
+[+1057.901] I (1058073) AfeWakeWord: [MicLevel] fed 103462 chunks RMS=21.6 (max=50)
+[+1058.282] I (1058453) AudioService: [WakeWordFeed] fed 103500 chunks to wake word detector
+[+1061.106] I (1061273) AfeWakeWord: [WakeNet-Fetch] count=32404 wakeup_state=0 wakenet_model_index=1
+[+1063.281] I (1063453) AudioService: [WakeWordFeed] fed 104000 chunks to wake word detector
+[+1066.125] I (1066293) AfeWakeWord: [WakeNet-Fetch] count=32561 wakeup_state=0 wakenet_model_index=1
+[+1067.024] I (1067193) SystemInfo: free sram: 32467 minimal sram: 14407
+[+1067.911] I (1068083) AfeWakeWord: [MicLevel] fed 104463 chunks RMS=23.3 (max=73)
+[+1068.281] I (1068453) AudioService: [WakeWordFeed] fed 104500 chunks to wake word detector
+[+1071.154] I (1071323) AfeWakeWord: [WakeNet-Fetch] count=32718 wakeup_state=0 wakenet_model_index=1
+[+1073.281] I (1073453) AudioService: [WakeWordFeed] fed 105000 chunks to wake word detector
+[+1076.176] I (1076343) AfeWakeWord: [WakeNet-Fetch] count=32875 wakeup_state=0 wakenet_model_index=1
+[+1077.024] I (1077193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1077.921] I (1078093) AfeWakeWord: [MicLevel] fed 105464 chunks RMS=23.5 (max=43)
+[+1078.281] I (1078453) AudioService: [WakeWordFeed] fed 105500 chunks to wake word detector
+[+1081.195] I (1081363) AfeWakeWord: [WakeNet-Fetch] count=33032 wakeup_state=0 wakenet_model_index=1
+[+1083.281] I (1083453) AudioService: [WakeWordFeed] fed 106000 chunks to wake word detector
+[+1086.224] I (1086393) AfeWakeWord: [WakeNet-Fetch] count=33189 wakeup_state=0 wakenet_model_index=1
+[+1087.024] I (1087193) SystemInfo: free sram: 32459 minimal sram: 14407
+[+1087.931] I (1088103) AfeWakeWord: [MicLevel] fed 106465 chunks RMS=33.8 (max=57)
+[+1088.281] I (1088453) AudioService: [WakeWordFeed] fed 106500 chunks to wake word detector
+[+1091.246] I (1091413) AfeWakeWord: [WakeNet-Fetch] count=33346 wakeup_state=0 wakenet_model_index=1
+[+1093.281] I (1093453) AudioService: [WakeWordFeed] fed 107000 chunks to wake word detector
+[+1096.275] I (1096443) AfeWakeWord: [WakeNet-Fetch] count=33503 wakeup_state=0 wakenet_model_index=1
+[+1097.024] I (1097193) SystemInfo: free sram: 33599 minimal sram: 14407
+[+1097.941] I (1098113) AfeWakeWord: [MicLevel] fed 107466 chunks RMS=20.0 (max=46)
+[+1098.282] I (1098453) AudioService: [WakeWordFeed] fed 107500 chunks to wake word detector
+[+1101.294] I (1101463) AfeWakeWord: [WakeNet-Fetch] count=33660 wakeup_state=0 wakenet_model_index=1
+[+1103.281] I (1103453) AudioService: [WakeWordFeed] fed 108000 chunks to wake word detector
+[+1106.316] I (1106483) AfeWakeWord: [WakeNet-Fetch] count=33817 wakeup_state=0 wakenet_model_index=1
+[+1107.024] I (1107193) SystemInfo: free sram: 33311 minimal sram: 14407
+[+1107.951] I (1108123) AfeWakeWord: [MicLevel] fed 108467 chunks RMS=27.2 (max=59)
+[+1108.281] I (1108453) AudioService: [WakeWordFeed] fed 108500 chunks to wake word detector
+[+1111.345] I (1111513) AfeWakeWord: [WakeNet-Fetch] count=33974 wakeup_state=0 wakenet_model_index=1
+[+1113.281] I (1113453) AudioService: [WakeWordFeed] fed 109000 chunks to wake word detector
+[+1116.364] I (1116533) AfeWakeWord: [WakeNet-Fetch] count=34131 wakeup_state=0 wakenet_model_index=1
+[+1117.024] I (1117193) SystemInfo: free sram: 32187 minimal sram: 14407
+[+1117.961] I (1118133) AfeWakeWord: [MicLevel] fed 109468 chunks RMS=26.1 (max=54)
+[+1118.282] I (1118453) AudioService: [WakeWordFeed] fed 109500 chunks to wake word detector
+[+1121.396] I (1121563) AfeWakeWord: [WakeNet-Fetch] count=34288 wakeup_state=0 wakenet_model_index=1
+[+1123.281] I (1123453) AudioService: [WakeWordFeed] fed 110000 chunks to wake word detector
+[+1126.415] I (1126583) AfeWakeWord: [WakeNet-Fetch] count=34445 wakeup_state=0 wakenet_model_index=1
+[+1127.024] I (1127193) SystemInfo: free sram: 33307 minimal sram: 14407
+[+1127.971] I (1128143) AfeWakeWord: [MicLevel] fed 110469 chunks RMS=31.3 (max=69)
+[+1128.281] I (1128453) AudioService: [WakeWordFeed] fed 110500 chunks to wake word detector
+[+1131.434] I (1131603) AfeWakeWord: [WakeNet-Fetch] count=34602 wakeup_state=0 wakenet_model_index=1
+[+1133.281] I (1133453) AudioService: [WakeWordFeed] fed 111000 chunks to wake word detector
+[+1136.466] I (1136633) AfeWakeWord: [WakeNet-Fetch] count=34759 wakeup_state=0 wakenet_model_index=1
+[+1137.024] I (1137193) SystemInfo: free sram: 33319 minimal sram: 14407
+[+1137.981] I (1138153) AfeWakeWord: [MicLevel] fed 111470 chunks RMS=28.7 (max=78)
+[+1138.281] I (1138453) AudioService: [WakeWordFeed] fed 111500 chunks to wake word detector
+[+1141.485] I (1141653) AfeWakeWord: [WakeNet-Fetch] count=34916 wakeup_state=0 wakenet_model_index=1
+[+1143.281] I (1143453) AudioService: [WakeWordFeed] fed 112000 chunks to wake word detector
+[+1146.515] I (1146683) AfeWakeWord: [WakeNet-Fetch] count=35073 wakeup_state=0 wakenet_model_index=1
+[+1147.024] I (1147193) SystemInfo: free sram: 33307 minimal sram: 14407
+[+1147.991] I (1148163) AfeWakeWord: [MicLevel] fed 112471 chunks RMS=23.5 (max=36)
+[+1148.282] I (1148453) AudioService: [WakeWordFeed] fed 112500 chunks to wake word detector
+[+1151.536] I (1151703) AfeWakeWord: [WakeNet-Fetch] count=35230 wakeup_state=0 wakenet_model_index=1
+[+1153.281] I (1153453) AudioService: [WakeWordFeed] fed 113000 chunks to wake word detector
+[+1156.555] I (1156723) AfeWakeWord: [WakeNet-Fetch] count=35387 wakeup_state=0 wakenet_model_index=1
+[+1157.024] I (1157193) SystemInfo: free sram: 32779 minimal sram: 14407
+[+1158.001] I (1158173) AfeWakeWord: [MicLevel] fed 113472 chunks RMS=26.2 (max=56)
+[+1158.281] I (1158453) AudioService: [WakeWordFeed] fed 113500 chunks to wake word detector
+[+1161.584] I (1161753) AfeWakeWord: [WakeNet-Fetch] count=35544 wakeup_state=0 wakenet_model_index=1
+[+1163.282] I (1163453) AudioService: [WakeWordFeed] fed 114000 chunks to wake word detector
+[+1166.606] I (1166773) AfeWakeWord: [WakeNet-Fetch] count=35701 wakeup_state=0 wakenet_model_index=1
+[+1167.024] I (1167193) SystemInfo: free sram: 32763 minimal sram: 14407
+[+1168.011] I (1168183) AfeWakeWord: [MicLevel] fed 114473 chunks RMS=27.5 (max=63)
+[+1168.281] I (1168453) AudioService: [WakeWordFeed] fed 114500 chunks to wake word detector
+[+1171.635] I (1171803) AfeWakeWord: [WakeNet-Fetch] count=35858 wakeup_state=0 wakenet_model_index=1
+[+1173.281] I (1173453) AudioService: [WakeWordFeed] fed 115000 chunks to wake word detector
+[+1176.654] I (1176823) AfeWakeWord: [WakeNet-Fetch] count=36015 wakeup_state=0 wakenet_model_index=1
+[+1177.024] I (1177193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+1178.021] I (1178193) AfeWakeWord: [MicLevel] fed 115474 chunks RMS=25.4 (max=61)
+[+1178.282] I (1178453) AudioService: [WakeWordFeed] fed 115500 chunks to wake word detector
+[+1181.676] I (1181843) AfeWakeWord: [WakeNet-Fetch] count=36172 wakeup_state=0 wakenet_model_index=1
+[+1183.281] I (1183453) AudioService: [WakeWordFeed] fed 116000 chunks to wake word detector
+[+1186.704] I (1186873) AfeWakeWord: [WakeNet-Fetch] count=36329 wakeup_state=0 wakenet_model_index=1
+[+1187.024] I (1187193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1188.032] I (1188203) AfeWakeWord: [MicLevel] fed 116475 chunks RMS=30.3 (max=72)
+[+1188.281] I (1188453) AudioService: [WakeWordFeed] fed 116500 chunks to wake word detector
+[+1191.725] I (1191893) AfeWakeWord: [WakeNet-Fetch] count=36486 wakeup_state=0 wakenet_model_index=1
+[+1193.281] I (1193453) AudioService: [WakeWordFeed] fed 117000 chunks to wake word detector
+[+1196.756] I (1196923) AfeWakeWord: [WakeNet-Fetch] count=36643 wakeup_state=0 wakenet_model_index=1
+[+1197.024] I (1197193) SystemInfo: free sram: 32775 minimal sram: 14407
+[+1198.041] I (1198213) AfeWakeWord: [MicLevel] fed 117476 chunks RMS=24.5 (max=59)
+[+1198.282] I (1198453) AudioService: [WakeWordFeed] fed 117500 chunks to wake word detector
+[+1201.775] I (1201943) AfeWakeWord: [WakeNet-Fetch] count=36800 wakeup_state=0 wakenet_model_index=1
+[+1203.281] I (1203453) AudioService: [WakeWordFeed] fed 118000 chunks to wake word detector
+[+1206.795] I (1206963) AfeWakeWord: [WakeNet-Fetch] count=36957 wakeup_state=0 wakenet_model_index=1
+[+1207.024] I (1207193) SystemInfo: free sram: 32087 minimal sram: 14407
+[+1208.052] I (1208223) AfeWakeWord: [MicLevel] fed 118477 chunks RMS=31.8 (max=74)
+[+1208.281] I (1208453) AudioService: [WakeWordFeed] fed 118500 chunks to wake word detector
+[+1211.826] I (1211993) AfeWakeWord: [WakeNet-Fetch] count=37114 wakeup_state=0 wakenet_model_index=1
+[+1213.281] I (1213453) AudioService: [WakeWordFeed] fed 119000 chunks to wake word detector
+[+1216.845] I (1217013) AfeWakeWord: [WakeNet-Fetch] count=37271 wakeup_state=0 wakenet_model_index=1
+[+1217.024] I (1217193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1218.061] I (1218233) AfeWakeWord: [MicLevel] fed 119478 chunks RMS=29.2 (max=53)
+[+1218.281] I (1218453) AudioService: [WakeWordFeed] fed 119500 chunks to wake word detector
+[+1221.874] I (1222043) AfeWakeWord: [WakeNet-Fetch] count=37428 wakeup_state=0 wakenet_model_index=1
+[+1223.281] I (1223453) AudioService: [WakeWordFeed] fed 120000 chunks to wake word detector
+[+1226.897] I (1227063) AfeWakeWord: [WakeNet-Fetch] count=37585 wakeup_state=0 wakenet_model_index=1
+[+1227.024] I (1227193) SystemInfo: free sram: 32979 minimal sram: 14407
+[+1228.071] I (1228243) AfeWakeWord: [MicLevel] fed 120479 chunks RMS=29.8 (max=64)
+[+1228.282] I (1228453) AudioService: [WakeWordFeed] fed 120500 chunks to wake word detector
+[+1231.915] I (1232083) AfeWakeWord: [WakeNet-Fetch] count=37742 wakeup_state=0 wakenet_model_index=1
+[+1233.281] I (1233453) AudioService: [WakeWordFeed] fed 121000 chunks to wake word detector
+[+1236.945] I (1237113) AfeWakeWord: [WakeNet-Fetch] count=37899 wakeup_state=0 wakenet_model_index=1
+[+1237.024] I (1237193) SystemInfo: free sram: 32715 minimal sram: 14407
+[+1238.081] I (1238253) AfeWakeWord: [MicLevel] fed 121480 chunks RMS=23.6 (max=55)
+[+1238.282] I (1238453) AudioService: [WakeWordFeed] fed 121500 chunks to wake word detector
+[+1241.966] I (1242133) AfeWakeWord: [WakeNet-Fetch] count=38056 wakeup_state=0 wakenet_model_index=1
+[+1243.281] I (1243453) AudioService: [WakeWordFeed] fed 122000 chunks to wake word detector
+[+1246.995] I (1247163) AfeWakeWord: [WakeNet-Fetch] count=38213 wakeup_state=0 wakenet_model_index=1
+[+1247.024] I (1247193) SystemInfo: free sram: 32795 minimal sram: 14407
+[+1248.092] I (1248263) AfeWakeWord: [MicLevel] fed 122481 chunks RMS=24.7 (max=53)
+[+1248.281] I (1248453) AudioService: [WakeWordFeed] fed 122500 chunks to wake word detector
+[+1252.014] I (1252183) AfeWakeWord: [WakeNet-Fetch] count=38370 wakeup_state=0 wakenet_model_index=1
+[+1253.281] I (1253453) AudioService: [WakeWordFeed] fed 123000 chunks to wake word detector
+[+1257.024] I (1257193) SystemInfo: free sram: 33603 minimal sram: 14407
+[+1257.036] I (1257203) AfeWakeWord: [WakeNet-Fetch] count=38527 wakeup_state=0 wakenet_model_index=1
+[+1258.101] I (1258273) AfeWakeWord: [MicLevel] fed 123482 chunks RMS=22.7 (max=54)
+[+1258.282] I (1258453) AudioService: [WakeWordFeed] fed 123500 chunks to wake word detector
+[+1262.065] I (1262233) AfeWakeWord: [WakeNet-Fetch] count=38684 wakeup_state=0 wakenet_model_index=1
+[+1263.281] I (1263453) AudioService: [WakeWordFeed] fed 124000 chunks to wake word detector
+[+1267.024] I (1267193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+1267.084] I (1267253) AfeWakeWord: [WakeNet-Fetch] count=38841 wakeup_state=0 wakenet_model_index=1
+[+1268.111] I (1268283) AfeWakeWord: [MicLevel] fed 124483 chunks RMS=38.4 (max=85)
+[+1268.281] I (1268453) AudioService: [WakeWordFeed] fed 124500 chunks to wake word detector
+[+1272.116] I (1272283) AfeWakeWord: [WakeNet-Fetch] count=38998 wakeup_state=0 wakenet_model_index=1
+[+1273.282] I (1273453) AudioService: [WakeWordFeed] fed 125000 chunks to wake word detector
+[+1277.024] I (1277193) SystemInfo: free sram: 32727 minimal sram: 14407
+[+1277.134] I (1277303) AfeWakeWord: [WakeNet-Fetch] count=39155 wakeup_state=0 wakenet_model_index=1
+[+1278.121] I (1278293) AfeWakeWord: [MicLevel] fed 125484 chunks RMS=18.5 (max=40)
+[+1278.281] I (1278453) AudioService: [WakeWordFeed] fed 125500 chunks to wake word detector
+[+1282.155] I (1282323) AfeWakeWord: [WakeNet-Fetch] count=39312 wakeup_state=0 wakenet_model_index=1
+[+1283.282] I (1283453) AudioService: [WakeWordFeed] fed 126000 chunks to wake word detector
+[+1287.024] I (1287193) SystemInfo: free sram: 33823 minimal sram: 14407
+[+1287.186] I (1287353) AfeWakeWord: [WakeNet-Fetch] count=39469 wakeup_state=0 wakenet_model_index=1
+[+1288.132] I (1288303) AfeWakeWord: [MicLevel] fed 126485 chunks RMS=30.6 (max=75)
+[+1288.281] I (1288453) AudioService: [WakeWordFeed] fed 126500 chunks to wake word detector
+[+1292.205] I (1292373) AfeWakeWord: [WakeNet-Fetch] count=39626 wakeup_state=0 wakenet_model_index=1
+[+1293.282] I (1293453) AudioService: [WakeWordFeed] fed 127000 chunks to wake word detector
+[+1297.024] I (1297193) SystemInfo: free sram: 32095 minimal sram: 14407
+[+1297.235] I (1297403) AfeWakeWord: [WakeNet-Fetch] count=39783 wakeup_state=0 wakenet_model_index=1
+[+1298.141] I (1298313) AfeWakeWord: [MicLevel] fed 127486 chunks RMS=26.2 (max=62)
+[+1298.282] I (1298453) AudioService: [WakeWordFeed] fed 127500 chunks to wake word detector
+[+1302.256] I (1302423) AfeWakeWord: [WakeNet-Fetch] count=39940 wakeup_state=0 wakenet_model_index=1
+[+1303.281] I (1303453) AudioService: [WakeWordFeed] fed 128000 chunks to wake word detector
+[+1307.024] I (1307193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1307.274] I (1307443) AfeWakeWord: [WakeNet-Fetch] count=40097 wakeup_state=0 wakenet_model_index=1
+[+1308.151] I (1308323) AfeWakeWord: [MicLevel] fed 128487 chunks RMS=27.7 (max=85)
+[+1308.281] I (1308453) AudioService: [WakeWordFeed] fed 128500 chunks to wake word detector
+[+1312.275] I (1312443) AfeWakeWord: [WakeNet-Fetch] count=40253 wakeup_state=0 wakenet_model_index=1
+[+1313.281] I (1313453) AudioService: [WakeWordFeed] fed 129000 chunks to wake word detector
+[+1317.024] I (1317193) SystemInfo: free sram: 32511 minimal sram: 14407
+[+1317.294] I (1317463) AfeWakeWord: [WakeNet-Fetch] count=40410 wakeup_state=0 wakenet_model_index=1
+[+1318.161] I (1318333) AfeWakeWord: [MicLevel] fed 129488 chunks RMS=27.2 (max=75)
+[+1318.281] I (1318453) AudioService: [WakeWordFeed] fed 129500 chunks to wake word detector
+[+1322.316] I (1322483) AfeWakeWord: [WakeNet-Fetch] count=40567 wakeup_state=0 wakenet_model_index=1
+[+1323.281] I (1323453) AudioService: [WakeWordFeed] fed 130000 chunks to wake word detector
+[+1327.024] I (1327193) SystemInfo: free sram: 33343 minimal sram: 14407
+[+1327.344] I (1327513) AfeWakeWord: [WakeNet-Fetch] count=40724 wakeup_state=0 wakenet_model_index=1
+[+1328.171] I (1328343) AfeWakeWord: [MicLevel] fed 130489 chunks RMS=25.3 (max=59)
+[+1328.282] I (1328453) AudioService: [WakeWordFeed] fed 130500 chunks to wake word detector
+[+1332.364] I (1332533) AfeWakeWord: [WakeNet-Fetch] count=40881 wakeup_state=0 wakenet_model_index=1
+[+1333.281] I (1333453) AudioService: [WakeWordFeed] fed 131000 chunks to wake word detector
+[+1337.024] I (1337193) SystemInfo: free sram: 34351 minimal sram: 14407
+[+1337.397] I (1337563) AfeWakeWord: [WakeNet-Fetch] count=41038 wakeup_state=0 wakenet_model_index=1
+[+1338.181] I (1338353) AfeWakeWord: [MicLevel] fed 131490 chunks RMS=23.4 (max=55)
+[+1338.281] I (1338453) AudioService: [WakeWordFeed] fed 131500 chunks to wake word detector
+[+1342.415] I (1342583) AfeWakeWord: [WakeNet-Fetch] count=41195 wakeup_state=0 wakenet_model_index=1
+[+1343.281] I (1343453) AudioService: [WakeWordFeed] fed 132000 chunks to wake word detector
+[+1347.024] I (1347193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1347.434] I (1347603) AfeWakeWord: [WakeNet-Fetch] count=41352 wakeup_state=0 wakenet_model_index=1
+[+1348.191] I (1348363) AfeWakeWord: [MicLevel] fed 132491 chunks RMS=23.1 (max=41)
+[+1348.281] I (1348453) AudioService: [WakeWordFeed] fed 132500 chunks to wake word detector
+[+1352.466] I (1352633) AfeWakeWord: [WakeNet-Fetch] count=41509 wakeup_state=0 wakenet_model_index=1
+[+1353.281] I (1353453) AudioService: [WakeWordFeed] fed 133000 chunks to wake word detector
+[+1357.024] I (1357193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+1357.485] I (1357653) AfeWakeWord: [WakeNet-Fetch] count=41666 wakeup_state=0 wakenet_model_index=1
+[+1358.201] I (1358373) AfeWakeWord: [MicLevel] fed 133492 chunks RMS=29.7 (max=67)
+[+1358.281] I (1358453) AudioService: [WakeWordFeed] fed 133500 chunks to wake word detector
+[+1362.514] I (1362683) AfeWakeWord: [WakeNet-Fetch] count=41823 wakeup_state=0 wakenet_model_index=1
+[+1363.281] I (1363453) AudioService: [WakeWordFeed] fed 134000 chunks to wake word detector
+[+1367.024] I (1367193) SystemInfo: free sram: 32795 minimal sram: 14407
+[+1367.536] I (1367703) AfeWakeWord: [WakeNet-Fetch] count=41980 wakeup_state=0 wakenet_model_index=1
+[+1368.211] I (1368383) AfeWakeWord: [MicLevel] fed 134493 chunks RMS=33.6 (max=57)
+[+1368.281] I (1368453) AudioService: [WakeWordFeed] fed 134500 chunks to wake word detector
+[+1372.554] I (1372723) AfeWakeWord: [WakeNet-Fetch] count=42137 wakeup_state=0 wakenet_model_index=1
+[+1373.281] I (1373453) AudioService: [WakeWordFeed] fed 135000 chunks to wake word detector
+[+1377.024] I (1377193) SystemInfo: free sram: 32895 minimal sram: 14407
+[+1377.555] I (1377723) AfeWakeWord: [WakeNet-Fetch] count=42293 wakeup_state=0 wakenet_model_index=1
+[+1378.221] I (1378393) AfeWakeWord: [MicLevel] fed 135494 chunks RMS=35.3 (max=86)
+[+1378.281] I (1378453) AudioService: [WakeWordFeed] fed 135500 chunks to wake word detector
+[+1382.574] I (1382743) AfeWakeWord: [WakeNet-Fetch] count=42450 wakeup_state=0 wakenet_model_index=1
+[+1383.281] I (1383453) AudioService: [WakeWordFeed] fed 136000 chunks to wake word detector
+[+1387.024] I (1387193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+1387.596] I (1387763) AfeWakeWord: [WakeNet-Fetch] count=42607 wakeup_state=0 wakenet_model_index=1
+[+1388.231] I (1388403) AfeWakeWord: [MicLevel] fed 136495 chunks RMS=32.3 (max=87)
+[+1388.281] I (1388453) AudioService: [WakeWordFeed] fed 136500 chunks to wake word detector
+[+1392.625] I (1392793) AfeWakeWord: [WakeNet-Fetch] count=42764 wakeup_state=0 wakenet_model_index=1
+[+1393.281] I (1393453) AudioService: [WakeWordFeed] fed 137000 chunks to wake word detector
+[+1397.024] I (1397193) SystemInfo: free sram: 32723 minimal sram: 14407
+[+1397.644] I (1397813) AfeWakeWord: [WakeNet-Fetch] count=42921 wakeup_state=0 wakenet_model_index=1
+[+1398.241] I (1398413) AfeWakeWord: [MicLevel] fed 137496 chunks RMS=27.7 (max=51)
+[+1398.282] I (1398453) AudioService: [WakeWordFeed] fed 137500 chunks to wake word detector
+[+1402.676] I (1402843) AfeWakeWord: [WakeNet-Fetch] count=43078 wakeup_state=0 wakenet_model_index=1
+[+1403.282] I (1403453) AudioService: [WakeWordFeed] fed 138000 chunks to wake word detector
+[+1407.024] I (1407193) SystemInfo: free sram: 32627 minimal sram: 14407
+[+1407.695] I (1407863) AfeWakeWord: [WakeNet-Fetch] count=43235 wakeup_state=0 wakenet_model_index=1
+[+1408.251] I (1408423) AfeWakeWord: [MicLevel] fed 138497 chunks RMS=19.3 (max=45)
+[+1408.282] I (1408453) AudioService: [WakeWordFeed] fed 138500 chunks to wake word detector
+[+1412.714] I (1412883) AfeWakeWord: [WakeNet-Fetch] count=43392 wakeup_state=0 wakenet_model_index=1
+[+1413.281] I (1413453) AudioService: [WakeWordFeed] fed 139000 chunks to wake word detector
+[+1417.024] I (1417193) SystemInfo: free sram: 32627 minimal sram: 14407
+[+1417.746] I (1417913) AfeWakeWord: [WakeNet-Fetch] count=43549 wakeup_state=0 wakenet_model_index=1
+[+1418.262] I (1418433) AfeWakeWord: [MicLevel] fed 139498 chunks RMS=26.0 (max=50)
+[+1418.281] I (1418453) AudioService: [WakeWordFeed] fed 139500 chunks to wake word detector
+[+1422.765] I (1422933) AfeWakeWord: [WakeNet-Fetch] count=43706 wakeup_state=0 wakenet_model_index=1
+[+1423.281] I (1423453) AudioService: [WakeWordFeed] fed 140000 chunks to wake word detector
+[+1427.024] I (1427193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+1427.794] I (1427963) AfeWakeWord: [WakeNet-Fetch] count=43863 wakeup_state=0 wakenet_model_index=1
+[+1428.271] I (1428443) AfeWakeWord: [MicLevel] fed 140499 chunks RMS=32.4 (max=49)
+[+1428.281] I (1428453) AudioService: [WakeWordFeed] fed 140500 chunks to wake word detector
+[+1432.816] I (1432983) AfeWakeWord: [WakeNet-Fetch] count=44020 wakeup_state=0 wakenet_model_index=1
+[+1433.281] I (1433453) AudioService: [WakeWordFeed] fed 141000 chunks to wake word detector
+[+1437.024] I (1437193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1437.835] I (1438003) AfeWakeWord: [WakeNet-Fetch] count=44177 wakeup_state=0 wakenet_model_index=1
+[+1438.281] I (1438453) AfeWakeWord: [MicLevel] fed 141500 chunks RMS=26.4 (max=68)
+[+1438.282] I (1438453) AudioService: [WakeWordFeed] fed 141500 chunks to wake word detector
+[+1442.864] I (1443033) AfeWakeWord: [WakeNet-Fetch] count=44334 wakeup_state=0 wakenet_model_index=1
+[+1443.281] I (1443453) AudioService: [WakeWordFeed] fed 142000 chunks to wake word detector
+[+1447.024] I (1447193) SystemInfo: free sram: 32795 minimal sram: 14407
+[+1447.886] I (1448053) AfeWakeWord: [WakeNet-Fetch] count=44491 wakeup_state=0 wakenet_model_index=1
+[+1448.281] I (1448453) AudioService: [WakeWordFeed] fed 142500 chunks to wake word detector
+[+1448.291] I (1448463) AfeWakeWord: [MicLevel] fed 142501 chunks RMS=39.3 (max=107)
+[+1452.915] I (1453083) AfeWakeWord: [WakeNet-Fetch] count=44648 wakeup_state=0 wakenet_model_index=1
+[+1453.281] I (1453453) AudioService: [WakeWordFeed] fed 143000 chunks to wake word detector
+[+1457.024] I (1457193) SystemInfo: free sram: 32147 minimal sram: 14407
+[+1457.934] I (1458103) AfeWakeWord: [WakeNet-Fetch] count=44805 wakeup_state=0 wakenet_model_index=1
+[+1458.281] I (1458453) AudioService: [WakeWordFeed] fed 143500 chunks to wake word detector
+[+1458.301] I (1458473) AfeWakeWord: [MicLevel] fed 143502 chunks RMS=29.1 (max=62)
+[+1462.956] I (1463123) AfeWakeWord: [WakeNet-Fetch] count=44962 wakeup_state=0 wakenet_model_index=1
+[+1463.281] I (1463453) AudioService: [WakeWordFeed] fed 144000 chunks to wake word detector
+[+1467.024] I (1467193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1467.957] I (1468123) AfeWakeWord: [WakeNet-Fetch] count=45118 wakeup_state=0 wakenet_model_index=1
+[+1468.281] I (1468453) AudioService: [WakeWordFeed] fed 144500 chunks to wake word detector
+[+1468.312] I (1468483) AfeWakeWord: [MicLevel] fed 144503 chunks RMS=29.7 (max=93)
+[+1472.976] I (1473143) AfeWakeWord: [WakeNet-Fetch] count=45275 wakeup_state=0 wakenet_model_index=1
+[+1473.281] I (1473453) AudioService: [WakeWordFeed] fed 145000 chunks to wake word detector
+[+1477.024] I (1477193) SystemInfo: free sram: 32467 minimal sram: 14407
+[+1477.994] I (1478163) AfeWakeWord: [WakeNet-Fetch] count=45432 wakeup_state=0 wakenet_model_index=1
+[+1478.282] I (1478453) AudioService: [WakeWordFeed] fed 145500 chunks to wake word detector
+[+1478.321] I (1478493) AfeWakeWord: [MicLevel] fed 145504 chunks RMS=21.1 (max=47)
+[+1482.995] I (1483163) AfeWakeWord: [WakeNet-Fetch] count=45588 wakeup_state=0 wakenet_model_index=1
+[+1483.281] I (1483453) AudioService: [WakeWordFeed] fed 146000 chunks to wake word detector
+[+1487.024] I (1487193) SystemInfo: free sram: 33731 minimal sram: 14407
+[+1488.017] I (1488183) AfeWakeWord: [WakeNet-Fetch] count=45745 wakeup_state=0 wakenet_model_index=1
+[+1488.282] I (1488453) AudioService: [WakeWordFeed] fed 146500 chunks to wake word detector
+[+1488.332] I (1488503) AfeWakeWord: [MicLevel] fed 146505 chunks RMS=28.5 (max=53)
+[+1493.034] I (1493203) AfeWakeWord: [WakeNet-Fetch] count=45902 wakeup_state=0 wakenet_model_index=1
+[+1493.281] I (1493453) AudioService: [WakeWordFeed] fed 147000 chunks to wake word detector
+[+1497.024] I (1497193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+1498.035] I (1498203) AfeWakeWord: [WakeNet-Fetch] count=46058 wakeup_state=0 wakenet_model_index=1
+[+1498.282] I (1498453) AudioService: [WakeWordFeed] fed 147500 chunks to wake word detector
+[+1498.341] I (1498513) AfeWakeWord: [MicLevel] fed 147506 chunks RMS=27.7 (max=61)
+[+1503.054] I (1503223) AfeWakeWord: [WakeNet-Fetch] count=46215 wakeup_state=0 wakenet_model_index=1
+[+1503.281] I (1503453) AudioService: [WakeWordFeed] fed 148000 chunks to wake word detector
+[+1507.024] I (1507193) SystemInfo: free sram: 33839 minimal sram: 14407
+[+1508.076] I (1508243) AfeWakeWord: [WakeNet-Fetch] count=46372 wakeup_state=0 wakenet_model_index=1
+[+1508.281] I (1508453) AudioService: [WakeWordFeed] fed 148500 chunks to wake word detector
+[+1508.351] I (1508523) AfeWakeWord: [MicLevel] fed 148507 chunks RMS=32.1 (max=93)
+[+1513.104] I (1513273) AfeWakeWord: [WakeNet-Fetch] count=46529 wakeup_state=0 wakenet_model_index=1
+[+1513.281] I (1513453) AudioService: [WakeWordFeed] fed 149000 chunks to wake word detector
+[+1517.024] I (1517193) SystemInfo: free sram: 33323 minimal sram: 14407
+[+1518.124] I (1518293) AfeWakeWord: [WakeNet-Fetch] count=46686 wakeup_state=0 wakenet_model_index=1
+[+1518.281] I (1518453) AudioService: [WakeWordFeed] fed 149500 chunks to wake word detector
+[+1518.361] I (1518533) AfeWakeWord: [MicLevel] fed 149508 chunks RMS=25.1 (max=60)
+[+1523.156] I (1523323) AfeWakeWord: [WakeNet-Fetch] count=46843 wakeup_state=0 wakenet_model_index=1
+[+1523.281] I (1523453) AudioService: [WakeWordFeed] fed 150000 chunks to wake word detector
+[+1527.024] I (1527193) SystemInfo: free sram: 33483 minimal sram: 14407
+[+1528.175] I (1528343) AfeWakeWord: [WakeNet-Fetch] count=47000 wakeup_state=0 wakenet_model_index=1
+[+1528.281] I (1528453) AudioService: [WakeWordFeed] fed 150500 chunks to wake word detector
+[+1528.371] I (1528543) AfeWakeWord: [MicLevel] fed 150509 chunks RMS=26.5 (max=79)
+[+1533.194] I (1533363) AfeWakeWord: [WakeNet-Fetch] count=47157 wakeup_state=0 wakenet_model_index=1
+[+1533.281] I (1533453) AudioService: [WakeWordFeed] fed 151000 chunks to wake word detector
+[+1537.024] I (1537193) SystemInfo: free sram: 33123 minimal sram: 14407
+[+1538.195] I (1538363) AfeWakeWord: [WakeNet-Fetch] count=47313 wakeup_state=0 wakenet_model_index=1
+[+1538.281] I (1538453) AudioService: [WakeWordFeed] fed 151500 chunks to wake word detector
+[+1538.382] I (1538553) AfeWakeWord: [MicLevel] fed 151510 chunks RMS=30.3 (max=71)
+[+1543.217] I (1543383) AfeWakeWord: [WakeNet-Fetch] count=47470 wakeup_state=0 wakenet_model_index=1
+[+1543.281] I (1543453) AudioService: [WakeWordFeed] fed 152000 chunks to wake word detector
+[+1547.024] I (1547193) SystemInfo: free sram: 34351 minimal sram: 14407
+[+1548.234] I (1548403) AfeWakeWord: [WakeNet-Fetch] count=47627 wakeup_state=0 wakenet_model_index=1
+[+1548.281] I (1548453) AudioService: [WakeWordFeed] fed 152500 chunks to wake word detector
+[+1548.391] I (1548563) AfeWakeWord: [MicLevel] fed 152511 chunks RMS=31.8 (max=87)
+[+1553.235] I (1553403) AfeWakeWord: [WakeNet-Fetch] count=47783 wakeup_state=0 wakenet_model_index=1
+[+1553.281] I (1553453) AudioService: [WakeWordFeed] fed 153000 chunks to wake word detector
+[+1557.024] I (1557193) SystemInfo: free sram: 34343 minimal sram: 14407
+[+1558.254] I (1558423) AfeWakeWord: [WakeNet-Fetch] count=47940 wakeup_state=0 wakenet_model_index=1
+[+1558.282] I (1558453) AudioService: [WakeWordFeed] fed 153500 chunks to wake word detector
+[+1558.401] I (1558573) AfeWakeWord: [MicLevel] fed 153512 chunks RMS=35.0 (max=65)
+[+1563.276] I (1563443) AfeWakeWord: [WakeNet-Fetch] count=48097 wakeup_state=0 wakenet_model_index=1
+[+1563.281] I (1563453) AudioService: [WakeWordFeed] fed 154000 chunks to wake word detector
+[+1567.024] I (1567193) SystemInfo: free sram: 33887 minimal sram: 14407
+[+1568.281] I (1568453) AudioService: [WakeWordFeed] fed 154500 chunks to wake word detector
+[+1568.305] I (1568473) AfeWakeWord: [WakeNet-Fetch] count=48254 wakeup_state=0 wakenet_model_index=1
+[+1568.411] I (1568583) AfeWakeWord: [MicLevel] fed 154513 chunks RMS=86.1 (max=229)
+[+1573.281] I (1573453) AudioService: [WakeWordFeed] fed 155000 chunks to wake word detector
+[+1573.324] I (1573493) AfeWakeWord: [WakeNet-Fetch] count=48411 wakeup_state=0 wakenet_model_index=1
+[+1577.024] I (1577193) SystemInfo: free sram: 33303 minimal sram: 14407
+[+1578.282] I (1578453) AudioService: [WakeWordFeed] fed 155500 chunks to wake word detector
+[+1578.356] I (1578523) AfeWakeWord: [WakeNet-Fetch] count=48568 wakeup_state=0 wakenet_model_index=1
+[+1578.421] I (1578593) AfeWakeWord: [MicLevel] fed 155514 chunks RMS=21.1 (max=49)
+[+1583.282] I (1583453) AudioService: [WakeWordFeed] fed 156000 chunks to wake word detector
+[+1583.375] I (1583543) AfeWakeWord: [WakeNet-Fetch] count=48725 wakeup_state=0 wakenet_model_index=1
+[+1587.024] I (1587193) SystemInfo: free sram: 32895 minimal sram: 14407
+[+1588.282] I (1588453) AudioService: [WakeWordFeed] fed 156500 chunks to wake word detector
+[+1588.394] I (1588563) AfeWakeWord: [WakeNet-Fetch] count=48882 wakeup_state=0 wakenet_model_index=1
+[+1588.431] I (1588603) AfeWakeWord: [MicLevel] fed 156515 chunks RMS=32.8 (max=88)
+[+1593.281] I (1593453) AudioService: [WakeWordFeed] fed 157000 chunks to wake word detector
+[+1593.426] I (1593593) AfeWakeWord: [WakeNet-Fetch] count=49039 wakeup_state=0 wakenet_model_index=1
+[+1597.024] I (1597193) SystemInfo: free sram: 33831 minimal sram: 14407
+[+1598.281] I (1598453) AudioService: [WakeWordFeed] fed 157500 chunks to wake word detector
+[+1598.441] I (1598613) AfeWakeWord: [MicLevel] fed 157516 chunks RMS=33.1 (max=78)
+[+1598.446] I (1598613) AfeWakeWord: [WakeNet-Fetch] count=49196 wakeup_state=0 wakenet_model_index=1
+[+1603.281] I (1603453) AudioService: [WakeWordFeed] fed 158000 chunks to wake word detector
+[+1603.474] I (1603643) AfeWakeWord: [WakeNet-Fetch] count=49353 wakeup_state=0 wakenet_model_index=1
+[+1607.024] I (1607193) SystemInfo: free sram: 33483 minimal sram: 14407
+[+1608.281] I (1608453) AudioService: [WakeWordFeed] fed 158500 chunks to wake word detector
+[+1608.451] I (1608623) AfeWakeWord: [MicLevel] fed 158517 chunks RMS=36.6 (max=70)
+[+1608.496] I (1608663) AfeWakeWord: [WakeNet-Fetch] count=49510 wakeup_state=0 wakenet_model_index=1
+[+1613.281] I (1613453) AudioService: [WakeWordFeed] fed 159000 chunks to wake word detector
+[+1613.515] I (1613683) AfeWakeWord: [WakeNet-Fetch] count=49667 wakeup_state=0 wakenet_model_index=1
+[+1617.024] I (1617193) SystemInfo: free sram: 32935 minimal sram: 14407
+[+1618.282] I (1618453) AudioService: [WakeWordFeed] fed 159500 chunks to wake word detector
+[+1618.461] I (1618633) AfeWakeWord: [MicLevel] fed 159518 chunks RMS=22.0 (max=49)
+[+1618.544] I (1618713) AfeWakeWord: [WakeNet-Fetch] count=49824 wakeup_state=0 wakenet_model_index=1

@@ -1398,16 +1398,16 @@ void Application::HandleStateChangedEvent() {
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
             if (attitude != nullptr) {
-                attitude->ShowJarvisWatchface();
-                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
+                // attitude->ShowJarvisWatchface();  // 暂时注释
+                // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);  // 暂时注释
             }
             break;
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
             if (attitude != nullptr) {
-                attitude->ShowJarvisWatchface();
-                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Listening);
+                // attitude->ShowJarvisWatchface();  // 暂时注释
+                // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Listening);  // 暂时注释
             }
 
             // Make sure the audio processor is running
@@ -1440,8 +1440,8 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
             if (attitude != nullptr) {
-                attitude->ShowJarvisWatchface();
-                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Speaking);
+                // attitude->ShowJarvisWatchface();  // 暂时注释
+                // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Speaking);  // 暂时注释
             }
 
             if (!audio_service_.IsRunning()) {
@@ -1458,7 +1458,7 @@ void Application::HandleStateChangedEvent() {
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(false);
             if (attitude != nullptr) {
-                attitude->HideJarvisWatchface();
+                // attitude->HideJarvisWatchface();  // 暂时注释
             }
             break;
         default:

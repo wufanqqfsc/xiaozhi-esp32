@@ -146,15 +146,23 @@ bool WebsocketProtocol::OpenAudioChannel() {
                 }
             }
         } else {
-            // Parse JSON data
+            ESP_LOGI(TAG, "Received JSON message, len=%d, data: %s", len, std::string(data, len).c_str());
             auto root = cJSON_ParseWithLength(data, len);
+            if (!root) {
+                ESP_LOGE(TAG, "Failed to parse JSON, len=%d", len);
+                return;
+            }
             auto type = cJSON_GetObjectItem(root, "type");
             if (cJSON_IsString(type)) {
+                ESP_LOGI(TAG, "JSON message type: %s", type->valuestring);
                 if (strcmp(type->valuestring, "hello") == 0) {
                     ParseServerHello(root);
                 } else {
                     if (on_incoming_json_ != nullptr) {
+                        ESP_LOGI(TAG, "Calling on_incoming_json_ for type: %s", type->valuestring);
                         on_incoming_json_(root);
+                    } else {
+                        ESP_LOGE(TAG, "on_incoming_json_ is null for type: %s", type->valuestring);
                     }
                 }
             } else {
