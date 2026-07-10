@@ -5,7 +5,9 @@
         {
             "name": "esp32-s3-touch-lcd-1.85b",
             "sdkconfig_append": [
-                "CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE=n"
+                "CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE=n",
+                "CONFIG_SR_WN_WN9_JARVIS_TTS=y",
+                "CONFIG_SR_WN_WN9_NIHAOXIAOZHI_TTS=n"
             ]
         }
     ]

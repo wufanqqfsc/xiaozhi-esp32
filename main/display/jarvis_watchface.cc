@@ -302,7 +302,7 @@ void JarvisWatchface::DestroyUI() {
 }
 
 void JarvisWatchface::Show() {
-    if (!lvgl_port_lock(100)) {
+    if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "Show: LVGL lock timeout");
         return;
     }
@@ -312,6 +312,10 @@ void JarvisWatchface::Show() {
     }
 
     if (screen_ != nullptr) {
+        // Hide() keeps the watchface screen object and marks it hidden.
+        // Clear the hidden flag before reloading, otherwise wake-up can look
+        // like it "failed" because the loaded screen remains invisible.
+        lv_obj_clear_flag(screen_, LV_OBJ_FLAG_HIDDEN);
         lv_screen_load(screen_);
         visible_ = true;
         state_ = State::Starting;
@@ -324,7 +328,7 @@ void JarvisWatchface::Show() {
 }
 
 void JarvisWatchface::Hide() {
-    if (!lvgl_port_lock(100)) {
+    if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "Hide: LVGL lock timeout");
         return;
     }
