@@ -1,0 +1,12 @@
+I (101) cpu_start: GPIO 44 and 43 are used as console UART I/O p[+112.024] I (112193) SystemInfo: free sram: 28363 minimal sram: 2159
+[+122.024] I (122193) SystemInfo: free sram: 23255 minimal sram: 2159
+[+132.025] I (132193) SystemInfo: free sram: 24843 minimal sram: 2159
+[+142.024] I (142193) SystemInfo: free sram: 24527 minimal sram: 2159
+[+152.025] I (152193) SystemInfo: free sram: 24843 minimal sram: 2159
+[+162.025] I (162193) SystemInfo: free sram: 25347 minimal sram: 2159
+[+172.025] I (172193) SystemInfo: free sram: 26343 minimal sram: 2159
+[+182.024] I (182193) SystemInfo: free sram: 24527 minimal sram: 2159
+[+192.025] I (192193) SystemInfo: free sram: 26343 minimal sram: 2159
+[+202.024] I (202193) SystemInfo: free sram: 28391 minimal sram: 2159
+[+212.024] I (212193) SystemInfo: free sram: 28391 minimal sram: 2159
+[+222.025] I (222193) SystemInfo: free sram: 28391 minimal sram: 2159

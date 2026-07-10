@@ -14,12 +14,17 @@ LvglRawImage::LvglRawImage(void* data, size_t size) {
     image_dsc_.data_size = size;
     image_dsc_.data = static_cast<uint8_t*>(data);
     image_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
-    image_dsc_.header.cf = LV_COLOR_FORMAT_RAW_ALPHA;
+    // Raw asset bytes (PNG/JPG/GIF/...) should go through decoder chain.
+    // Use UNKNOWN to prevent LVGL from treating payload as raw pixel data.
+    image_dsc_.header.cf = LV_COLOR_FORMAT_UNKNOWN;
     image_dsc_.header.w = 0;
     image_dsc_.header.h = 0;
 }
 
 bool LvglRawImage::IsGif() const {
+    if (image_dsc_.data == nullptr || image_dsc_.data_size < 3) {
+        return false;
+    }
     auto ptr = (const uint8_t*)image_dsc_.data;
     return ptr[0] == 'G' && ptr[1] == 'I' && ptr[2] == 'F';
 }
@@ -71,6 +76,9 @@ LvglAllocatedImage::~LvglAllocatedImage() {
 }
 
 bool LvglAllocatedImage::IsGif() const {
+    if (image_dsc_.data == nullptr || image_dsc_.data_size < 3) {
+        return false;
+    }
     auto ptr = (const uint8_t*)image_dsc_.data;
     return ptr[0] == 'G' && ptr[1] == 'I' && ptr[2] == 'F';
 }

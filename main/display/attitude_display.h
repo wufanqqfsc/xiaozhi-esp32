@@ -26,7 +26,7 @@
 #define COLOR_STATE_DANGER    lv_color_hex(0xB82601)
 
 #define COLOR_BT_BLUE         lv_color_hex(0x2196F3)
-#define COLOR_WIFI_GREEN      lv_color_hex(0x00C8C8)
+#define COLOR_WIFI_GREEN      lv_color_hex(0x00FFFF) // 提高亮度，原为 0x00C8C8
 
 #define LAYER4_BOUNDARY_RADIUS (SCREEN_W / 2 - GOLD_RING_ARC_WIDTH / 2)  // 贴屏幕圆边
 #define LAYER4_OUTER_SIZE      (LAYER4_BOUNDARY_RADIUS * 2)

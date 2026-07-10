@@ -18,6 +18,8 @@
 #include <cmath>
 #include <font_awesome.h>
 
+extern "C" void lv_image_cache_drop(const void * src);
+
 #define TAG "AttitudeDisplay"
 
 // 调试信息卡（与后台交互事件）配置
@@ -504,9 +506,11 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t
             preview_image_hide_timer_ = nullptr;
         }
         if (preview_image_ != nullptr) {
+            lv_image_set_src(preview_image_, NULL);
             lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
         }
         if (preview_gif_ != nullptr) {
+            lv_image_set_src(preview_gif_, NULL);
             lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
         }
         if (image_overlay_card_ != nullptr) {
@@ -602,15 +606,23 @@ void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, 
             preview_image_hide_timer_ = nullptr;
         }
         if (preview_image_ != nullptr) {
+            lv_image_set_src(preview_image_, NULL);
             lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
         }
         if (preview_gif_ != nullptr) {
+            lv_image_set_src(preview_gif_, NULL);
             lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (preview_image_cache_ != nullptr) {
+            const void* src = preview_image_cache_->image_dsc();
+            if (src != nullptr) {
+                lv_image_cache_drop(src);
+            }
+            preview_image_cache_.reset();
         }
         if (image_overlay_card_ != nullptr) {
             lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
         }
-        preview_image_cache_.reset();
         if (attitude_container_ != nullptr) {
             lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -620,6 +632,13 @@ void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, 
     if (image_overlay_card_ == nullptr) {
         ESP_LOGE(TAG, "SetPreviewImageUnlocked: image_overlay_card_ not created");
         return;
+    }
+
+    if (preview_image_cache_ != nullptr) {
+        const void* src = preview_image_cache_->image_dsc();
+        if (src != nullptr) {
+            lv_image_cache_drop(src);
+        }
     }
 
     preview_image_cache_ = std::move(image);
@@ -1066,7 +1085,6 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
     if (fortune_divination_state_ == FortuneDivinationState::Animating) {
         return;
     }
-    bool was_taiji_holding = taiji_hold_pending_;
     CancelTaijiHoldTimerUnlocked();
     if (fortune_divination_timer_ != nullptr) {
         lv_timer_delete(fortune_divination_timer_);
@@ -1082,7 +1100,7 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
 
     fortune_divination_start_ms_ = lv_tick_get();
     fortune_divination_finish_deadline_ms_ = fortune_divination_start_ms_ + FORTUNE_DIVINATION_DURATION_MS;
-    taiji_pressed_during_anim_ = false;
+    taiji_pressed_during_anim_ = fortune_divination_from_taiji_;
 
     HideDivinationHintUnlocked(); // Hide the hold hint during marquee if you want, or show "正在感应..."
     // According to plan, we can just hide it during marquee to not block Taiji
@@ -1145,6 +1163,13 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
         self->fortune_divination_sound_next_play_ms_ = now + FORTUNE_DIVINATION_SOUND_INTERVAL_MS;
     }
     
+    if (self->taiji_pressed_during_anim_) {
+        // 如果一直按着太极圈，确保 deadline 保持在未来，从而延长动画时间
+        uint32_t hold_deadline = now + FORTUNE_DIVINATION_RELEASE_FINISH_MS;
+        uint32_t min_deadline = self->fortune_divination_start_ms_ + FORTUNE_DIVINATION_DURATION_MS;
+        self->fortune_divination_finish_deadline_ms_ = (hold_deadline > min_deadline) ? hold_deadline : min_deadline;
+    }
+
     if (self->fortune_divination_finish_deadline_ms_ != 0 && now >= self->fortune_divination_finish_deadline_ms_) {
         self->FinishFortuneDivinationUnlocked(self->fortune_divination_result_);
         return;
@@ -1208,7 +1233,9 @@ void AttitudeDisplay::OnTaijiDivinationPressed(lv_event_t* e)
     DisplayLockGuard lock(self);
     
     // 按住太极圈即显示遮罩层 + 停止旋转 + 边框变青色
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+    if (self->fortune_divination_state_ != FortuneDivinationState::Animating) {
+        Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+    }
     self->ShowTaijiPressOverlayUnlocked();
 
     // 如果已经在动画中，记录按住延长
@@ -1217,12 +1244,11 @@ void AttitudeDisplay::OnTaijiDivinationPressed(lv_event_t* e)
         return;
     }
 
-    if (self->IsFortuneDivinationBusy()) {
-        if (self->fortune_divination_state_ == FortuneDivinationState::Result) {
-            self->StopFortuneDivinationUnlocked();
-        } else {
-            return;
-        }
+    if (self->fortune_divination_state_ == FortuneDivinationState::Result) {
+        self->StopFortuneDivinationUnlocked();
+        self->ShowTaijiPressOverlayUnlocked(); // 重新显示，因为 Stop 里隐藏了
+    } else if (self->fortune_divination_state_ == FortuneDivinationState::Animating) {
+        return;
     }
 
     self->CancelTaijiHoldTimerUnlocked();
@@ -1244,9 +1270,12 @@ void AttitudeDisplay::OnTaijiDivinationReleased(lv_event_t* e)
     // 松开太极圈即隐藏遮罩层 + 恢复旋转 + 恢复边框颜色
     self->HideTaijiPressOverlayUnlocked();
 
-    // 如果在动画中松手，不再立刻停止或设定死线，而是让跑马灯自动跑到指定时长结束
+    // 如果在动画中松手，则设定额外的缓冲时间后结束跑马灯
     if (self->fortune_divination_state_ == FortuneDivinationState::Animating && self->taiji_pressed_during_anim_) {
         self->taiji_pressed_during_anim_ = false;
+        uint32_t hold_deadline = lv_tick_get() + FORTUNE_DIVINATION_RELEASE_FINISH_MS;
+        uint32_t min_deadline = self->fortune_divination_start_ms_ + FORTUNE_DIVINATION_DURATION_MS;
+        self->fortune_divination_finish_deadline_ms_ = (hold_deadline > min_deadline) ? hold_deadline : min_deadline;
         return;
     }
 
