@@ -906,9 +906,9 @@ void Application::InitializeProtocol() {
                             SetDeviceState(kDeviceStateIdle);
                             listening_started_ticks_ = 0;
                         } else {
+                            // listening_started_ticks_ 会在 HandleStateChangedEvent 的
+                            // kDeviceStateListening case 中基于已重置的 clock_ticks_=0 重新设置
                             SetDeviceState(kDeviceStateListening);
-                            // 进入 listening，启动超时监控（30s 内若无新 TTS 则回 idle）
-                            listening_started_ticks_ = clock_ticks_;
                         }
                     }
                     // TTS 完整播放结束：隐藏"识别到"/"AI 回复"调试卡
@@ -1409,6 +1409,10 @@ void Application::HandleStateChangedEvent() {
                 // attitude->ShowJarvisWatchface();  // 暂时注释
                 // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Listening);  // 暂时注释
             }
+
+            // 重置 listening 超时计时：本次 state 变化是 listening 入口（含 TTS stop 后从 speaking 转入）
+            // clock_ticks_ 已被 HandleStateChangedEvent 入口处重置为 0，所以这里取 0 作为新的起点
+            listening_started_ticks_ = clock_ticks_;
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
