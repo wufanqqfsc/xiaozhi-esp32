@@ -21,3 +21,8 @@ main/mmap_generate_emoji.h
 mmap_generate_*.h
 .clangd
 screenshots/
+
+# 设备运行日志（运行时产物，不提交）
+log/*.log
+log/*.txt
+log/.gitkeep
