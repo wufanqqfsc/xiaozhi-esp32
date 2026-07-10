@@ -426,7 +426,8 @@ void AttitudeDisplay::ShowNotification(const char* notification, int duration_ms
     if (hold_ms < 500) hold_ms = 500;
     if (hold_ms > DEBUG_INFO_HOLD_MAX_MS) hold_ms = DEBUG_INFO_HOLD_MAX_MS;
     
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
+    // 通知消息音效已暂时禁用：避免出错情况下频繁音效通知
+    // Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
 
     // 加 LVGL 互斥锁：SdCardReportTask 等非 LVGL 任务也会调用 ShowNotification
     // 没有锁的话会在 lv_refr_now 阶段触发 LoadProhibited
@@ -1020,15 +1021,9 @@ void AttitudeDisplay::UpdateFortuneDivinationMarqueeVisual(int active_index)
             }
             lv_obj_set_style_text_color(label, COLOR_TEXT_MAIN, 0);
         } else {
-            // Animating state: highlight random non-consecutive icons
-            bool highlighted = false;
-            for (int k = 0; k < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++k) {
-                if (fortune_divination_highlights_[k] == i) {
-                    highlighted = true;
-                    break;
-                }
-            }
-            if (highlighted) {
+            // Animating state: highlight a trail of icons
+            int distance = (active_index - i + FORTUNE_MENU_COUNT) % FORTUNE_MENU_COUNT;
+            if (distance < FORTUNE_DIVINATION_HIGHLIGHT_COUNT) {
                 if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE_SELECTED) {
                     lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE_SELECTED, 0);
                     fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
@@ -1047,59 +1042,6 @@ void AttitudeDisplay::UpdateFortuneDivinationMarqueeVisual(int active_index)
         const int w = lv_obj_get_width(label);
         const int h = lv_obj_get_height(label);
         lv_obj_set_pos(label, cx - w / 2, cy - h / 2);
-    }
-}
-
-void AttitudeDisplay::RandomizeFortuneDivinationHighlights(int anchor_index)
-{
-    if (anchor_index < 0 || anchor_index >= FORTUNE_MENU_COUNT) {
-        anchor_index = 0;
-    }
-
-    for (int i = 0; i < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++i) {
-        fortune_divination_highlights_[i] = -1;
-    }
-    fortune_divination_highlights_[0] = anchor_index;
-
-    int filled = 1;
-    int attempts = 0;
-    while (filled < FORTUNE_DIVINATION_HIGHLIGHT_COUNT && attempts < 80) {
-        attempts++;
-        const int candidate = static_cast<int>(esp_random() % FORTUNE_MENU_COUNT);
-        bool ok = true;
-        for (int i = 0; i < filled; ++i) {
-            const int chosen = fortune_divination_highlights_[i];
-            if (chosen < 0) {
-                continue;
-            }
-            if (candidate == chosen) {
-                ok = false;
-                break;
-            }
-            const int diff = (candidate - chosen + FORTUNE_MENU_COUNT) % FORTUNE_MENU_COUNT;
-            if (diff == 1 || diff == FORTUNE_MENU_COUNT - 1) {
-                ok = false;
-                break;
-            }
-        }
-        if (ok) {
-            fortune_divination_highlights_[filled++] = candidate;
-        }
-    }
-
-    // Fallback: keep uniqueness even if adjacency constraints are hard to satisfy.
-    for (int i = 0; i < FORTUNE_MENU_COUNT && filled < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++i) {
-        const int candidate = (anchor_index + i + 2) % FORTUNE_MENU_COUNT;
-        bool exists = false;
-        for (int k = 0; k < filled; ++k) {
-            if (fortune_divination_highlights_[k] == candidate) {
-                exists = true;
-                break;
-            }
-        }
-        if (!exists) {
-            fortune_divination_highlights_[filled++] = candidate;
-        }
     }
 }
 
@@ -1124,15 +1066,10 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     fortune_divination_finish_deadline_ms_ = 0;
     fortune_divination_last_tick_index_ = -1;
     fortune_divination_highlight_ = -1;
-    for (int i = 0; i < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++i) {
-        fortune_divination_highlights_[i] = -1;
-    }
     fortune_divination_result_ = -1;
     fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
     taiji_pressed_during_anim_ = false;
     fortune_divination_sound_playing_ = false;
-    fortune_divination_pending_result_view_ = false;
-    fortune_divination_pending_result_index_ = -1;
     Application::GetInstance().StopUiSound();
     Application::GetInstance().AbortSpeaking(kAbortReasonWakeWordDetected);
     for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
@@ -1160,9 +1097,6 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
     fortune_divination_result_ = static_cast<int>(esp_random() % FORTUNE_MENU_COUNT);
     fortune_divination_highlight_ = 0;
     fortune_divination_last_tick_index_ = -1;
-    for (int i = 0; i < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++i) {
-        fortune_divination_highlights_[i] = -1;
-    }
     fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
 
     fortune_divination_start_ms_ = lv_tick_get();
@@ -1172,7 +1106,6 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
     HideDivinationHintUnlocked(); // Hide the hold hint during marquee if you want, or show "正在感应..."
     // According to plan, we can just hide it during marquee to not block Taiji
     
-    RandomizeFortuneDivinationHighlights(0);
     UpdateFortuneDivinationMarqueeVisual(0);
     PlayFortuneDivinationMarqueeSound();
     fortune_divination_sound_next_play_ms_ = lv_tick_get() + FORTUNE_DIVINATION_SOUND_INTERVAL_MS;
@@ -1205,40 +1138,11 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
     Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_SUCCESS);
 
     UpdateFortuneDivinationMarqueeVisual(result_index);
-    fortune_divination_pending_result_view_ = true;
-    fortune_divination_pending_result_index_ = result_index;
+    ShowFortuneFeatureCategoryUnlocked(result_index);
     fortune_divination_last_tick_index_ = result_index;
 
-    ESP_LOGI(TAG, "Fortune divination finished -> %d (%s), waiting success sound end",
+    ESP_LOGI(TAG, "Fortune divination finished -> %d (%s)",
              result_index, kFortuneMenuDefs[result_index].func_label);
-}
-
-void AttitudeDisplay::CommitFortuneDivinationResultViewUnlocked()
-{
-    if (!fortune_divination_pending_result_view_) {
-        return;
-    }
-    const int result_index = fortune_divination_pending_result_index_;
-    if (fortune_divination_state_ != FortuneDivinationState::Result ||
-        result_index < 0 || result_index >= FORTUNE_MENU_COUNT) {
-        fortune_divination_pending_result_view_ = false;
-        fortune_divination_pending_result_index_ = -1;
-        return;
-    }
-
-    ShowFortuneFeatureCategoryUnlocked(result_index);
-    fortune_divination_pending_result_view_ = false;
-    fortune_divination_pending_result_index_ = -1;
-    ESP_LOGI(TAG, "Fortune result view committed after sound: %d (%s)",
-             result_index, kFortuneMenuDefs[result_index].func_label);
-}
-
-void AttitudeDisplay::OnUiPlaybackFinished()
-{
-    DisplayLockGuard lock(this);
-    if (fortune_divination_pending_result_view_) {
-        CommitFortuneDivinationResultViewUnlocked();
-    }
 }
 
 void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
@@ -1287,7 +1191,6 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
         uint8_t v = 90 + (esp_random() % 11); // 90-100
         self->fortune_divination_current_color_ = lv_color_hsv_to_rgb(h, s, v);
         self->fortune_divination_last_tick_index_ = highlight;
-        self->RandomizeFortuneDivinationHighlights(highlight);
     }
 
     self->UpdateFortuneDivinationMarqueeVisual(highlight);

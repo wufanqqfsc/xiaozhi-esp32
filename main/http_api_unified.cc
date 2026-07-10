@@ -253,9 +253,9 @@ extern "C" size_t http_api_device_logs(char* out_buf, size_t size) {
 
 extern "C" cJSON* http_api_device_ota_url(void) {
     Settings nvs_settings("wifi", false);
-    Settings ws_settings("app", false);
+    Settings ws_settings("websocket", false);
     std::string nvs_ota_url = nvs_settings.GetString("ota_url", "");
-    std::string nvs_ws_url = ws_settings.GetString("websocket_url", "");
+    std::string nvs_ws_url = ws_settings.GetString("url", "");
 
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "nvs_ota_url", nvs_ota_url.c_str());
@@ -277,15 +277,29 @@ extern "C" bool http_api_device_clear_nvs(const char* key, char* err_buf, size_t
             copy_err(err_buf, err_size, "Only 'ota_url' or 'websocket_url' allowed");
             return false;
         }
-        Settings settings("wifi", true);
-        if (strcmp(key, "ota_url") == 0) settings.EraseKey("ota_url");
-        else settings.EraseKey("websocket_url");
+        Settings wifi_settings("wifi", true);
+        if (strcmp(key, "ota_url") == 0) {
+            wifi_settings.EraseKey("ota_url");
+        } else {
+            wifi_settings.EraseKey("websocket_url");
+        }
+        // websocket_url 清除时同时清除 websocket namespace 中的 url
+        if (strcmp(key, "websocket_url") == 0) {
+            Settings ws_settings("websocket", true);
+            ws_settings.EraseKey("url");
+            ws_settings.EraseKey("token");
+            ws_settings.EraseKey("version");
+        }
         ESP_LOGW(TAG, "NVS key '%s' erased via API", key);
     } else {
-        Settings settings("wifi", true);
-        settings.EraseKey("ota_url");
-        settings.EraseKey("websocket_url");
-        ESP_LOGW(TAG, "All NVS URL keys erased via API");
+        Settings wifi_settings("wifi", true);
+        wifi_settings.EraseKey("ota_url");
+        wifi_settings.EraseKey("websocket_url");
+        Settings ws_settings("websocket", true);
+        ws_settings.EraseKey("url");
+        ws_settings.EraseKey("token");
+        ws_settings.EraseKey("version");
+        ESP_LOGW(TAG, "All NVS URL keys erased via API (wifi + websocket namespaces)");
     }
     return true;
 }

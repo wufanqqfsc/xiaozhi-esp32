@@ -1801,9 +1801,9 @@ static esp_err_t handle_device_logs(httpd_req_t* req) {
 // HTTP GET /api/device/ota-url - 查询当前 OTA URL 配置（用于诊断 NVS 覆盖）
 static esp_err_t handle_device_ota_url(httpd_req_t* req) {
     Settings nvs_settings("wifi", false);
-    Settings ws_settings("app", false);
+    Settings ws_settings("websocket", false);
     std::string nvs_ota_url = nvs_settings.GetString("ota_url", "");
-    std::string nvs_ws_url = ws_settings.GetString("websocket_url", "");
+    std::string nvs_ws_url = ws_settings.GetString("url", "");
 
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "nvs_ota_url", nvs_ota_url.c_str());
@@ -1876,11 +1876,16 @@ static esp_err_t handle_device_clear_nvs(httpd_req_t* req) {
         ESP_LOGW(TAG, "NVS key '%s' erased via HTTP API (next reboot will use CONFIG_xxx_URL)", requested_key.c_str());
     } else {
         // 清除所有 URL keys
-        Settings settings("wifi", true);
-        settings.EraseKey("ota_url");
-        settings.EraseKey("websocket_url");
-        cJSON_AddStringToObject(root, "cleared", "ota_url,websocket_url");
-        ESP_LOGW(TAG, "All NVS URL keys erased via HTTP API (next reboot will use CONFIG_xxx_URL)");
+        // 注意：ota_url 存在 Settings("wifi") namespace，websocket 的 url/token/version 存在 Settings("websocket") namespace
+        Settings wifi_settings("wifi", true);
+        wifi_settings.EraseKey("ota_url");
+        wifi_settings.EraseKey("websocket_url");
+        Settings ws_settings("websocket", true);
+        ws_settings.EraseKey("url");
+        ws_settings.EraseKey("token");
+        ws_settings.EraseKey("version");
+        cJSON_AddStringToObject(root, "cleared", "ota_url,websocket_url,ws:url,ws:token,ws:version");
+        ESP_LOGW(TAG, "All NVS URL keys erased via HTTP API (wifi + websocket namespaces)");
     }
 
     char* json_str = cJSON_PrintUnformatted(root);

@@ -2,7 +2,6 @@
 
 #include <cstring>
 #include <esp_bt.h>
-#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_nimble_hci.h>
 #include <freertos/FreeRTOS.h>
@@ -187,24 +186,14 @@ static void HostTask(void* param)
 
 static void StartTask(void* param)
 {
-    auto* server = static_cast<BleServer*>(param);
-    if (server == nullptr) {
-        vTaskDelete(nullptr);
-        return;
-    }
-
+    (void)param;
     ESP_LOGI(TAG, "BLE start task running...");
-    ESP_LOGI(TAG, "Heap before BLE init: free_heap=%u, free_internal=%u, largest_internal=%u",
-             static_cast<unsigned>(esp_get_free_heap_size()),
-             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
 
     ESP_LOGI(TAG, "[1/7] Initializing BT controller...");
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_err_t err = esp_bt_controller_init(&bt_cfg);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "  FAILED: esp_bt_controller_init: %s", esp_err_to_name(err));
-        server->OnInitFailed();
         vTaskDelete(nullptr);
         return;
     }
@@ -214,7 +203,6 @@ static void StartTask(void* param)
     err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "  FAILED: esp_bt_controller_enable: %s", esp_err_to_name(err));
-        server->OnInitFailed();
         vTaskDelete(nullptr);
         return;
     }
@@ -224,7 +212,6 @@ static void StartTask(void* param)
     err = esp_nimble_init();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "  FAILED: esp_nimble_init: %s", esp_err_to_name(err));
-        server->OnInitFailed();
         vTaskDelete(nullptr);
         return;
     }
@@ -240,14 +227,12 @@ static void StartTask(void* param)
     int rc = ble_gatts_count_cfg(gatt_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "  FAILED: ble_gatts_count_cfg: %d", rc);
-        server->OnInitFailed();
         vTaskDelete(nullptr);
         return;
     }
     rc = ble_gatts_add_svcs(gatt_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "  FAILED: ble_gatts_add_svcs: %d", rc);
-        server->OnInitFailed();
         vTaskDelete(nullptr);
         return;
     }
@@ -263,14 +248,10 @@ static void StartTask(void* param)
     nimble_port_freertos_init(HostTask);
     ESP_LOGI(TAG, "  OK: Host task started");
 
-    server->OnInitComplete();
+    g_instance->OnInitComplete();
     ESP_LOGI(TAG, "===== BLE Initialization Complete =====");
     ESP_LOGI(TAG, "Device name: %s", DEVICE_NAME);
     ESP_LOGI(TAG, "Advertising will start after host sync (OnSync callback)");
-    ESP_LOGI(TAG, "Heap after BLE init: free_heap=%u, free_internal=%u, largest_internal=%u",
-             static_cast<unsigned>(esp_get_free_heap_size()),
-             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
 
     vTaskDelete(nullptr);
 }
@@ -329,25 +310,14 @@ void BleServer::Resume()
 
 void BleServer::OnInitComplete()
 {
-    starting_.store(false);
     running_ = true;
     status_ = BleStatus::DISABLED;
-}
-
-void BleServer::OnInitFailed()
-{
-    starting_.store(false);
-    running_ = false;
 }
 
 esp_err_t BleServer::Start()
 {
     if (running_) {
         ESP_LOGI(TAG, "BLE already running, skip start");
-        return ESP_OK;
-    }
-    if (starting_.exchange(true)) {
-        ESP_LOGI(TAG, "BLE start already in progress, skip duplicate request");
         return ESP_OK;
     }
 
@@ -357,14 +327,13 @@ esp_err_t BleServer::Start()
         StartTask,
         "ble_start",
         8192,
-        this,
+        nullptr,
         5,
         nullptr
     );
 
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "  FAILED: xTaskCreate: %d", ret);
-        starting_.store(false);
         return ESP_FAIL;
     }
 
@@ -375,7 +344,6 @@ esp_err_t BleServer::Start()
 esp_err_t BleServer::Stop()
 {
     if (!running_) {
-        starting_.store(false);
         NotifyStatus(BleStatus::DISABLED);
         return ESP_OK;
     }
@@ -399,7 +367,6 @@ esp_err_t BleServer::Stop()
     esp_bt_controller_deinit();
 
     running_ = false;
-    starting_.store(false);
     NotifyStatus(BleStatus::DISABLED);
     ESP_LOGI(TAG, "BLE server stopped");
     return ESP_OK;

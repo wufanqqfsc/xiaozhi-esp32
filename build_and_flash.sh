@@ -423,7 +423,7 @@ show_help() {
 
 # 主函数
 main() {
-    clear
+    clear || true  # 非 tty 环境（如管道/重定向）下 clear 可能返回非零，避免触发 set -e
     echo "=================================================="
     echo "  Waveshare ESP32-S3-Touch-LCD-1.85B"
     echo "      编译和烧录工具 v1.0"

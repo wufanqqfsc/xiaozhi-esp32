@@ -28,9 +28,6 @@
 #define TAG "Application"
 
 namespace {
-// 临时关闭本地提示音（popup/exclamation/低电等），避免高频报错时持续蜂鸣。
-// 服务端 TTS 走解码播放链路，不受此开关影响。
-constexpr bool kLocalPromptSoundEnabled = false;
 
 AttitudeDisplay* GetAttitudeDisplay()
 {
@@ -186,6 +183,7 @@ void Application::Initialize() {
     // Setup the audio service
     auto codec = board.GetAudioCodec();
     audio_service_.Initialize(codec);
+    audio_service_.Start();
 
     AudioServiceCallbacks callbacks;
     callbacks.on_send_queue_available = [this]() {
@@ -197,17 +195,9 @@ void Application::Initialize() {
     callbacks.on_vad_change = [this](bool speaking) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
-    // 播放队列清空回调：仅转发给 AttitudeDisplay 的占卜结果延迟展示逻辑。
-    // 由显示层内部做状态门控，避免影响普通 TTS/提示音流程。
-    callbacks.on_playback_finished = [this]() {
-        Schedule([]() {
-            if (auto* attitude = GetAttitudeDisplay()) {
-                attitude->OnUiPlaybackFinished();
-            }
-        });
-    };
+    // 播放队列清空回调：勿在此隐藏提示卡——UI 短音效（POPUP/SUCCESS）结束会误关运势功能卡
+    callbacks.on_playback_finished = nullptr;
     audio_service_.SetCallbacks(callbacks);
-    audio_service_.Start();
 
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
@@ -657,20 +647,18 @@ void Application::HandleActivationDoneEvent() {
 
 void Application::ActivationTask() {
     ESP_LOGI(TAG, "ActivationTask: Creating OTA object...");
-    // OTA config is required by InitializeProtocol(); ensure it always exists.
-    if (!ota_) {
-        ota_ = std::make_unique<Ota>();
-    }
-    ESP_LOGI(TAG, "ActivationTask: OTA object ready");
+    // Create OTA object for activation process
+    ota_ = std::make_unique<Ota>();
+    ESP_LOGI(TAG, "ActivationTask: OTA object created");
 
     // Check for new assets version
     ESP_LOGI(TAG, "ActivationTask: Checking assets version...");
     CheckAssetsVersion();
     ESP_LOGI(TAG, "ActivationTask: Assets version check done");
 
-    // Check for new firmware version
+    // Check for new firmware version (contacts server for OTA + WebSocket config)
     ESP_LOGI(TAG, "ActivationTask: Checking new version...");
-    // CheckNewVersion();
+    CheckNewVersion();
     ESP_LOGI(TAG, "ActivationTask: New version check done");
 
     // 不要在 ActivationTask 完成后停止 Http Server，让它继续运行
@@ -836,18 +824,14 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
-    if (!ota_) {
-        ESP_LOGW(TAG, "OTA object missing in InitializeProtocol, creating fallback instance");
-        ota_ = std::make_unique<Ota>();
-    }
-
-    if (ota_->HasMqttConfig()) {
+    // 空指针保护：ota_ 可能在 ActivationTask 中创建失败或未初始化
+    if (ota_ && ota_->HasMqttConfig()) {
         protocol_ = std::make_unique<MqttProtocol>();
-    } else if (ota_->HasWebsocketConfig()) {
+    } else if (ota_ && ota_->HasWebsocketConfig()) {
         protocol_ = std::make_unique<WebsocketProtocol>();
     } else {
-        ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
-        protocol_ = std::make_unique<MqttProtocol>();
+        ESP_LOGW(TAG, "No protocol specified in the OTA config, using WebSocket (build config fallback)");
+        protocol_ = std::make_unique<WebsocketProtocol>();
     }
 
     protocol_->OnConnected([this]() {
@@ -876,7 +860,7 @@ void Application::InitializeProtocol() {
             Schedule([this, attitude, detail]() {
                 // 短促本地提示音 + 显示卡
                 attitude->ShowDebugInfo("握手成功", detail, 5000);
-                PlaySound(Lang::Sounds::OGG_POPUP);
+                audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
             });
         }
         // 服务端 TTS 朗读（已存在通道，复用）
@@ -1068,7 +1052,7 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
         auto it = std::find_if(digit_sounds.begin(), digit_sounds.end(),
             [digit](const digit_sound& ds) { return ds.digit == digit; });
         if (it != digit_sounds.end()) {
-            PlaySound(it->sound);
+            audio_service_.PlaySound(it->sound);
         }
     }
 }
@@ -1080,7 +1064,7 @@ void Application::Alert(const char* status, const char* message, const char* emo
     display->SetEmotion(emotion);
     display->SetChatMessage("system", message);
     if (!sound.empty()) {
-        PlaySound(sound);
+        audio_service_.PlaySound(sound);
     }
 }
 
@@ -1126,7 +1110,7 @@ void Application::ShowInternetFailedNotification(const char* reason) {
         });
     }
     // 用失败提示音而非默认成功音，避免与配网成功音效混淆
-    PlaySound(Lang::Sounds::OGG_EXCLAMATION);
+    audio_service_.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
 }
 
 void Application::ToggleChatState() {
@@ -1283,10 +1267,10 @@ void Application::HandleWakeWordDetectedEvent() {
         Schedule([this, attitude, detail]() {
             // 短促本地提示音 + 显示卡（默认 30s，有语音交互则由 RefreshDebugInfoTimer 重计时）
             attitude->ShowDebugInfo("唤醒成功", detail, 30000);
-            PlaySound(Lang::Sounds::OGG_POPUP);
-            // 唤醒时进入 JARVIS 动效界面
-            attitude->ShowJarvisWatchface();
-            attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
+            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            // 唤醒时进入 JARVIS 动效界面（暂时注释）
+            // attitude->ShowJarvisWatchface();
+            // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
         });
     }
     // 不在此处触发服务端 TTS：唤醒词后 LLM 即将开始接管对话，避免双声道冲突
@@ -1338,7 +1322,7 @@ void Application::HandleWakeWordDetectedEvent() {
 
         if (state == kDeviceStateListening) {
             audio_service_.ResetDecoder();
-            PlaySound(Lang::Sounds::OGG_POPUP);
+            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
         } else {
@@ -1406,7 +1390,7 @@ void Application::HandleStateChangedEvent() {
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
             if (attitude != nullptr) {
-                attitude->HideJarvisWatchface();
+                // attitude->HideJarvisWatchface();  // 暂时注释
             }
             break;
         case kDeviceStateConnecting:
@@ -1450,7 +1434,7 @@ void Application::HandleStateChangedEvent() {
             // Play popup sound after ResetDecoder (in EnableVoiceProcessing) has been called
             if (play_popup_on_listening_) {
                 play_popup_on_listening_ = false;
-                PlaySound(Lang::Sounds::OGG_POPUP);
+                audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
             }
             break;
         case kDeviceStateSpeaking:
@@ -1672,9 +1656,6 @@ void Application::SetAecMode(AecMode mode) {
 }
 
 void Application::PlaySound(const std::string_view& sound) {
-    if (!kLocalPromptSoundEnabled || sound.empty()) {
-        return;
-    }
     audio_service_.PlaySound(sound);
 }
 
@@ -1688,7 +1669,7 @@ void Application::PlayUiSound(const std::string_view& sound) {
     }
     Schedule([this, sound]() {
         ESP_LOGI(TAG, "PlayUiSound (%zu bytes)", sound.size());
-        PlaySound(sound);
+        audio_service_.PlaySound(sound);
     });
 }
 

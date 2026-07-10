@@ -188,8 +188,6 @@ public:
     int GetFortuneDivinationResult() const;
     /** 获取当前占卜状态 */
     int GetFortuneDivinationState() const;
-    /** UI 播放队列清空事件（由 Application 转发） */
-    void OnUiPlaybackFinished();
 
     // ================================================================
     // JARVIS Watchface 唤醒界面
@@ -233,14 +231,11 @@ private:
     bool fortune_divination_from_taiji_ = false;
     int fortune_divination_last_tick_index_ = -1;
     int fortune_divination_highlight_ = -1;
-    int fortune_divination_highlights_[FORTUNE_DIVINATION_HIGHLIGHT_COUNT] = {-1, -1, -1};
     int fortune_divination_result_ = -1;
     lv_color_t fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
     bool taiji_hold_pending_ = false;
     bool fortune_divination_sound_playing_ = false;
     uint32_t fortune_divination_sound_next_play_ms_ = 0;
-    bool fortune_divination_pending_result_view_ = false;
-    int fortune_divination_pending_result_index_ = -1;
     lv_obj_t* taiji_divination_touch_ = nullptr;
     lv_obj_t* divination_hint_label_ = nullptr;
     lv_obj_t* taiji_press_overlay_ = nullptr;
@@ -297,8 +292,6 @@ private:
     void StartFortuneDivinationUnlocked();
     void StopFortuneDivinationUnlocked();
     void FinishFortuneDivinationUnlocked(int result_index);
-    void CommitFortuneDivinationResultViewUnlocked();
-    void RandomizeFortuneDivinationHighlights(int anchor_index);
     void UpdateFortuneDivinationMarqueeVisual(int active_index);
     void ResetFortuneMenuIconStyle(int index);
     void CancelTaijiHoldTimerUnlocked();
