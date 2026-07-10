@@ -1,0 +1,134 @@
+d (queue=4 slots, timer=50ms)
+[+7.996] I (8163) SdCardLogHttp:   OK: Display request queue ready
+[+7.997] I (8163) SdCardLogHttp: [4/5] Starting HTTP server...
+[+7.998] I (8163) SdCardLogHttp:   OK: Server started on port 8080
+[+7.999] I (8163) SdCardLogHttp: [5/5] Registering URI handlers...
+[+7.999] I (8163) SdCardLogHttp:   [GET] /  -> Web UI
+[+8.000] I (8173) SdCardLogHttp:   OK: 28 URI handlers registered
+[+8.000] I (8173) SdCardLogHttp: ===== HTTP Server Ready =====
+[+8.000] I (8173) SdCardLogHttp:   Port: 8080
+[+8.000] I (8173) SdCardLogHttp:   Mount: /sdcard
+[+8.000] I (8173) SdCardLogHttp:   Handlers: 28
+[+8.002] I (8173) Application: HTTP server start called
+[+8.002] I (8173) Application: PlayUiSound (zu bytes)
+[+8.002] I (8173) I2S_IF: Paired data: 0x3fce96a0, current mode: playback, paired in_enable: 0, paired out_enable: 0
+[+8.003] I (8173) I2S_IF: STD: TX, data_bit: 16, slot_bit: 16, ws_width: 16, slot_mode: MONO, slot_mask: 0x1
+[+8.003] I (8173) I2S_IF: STD: TX, sample_rate_hz: 24000, mclk_multiple: 256, clk_src: 6
+[+8.020] I (8193) Adev_Codec: Open codec device OK
+[+8.020] I (8193) AudioCodec: Set output enable to true
+[+8.293] I (8463) AudioService: Resampling audio from 16000 to 24000
+[+8.301] I (8473) wifi:[+8.301] state: assoc -> run (0x10)[+8.301] 
+[+8.330] I (8503) wifi:[+8.330] connected with Zikkoy, aid = 1, channel 11, 40D, bssid = 5c:7d:ae:fb:6c:60[+8.330] 
+[+8.330] I (8503) wifi:[+8.331] security: WPA3-SAE H2E, phy: bgn, rssi: -24, cipher(pairwise:0x3, group:0x3), pmf:1[+8.331] 
+[+8.331] I (8503) wifi:[+8.331] pm start, type: 1
+[+8.331] 
+[+8.331] I (8503) wifi:[+8.333] dp: 1, bi: 102400, li: 10, scale listen interval from 1024000 us to 1024000 us[+8.333] 
+[+8.333] I (8503) wifi:[+8.333] set rx beacon pti, rx_bcn_pti: 14, bcn_timeout: 25000, mt_pti: 14, mt_time: 10000[+8.333] 
+[+8.405] I (8573) wifi:[+8.406] AP's beacon interval = 102400 us, DTIM period = 1[+8.406] 
+[+8.723] I (8893) Application: PlayUiSound (zu bytes)
+[+9.849] I (10023) esp_netif_handlers: sta ip: 192.168.0.152, mask: 255.255.255.0, gw: 192.168.0.1
+[+9.850] I (10023) WifiStation: Got IP: 192.168.0.152
+[+9.851] I (10023) WifiBoard: Connected to WiFi: Zikkoy
+[+9.912] I (10083) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
+[+9.913] I (10083) AttitudeDisplay: DebugInfo: 通知 | 已连接 Zikkoy (hold=10000ms builtin_font=1)
+[+10.063] I (10233) Application: PlayUiSound (zu bytes)
+==== xiaozhi boot log, uptime=3.942s, sdk=v5.5.4 ====
+[+3.943] I (4113) SdCardLog: SD card log redirect started, file=/sdcard/xiaozhi_boot_3.log
+[+3.944] I (4113) SdCardLog:   log history: /sdcard/xiaozhi_boot_3.log
+[+3.961] I (4133) waveshare_lcd_1_85: 启动日志已重定向到 TF 卡: /sdcard/xiaozhi_boot_3.log
+[+4.659] I (4823) WifiStation: Found AP: Zikkoy, BSSID: 5c:7d:ae:fb:6c:60, RSSI: -24, Channel: 11, Authmode: 7
+[+4.659] I (4833) WifiBoard: WiFi connecting to Zikkoy
+[+4.765] W (4933) wifi:[+4.766] Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2[+4.766] 
+[+5.981] I (6153) wifi:[+5.981] new:<11,2>, old:<1,0>, ap:<255,255>, sta:<11,2>, prof:1, snd_ch_cfg:0x0[+5.983] 
+[+5.983] I (6153) wifi:[+5.983] state: init -> auth (0xb0)[+5.983] 
+[+6.618] I (6783) wifi:[+6.618] state: auth -> assoc (0x0)[+6.618] 
+[+6.631] I (6803) wifi:[+6.631] Association refused temporarily time 1000, comeback time 1100 (TUs)[+6.631] 
+[+7.758] I (7923) wifi:[+7.758] state: assoc -> auth (0xb0)[+7.758] 
+[+8.064] I (8233) SdCardLogHttp:   OK: Config ready (max_uri_handlers=30, stack_size=20480, timeout=10s)
+[+8.064] I (8233) SdCardLogHttp: [3/5] Initializing display request queue...
+[+8.064] I (8233) SdCardLogHttp: Display request queue + timer initialized (queue=4 slots, timer=50ms)
+[+8.066] I (8233) SdCardLogHttp:   OK: Display request queue ready
+[+8.066] I (8233) SdCardLogHttp: [4/5] Starting HTTP server...
+[+8.067] I (8233) SdCardLogHttp:   OK: Server started on port 8080
+[+8.067] I (8233) SdCardLogHttp: [5/5] Registering URI handlers...
+[+8.067] I (8233) SdCardLogHttp:   [GET] /  -> Web UI
+[+8.068] I (8233) SdCardLogHttp:   OK: 28 URI handlers registered
+[+8.069] I (8233) SdCardLogHttp: ===== HTTP Server Ready =====
+[+8.070] I (8243) SdCardLogHttp:   Port: 8080
+[+8.070] I (8243) SdCardLogHttp:   Mount: /sdcard
+[+8.070] I (8243) SdCardLogHttp:   Handlers: 28
+[+8.070] I (8243) Application: HTTP server start called
+[+8.070] I (8243) Application: PlayUiSound (zu bytes)
+[+8.071] I (8243) I2S_IF: Paired data: 0x3fce96a0, current mode: playback, paired in_enable: 0, paired out_enable: 0
+[+8.071] I (8243) I2S_IF: STD: TX, data_bit: 16, slot_bit: 16, ws_width: 16, slot_mode: MONO, slot_mask: 0x1
+[+8.073] I (8243) I2S_IF: STD: TX, sample_rate_hz: 24000, mclk_multiple: 256, clk_src: 6
+[+8.089] I (8253) Adev_Codec: Open codec device OK
+[+8.089] I (8263) AudioCodec: Set output enable to true
+[+8.092] I (8263) AudioService: Resampling audio from 16000 to 24000
+[+8.376] I (8543) wifi:[+8.377] state: auth -> assoc (0x0)[+8.377] 
+[+8.403] I (8573) wifi:[+8.403] state: assoc -> run (0x10)[+8.403] 
+[+8.431] I (8603) wifi:[+8.431] connected with Zikkoy, aid = 1, channel 11, 40D, bssid = 5c:7d:ae:fb:6c:60[+8.431] 
+[+8.433] I (8603) wifi:[+8.433] security: WPA3-SAE H2E, phy: bgn, rssi: -23, cipher(pairwise:0x3, group:0x3), pmf:1[+8.433] 
+[+8.433] I (8603) wifi:[+8.433] pm start, type: 1
+[+8.433] 
+[+8.433] I (8603) wifi:[+8.434] dp: 1, bi: 102400, li: 10, scale listen interval from 1024000 us to 1024000 us[+8.434] 
+[+8.434] I (8603) wifi:[+8.434] set rx beacon pti, rx_bcn_pti: 14, bcn_timeout: 25000, mt_pti: 14, mt_time: 10000[+8.434] 
+[+8.465] I (8633) wifi:[+8.465] AP's beacon interval = 102400 us, DTIM period = 1[+8.467] 
+[+8.553] I (8723) Application: PlayUiSound (zu bytes)
+[+9.450] I (9623) esp_netif_handlers: sta ip: 192.168.0.152, mask: 255.255.255.0, gw: 192.168.0.1
+[+9.450] I (9623) WifiStation: Got IP: 192.168.0.152
+[+9.450] I (9623) WifiBoard: Connected to WiFi: Zikkoy
+[+9.591] I (9763) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
+[+9.592] I (9763) AttitudeDisplay: DebugInfo: 通知 | 已连接 Zikkoy (hold=10000ms builtin_font=1)
+[+9.933] I (10103) Application: PlayUiSound (zu bytes)
+==== xiaozhi boot log, uptime=3.942s, sdk=v5.5.4 ====
+[+3.943] I (4113) SdCardLog: SD card log redirect started, file=/sdcard/xiaozhi_boot_3.log
+[+3.944] I (4113) SdCardLog:   log history: /sdcard/xiaozhi_boot_3.log
+[+3.960] I (4133) waveshare_lcd_1_85: 启动日志已重定向到 TF 卡: /sdcard/xiaozhi_boot_3.log
+[+4.661] I (4833) WifiStation: Found AP: Zikkoy, BSSID: 5c:7d:ae:fb:6c:60, RSSI: -23, Channel: 11, Authmode: 7
+[+4.661] I (4833) WifiBoard: WiFi connecting to Zikkoy
+[+4.765] W (4933) wifi:[+4.767] Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2[+4.767] 
+[+5.983] I (6153) wifi:[+5.983] new:<11,2>, old:<1,0>, ap:<255,255>, sta:<11,2>, prof:1, snd_ch_cfg:0x0[+5.983] 
+[+5.983] I (6153) wifi:[+5.983] state: init -> auth (0xb0)[+5.984] 
+[+6.566] I (6733) wifi:[+6.567] state: auth -> assoc (0x0)[+6.567] 
+[+6.575] I (6743) wifi:[+6.575] Association refused temporarily time 1000, comeback time 1100 (TUs)[+6.576] 
+[+7.702] I (7873) wifi:[+7.702] state: assoc -> auth (0xb0)[+7.705] 
+[+7.998] I (8163) SdCardLogHttp:   OK: Config ready (max_uri_handlers=30, stack_size=20480, timeout=10s)
+[+7.999] I (8163) SdCardLogHttp: [3/5] Initializing display request queue...
+[+7.999] I (8163) SdCardLogHttp: Display request queue + timer initialized (queue=4 slots, timer=50ms)
+[+7.999] I (8163) SdCardLogHttp:   OK: Display request queue ready
+[+7.999] I (8173) SdCardLogHttp: [4/5] Starting HTTP server...
+[+8.000] I (8173) SdCardLogHttp:   OK: Server started on port 8080
+[+8.001] I (8173) SdCardLogHttp: [5/5] Registering URI handlers...
+[+8.002] I (8173) SdCardLogHttp:   [GET] /  -> Web UI
+[+8.003] I (8173) SdCardLogHttp:   OK: 28 URI handlers registered
+[+8.003] I (8173) SdCardLogHttp: ===== HTTP Server Ready =====
+[+8.003] I (8173) SdCardLogHttp:   Port: 8080
+[+8.004] I (8173) SdCardLogHttp:   Mount: /sdcard
+[+8.004] I (8173) SdCardLogHttp:   Handlers: 28
+[+8.004] I (8173) Application: HTTP server start called
+[+8.004] I (8173) Application: PlayUiSound (zu bytes)
+[+8.004] I (8173) I2S_IF: Paired data: 0x3fce96a0, current mode: playback, paired in_enable: 0, paired out_enable: 0
+[+8.007] I (8173) I2S_IF: STD: TX, data_bit: 16, slot_bit: 16, ws_width: 16, slot_mode: MONO, slot_mask: 0x1
+[+8.007] I (8173) I2S_IF: STD: TX, sample_rate_hz: 24000, mclk_multiple: 256, clk_src: 6
+[+8.024] I (8193) Adev_Codec: Open codec device OK
+[+8.025] I (8193) AudioCodec: Set output enable to true
+[+8.028] I (8193) AudioService: Resampling audio from 16000 to 24000
+[+8.303] I (8473) wifi:[+8.303] state: auth -> assoc (0x0)[+8.304] 
+[+8.323] I (8493) wifi:[+8.323] state: assoc -> run (0x10)[+8.324] 
+[+8.357] I (8523) wifi:[+8.357] connected with Zikkoy, aid = 1, channel 11, 40D, bssid = 5c:7d:ae:fb:6c:60[+8.357] 
+[+8.358] I (8523) wifi:[+8.358] security: WPA3-SAE H2E, phy: bgn, rssi: -23, cipher(pairwise:0x3, group:0x3), pmf:1[+8.358] 
+[+8.358] I (8523) wifi:[+8.358] pm start, type: 1
+[+8.358] 
+[+8.358] I (8523) wifi:[+8.358] dp: 1, bi: 102400, li: 10, scale listen interval from 1024000 us to 1024000 us[+8.359] 
+[+8.361] I (8533) wifi:[+8.361] set rx beacon pti, rx_bcn_pti: 14, bcn_timeout: 25000, mt_pti: 14, mt_time: 10000[+8.362] 
+[+8.415] I (8583) wifi:[+8.415] AP's beacon interval = 102400 us, DTIM period = 1[+8.415] 
+[+8.487] I (8653) Application: PlayUiSound (zu bytes)
+[+8.723] I (8893) wifi:[+8.724] [ADDBA]RX DELBA, reason:39, delete tid:0, initiator:1(originator)[+8.724] 
+[+8.725] I (8893) wifi:[+8.725] <ba-add>idx:0 (ifx:0, 5c:7d:ae:fb:6c:60), tid:0, ssn:2, winSize:64[+8.725] 
+[+9.389] I (9563) esp_netif_handlers: sta ip: 192.168.0.152, mask: 255.255.255.0, gw: 192.168.0.1
+[+9.391] I (9563) WifiStation: Got IP: 192.168.0.152
+[+9.391] I (9563) WifiBoard: Connected to WiFi: Zikkoy
+[+9.487] I (9653) AttitudeDisplay: DebugInfoCard shown: title=通知 hidden=0 card_hidden=0
+[+9.487] I (9653) AttitudeDisplay: DebugInfo: 通知 | 已连接 Zikkoy (hold=10000ms builtin_font=1)
+[+9.827] I (9993) Application: PlayUiSound (zu bytes)
