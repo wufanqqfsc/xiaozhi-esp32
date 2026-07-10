@@ -2154,12 +2154,26 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
 
 void AttitudeDisplay::ShowJarvisWatchface() {
     ESP_LOGI(TAG, "Showing JARVIS Watchface");
+    {
+        DisplayLockGuard lock(this);
+        if (attitude_container_ != nullptr) {
+            lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+        CompassTaiji::SetAutoRotationPaused(true);
+    }
     JarvisWatchface::GetInstance().Show();
 }
 
 void AttitudeDisplay::HideJarvisWatchface() {
     ESP_LOGI(TAG, "Hiding JARVIS Watchface");
     JarvisWatchface::GetInstance().Hide();
+    {
+        DisplayLockGuard lock(this);
+        CompassTaiji::SetAutoRotationPaused(false);
+        if (attitude_container_ != nullptr) {
+            lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 void AttitudeDisplay::SetJarvisWatchfaceState(JarvisWatchface::State state) {

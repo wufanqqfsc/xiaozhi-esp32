@@ -1,247 +1,94 @@
 #include "jarvis_watchface.h"
+
 #include <esp_lvgl_port.h>
 #include <esp_log.h>
-#include <esp_heap_caps.h>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <esp_random.h>
 
 #define TAG "JarvisWatchface"
-
-namespace {
-
-constexpr int W = 360;
-constexpr int H = 360;
-constexpr int CX = W / 2;
-constexpr int CY = H / 2;
-
-// RGB565 helpers
-inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
-    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-}
-
-inline uint16_t hsvToRgb565(int hue, float sat, float val, float alpha) {
-    float h = hue / 360.0f;
-    float s = sat;
-    float v = val;
-
-    int i = static_cast<int>(h * 6);
-    float f = h * 6 - i;
-    float p = v * (1 - s);
-    float q = v * (1 - f * s);
-    float t = v * (1 - (1 - f) * s);
-
-    float r, g, b;
-    switch (i % 6) {
-        case 0: r = v; g = t; b = p; break;
-        case 1: r = q; g = v; b = p; break;
-        case 2: r = p; g = v; b = t; break;
-        case 3: r = p; g = q; b = v; break;
-        case 4: r = t; g = p; b = v; break;
-        default: r = v; g = p; b = q; break;
-    }
-
-    uint8_t cr = static_cast<uint8_t>(r * 255 * alpha);
-    uint8_t cg = static_cast<uint8_t>(g * 255 * alpha);
-    uint8_t cb = static_cast<uint8_t>(b * 255 * alpha);
-    return rgb565(cr, cg, cb);
-}
-
-// Set pixel directly (no blend)
-inline void SetPixelRGB565(uint16_t* buf, int x, int y, uint16_t color, int stride) {
-    if (x < 0 || x >= W || y < 0 || y >= H) return;
-    buf[y * stride + x] = color;
-}
-
-// Draw filled circle with glow
-void DrawGlowCircle(uint16_t* buf, int cx, int cy, int radius, int hue,
-                    float intensity, int stride) {
-    if (intensity <= 0.01f) return;
-
-    int glowRadius = static_cast<int>(radius * 1.5f);
-    for (int py = cy - glowRadius - 1; py <= cy + glowRadius + 1; ++py) {
-        for (int px = cx - glowRadius - 1; px <= cx + glowRadius + 1; ++px) {
-            float dist = std::sqrt(static_cast<float>((px - cx) * (px - cx) + (py - cy) * (py - cy)));
-
-            if (dist <= radius) {
-                float alpha = intensity * 0.95f;
-                uint16_t col = hsvToRgb565(hue, 0.8f, 0.95f, alpha);
-                SetPixelRGB565(buf, px, py, col, stride);
-            } else if (dist <= glowRadius) {
-                float falloff = 1.0f - (dist - radius) / (glowRadius - radius);
-                falloff = falloff * falloff;
-                float alpha = intensity * falloff * 0.4f;
-                uint16_t col = hsvToRgb565(hue, 1.0f, 0.7f, alpha);
-                SetPixelRGB565(buf, px, py, col, stride);
-            }
-        }
-    }
-}
-
-// Draw ring with glow effect
-void DrawGlowRing(uint16_t* buf, int cx, int cy, int radius, int width,
-                  int hue, float intensity, float angleOffset, int stride) {
-    if (intensity <= 0.01f) return;
-
-    for (int py = cy - radius - width - 1; py <= cy + radius + width + 1; ++py) {
-        for (int px = cx - radius - width - 1; px <= cx + radius + width + 1; ++px) {
-            float dist = std::sqrt(static_cast<float>((px - cx) * (px - cx) + (py - cy) * (py - cy)));
-
-            if (dist >= radius - width && dist <= radius + width) {
-                float ringAlpha = intensity * 0.7f;
-                float atanVal = std::atan2(static_cast<float>(py - cy), static_cast<float>(px - cx));
-                float pulse = std::sin(angleOffset + atanVal * 3.0f) * 0.3f + 0.7f;
-                uint16_t col = hsvToRgb565(hue, 1.0f, 0.8f, ringAlpha * pulse);
-                SetPixelRGB565(buf, px, py, col, stride);
-            }
-        }
-    }
-}
-
-// Draw particle with glow
-void DrawParticle(uint16_t* buf, float angle, int ringRadius, float drift,
-                  float size, float brightness, float phase, int hue, int stride) {
-    int px = CX + static_cast<int>(std::cos(angle) * (ringRadius + static_cast<int>(drift * 20)));
-    int py = CY + static_cast<int>(std::sin(angle) * (ringRadius + static_cast<int>(drift * 20)));
-
-    float flicker = std::sin(phase * 5) * 0.3f + 0.7f;
-    float alpha = brightness * flicker * 0.8f;
-
-    if (alpha <= 0.1f) return;
-
-    int r = static_cast<int>(size + 1);
-    for (int dy = -r; dy <= r; ++dy) {
-        for (int dx = -r; dx <= r; ++dx) {
-            if (dx * dx + dy * dy <= r * r) {
-                uint16_t col = hsvToRgb565(hue, 1.0f, 0.7f, alpha);
-                SetPixelRGB565(buf, px + dx, py + dy, col, stride);
-            }
-        }
-    }
-}
-
-// Draw tick marks (60 minor, 12 major)
-void DrawTickMarks(uint16_t* buf, float energy, int stride) {
-    if (energy < 0.1f) return;
-
-    for (int i = 0; i < 60; ++i) {
-        float angle = (i / 60.0f) * 2 * M_PI;
-        bool isMajor = (i % 5 == 0);
-        float len = isMajor ? 6.0f : 3.0f;
-        float innerR = 165;
-        float outerR = innerR + len;
-
-        int x1 = CX + static_cast<int>(std::cos(angle) * innerR);
-        int y1 = CY + static_cast<int>(std::sin(angle) * innerR);
-        int x2 = CX + static_cast<int>(std::cos(angle) * outerR);
-        int y2 = CY + static_cast<int>(std::sin(angle) * outerR);
-
-        float alpha = energy * (isMajor ? 0.8f : 0.4f);
-        uint16_t col = hsvToRgb565(180, 0.5f, 0.8f, alpha);
-
-        int dx = x2 - x1, dy = y2 - y1;
-        int steps = static_cast<int>(len);
-        for (int s = 0; s <= steps; ++s) {
-            int px = x1 + dx * s / steps;
-            int py = y1 + dy * s / steps;
-            SetPixelRGB565(buf, px, py, col, stride);
-        }
-    }
-
-    // Major tick dots at r=176
-    for (int i = 0; i < 12; ++i) {
-        float angle = (i / 12.0f) * 2 * M_PI;
-        int px = CX + static_cast<int>(std::cos(angle) * 176);
-        int py = CY + static_cast<int>(std::sin(angle) * 176);
-        uint16_t col = hsvToRgb565(180, 0.5f, 0.8f, energy * 0.7f);
-        SetPixelRGB565(buf, px, py, col, stride);
-        if (energy > 0.5f) {
-            SetPixelRGB565(buf, px + 1, py, col, stride);
-            SetPixelRGB565(buf, px, py + 1, col, stride);
-        }
-    }
-}
-
-// Draw listening concentric waves
-void DrawListeningWaves(uint16_t* buf, uint32_t stateTime, float energy, int stride) {
-    for (int wave = 0; wave < 4; ++wave) {
-        float wavePhase = fmodf(stateTime * 0.001f + wave * 0.5f, 1.0f);
-        int waveR = 45 + static_cast<int>(wavePhase * 125);
-        float waveAlpha = (1.0f - wavePhase) * 0.5f * energy;
-
-        if (waveAlpha < 0.05f) continue;
-
-        uint16_t col = hsvToRgb565(180, 1.0f, 0.7f, waveAlpha);
-
-        for (int py = CY - waveR - 2; py <= CY + waveR + 2; ++py) {
-            for (int px = CX - waveR - 2; px <= CX + waveR + 2; ++px) {
-                float dist = std::sqrt(static_cast<float>((px - CX) * (px - CX) + (py - CY) * (py - CY)));
-                if (dist >= waveR - 1 && dist <= waveR + 1) {
-                    SetPixelRGB565(buf, px, py, col, stride);
-                }
-            }
-        }
-    }
-}
-
-// Draw speaking rays with glow points
-void DrawSpeakingRays(uint16_t* buf, uint32_t stateTime, float energy, int coreR, int stride) {
-    for (int i = 0; i < 8; ++i) {
-        float angle = i * M_PI * 2 / 8 + stateTime * 0.002f;
-        float pulse = std::sin(stateTime * 0.005f + i) * 0.3f + 0.7f;
-        int rayLen = 10 + static_cast<int>(pulse * (coreR - 15));
-
-        uint16_t rayCol = hsvToRgb565(45, 1.0f, 0.8f, 0.5f * energy * pulse);
-
-        for (int len = 10; len <= rayLen; ++len) {
-            int px = CX + static_cast<int>(std::cos(angle) * len);
-            int py = CY + static_cast<int>(std::sin(angle) * len);
-            SetPixelRGB565(buf, px, py, rayCol, stride);
-        }
-
-        // Glow point at ray tip
-        int tipX = CX + static_cast<int>(std::cos(angle) * rayLen);
-        int tipY = CY + static_cast<int>(std::sin(angle) * rayLen);
-        uint16_t tipCol = hsvToRgb565(45, 1.0f, 0.9f, 0.8f * energy * pulse);
-        SetPixelRGB565(buf, tipX, tipY, tipCol, stride);
-        SetPixelRGB565(buf, tipX + 1, tipY, tipCol, stride);
-        SetPixelRGB565(buf, tipX, tipY + 1, tipCol, stride);
-    }
-}
-
-} // anonymous namespace
+LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 
 JarvisWatchface& JarvisWatchface::GetInstance() {
     static JarvisWatchface instance;
     return instance;
 }
 
-JarvisWatchface::JarvisWatchface()
-    : state_time_(0), global_energy_(0.05f), target_energy_(0.05f), breath_phase_(0) {
-    for (int i = 0; i < RING_COUNT; ++i) {
-        ring_angles_[i] = 0;
-        ring_intensity_[i] = 0;
-    }
-    InitParticles();
-}
+JarvisWatchface::JarvisWatchface() = default;
 
 JarvisWatchface::~JarvisWatchface() {
+    if (!lvgl_port_lock(300)) {
+        return;
+    }
     DestroyUI();
+    lvgl_port_unlock();
 }
 
-void JarvisWatchface::InitParticles() {
-    for (int i = 0; i < MAX_PARTICLES; ++i) {
-        int ring_idx = i % RING_COUNT;
-        particles_[i].ring_idx = ring_idx;
-        particles_[i].angle = static_cast<float>(esp_random() % 100) / 100.0f * 2 * M_PI;
-        float dir = RINGS[ring_idx].dir;
-        particles_[i].speed = (0.002f + (esp_random() % 100) / 100.0f * 0.004f) * dir;
-        particles_[i].size = 0.5f + (esp_random() % 100) / 100.0f * 1.5f;
-        particles_[i].brightness = 0.3f + (esp_random() % 100) / 100.0f * 0.7f;
-        particles_[i].drift = (static_cast<float>(esp_random() % 100) / 100.0f - 0.5f) * 0.4f;
-        particles_[i].life = 1.0f;
-        particles_[i].flicker = static_cast<float>(esp_random() % 100) / 100.0f * 2 * M_PI;
+int JarvisWatchface::ClampI32(int value, int min, int max) {
+    if (value < min) {
+        return min;
+    }
+    if (value > max) {
+        return max;
+    }
+    return value;
+}
+
+int32_t JarvisWatchface::OrbitX(float angle, float radius) {
+    return kCenterX + static_cast<int32_t>(lroundf(cosf(angle) * radius));
+}
+
+int32_t JarvisWatchface::OrbitY(float angle, float radius) {
+    return kCenterY + static_cast<int32_t>(lroundf(sinf(angle) * radius));
+}
+
+lv_obj_t* JarvisWatchface::AddBox(lv_obj_t* parent, int32_t x, int32_t y, int32_t w, int32_t h,
+                                  uint32_t color, int32_t radius) {
+    lv_obj_t* obj = lv_obj_create(parent);
+    lv_obj_set_pos(obj, x, y);
+    lv_obj_set_size(obj, w, h);
+    lv_obj_set_style_radius(obj, radius, 0);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(obj, 0, 0);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    return obj;
+}
+
+lv_obj_t* JarvisWatchface::AddArc(lv_obj_t* parent, int32_t size, int32_t width,
+                                  uint32_t base_color, uint32_t active_color) {
+    lv_obj_t* arc = lv_arc_create(parent);
+    lv_obj_set_size(arc, size, size);
+    lv_obj_center(arc);
+    lv_arc_set_range(arc, 0, 100);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_obj_remove_style(arc, nullptr, LV_PART_KNOB);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(arc, width, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, width, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(base_color), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(active_color), LV_PART_INDICATOR);
+    return arc;
+}
+
+void JarvisWatchface::CreateTickMarks() {
+    for (int i = 0; i < 60; ++i) {
+        const float rad = (static_cast<float>(i) * 6.0f - 90.0f) * kPi / 180.0f;
+        const bool major = (i % 5) == 0;
+        const int32_t outer = major ? 154 : 150;
+        const int32_t inner = major ? 136 : 144;
+        const int32_t x1 = kCenterX + static_cast<int32_t>(lroundf(cosf(rad) * inner));
+        const int32_t y1 = kCenterY + static_cast<int32_t>(lroundf(sinf(rad) * inner));
+        const int32_t x2 = kCenterX + static_cast<int32_t>(lroundf(cosf(rad) * outer));
+        const int32_t y2 = kCenterY + static_cast<int32_t>(lroundf(sinf(rad) * outer));
+        const int32_t w = abs(x2 - x1) + (major ? 5 : 3);
+        const int32_t h = abs(y2 - y1) + (major ? 5 : 3);
+        const int32_t x = x1 < x2 ? x1 : x2;
+        const int32_t y = y1 < y2 ? y1 : y2;
+        const uint32_t color = major ? 0x66f6ff : 0x183d5a;
+
+        tick_marks_[i] = AddBox(screen_, x, y, w, h, color, LV_RADIUS_CIRCLE);
+        lv_obj_set_style_opa(tick_marks_[i], major ? LV_OPA_90 : LV_OPA_50, 0);
     }
 }
 
@@ -250,38 +97,84 @@ void JarvisWatchface::CreateUI() {
         return;
     }
 
-    screen_ = lv_obj_create(NULL);
-    lv_obj_set_size(screen_, W_, H_);
-    lv_obj_set_style_radius(screen_, W_ / 2, 0);
-    lv_obj_set_style_bg_color(screen_, lv_color_hex(0x020a12), 0);
-    lv_obj_set_style_bg_opa(screen_, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(screen_, 0, 0);
+    screen_ = lv_obj_create(nullptr);
     lv_obj_clear_flag(screen_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(screen_, lv_color_hex(0x020611), 0);
 
-    // Create canvas for drawing
-    canvas_ = lv_canvas_create(screen_);
-    lv_obj_set_pos(canvas_, 0, 0);
-    lv_obj_set_size(canvas_, W, H);
+    AddBox(screen_, 0, 0, kScreenW, kScreenH, 0x020611, 0);
+    AddBox(screen_, 20, 18, 320, 324, 0x061222, 32);
 
-    // Allocate canvas buffer (RGB565 for efficiency)
-    size_t bufBytes = W * H * 2;  // RGB565 = 2 bytes per pixel
-    canvas_buf_ = static_cast<uint16_t*>(heap_caps_malloc(bufBytes, MALLOC_CAP_SPIRAM));
-    if (canvas_buf_ == nullptr) {
-        canvas_buf_ = static_cast<uint16_t*>(malloc(bufBytes));
+    lv_obj_t* halo = AddBox(screen_, 42, 42, 276, 276, 0x07182b, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_border_width(halo, 2, 0);
+    lv_obj_set_style_border_color(halo, lv_color_hex(0x123b58), 0);
+    lv_obj_set_style_shadow_width(halo, 16, 0);
+    lv_obj_set_style_shadow_color(halo, lv_color_hex(0x0b6d99), 0);
+    lv_obj_set_style_shadow_opa(halo, LV_OPA_40, 0);
+
+    CreateTickMarks();
+
+    scan_arc_ = AddArc(screen_, 296, 8, 0x0b1d32, 0x20eaff);
+    lv_arc_set_angles(scan_arc_, 0, 72);
+    pulse_arc_ = AddArc(screen_, 246, 7, 0x102138, 0xff3f93);
+    seconds_arc_ = AddArc(screen_, 202, 5, 0x102138, 0xffd447);
+
+    for (int i = 0; i < kOrbitCount; ++i) {
+        const int size = (i % 3 == 0) ? 8 : 5;
+        orbit_dots_[i] = AddBox(screen_, kCenterX - size / 2, kCenterY - size / 2, size, size,
+                                (i % 3 == 0) ? 0xffd447 : 0x20eaff, LV_RADIUS_CIRCLE);
+        lv_obj_set_style_shadow_width(orbit_dots_[i], 8, 0);
+        lv_obj_set_style_shadow_color(
+            orbit_dots_[i],
+            lv_obj_get_style_bg_color(orbit_dots_[i], LV_PART_MAIN),
+            0);
     }
 
-    if (canvas_buf_ != nullptr) {
-        memset(canvas_buf_, 0, bufBytes);
-        lv_canvas_set_buffer(canvas_, canvas_buf_, W, H, LV_COLOR_FORMAT_RGB565);
+    lv_obj_t* inner = AddBox(screen_, 100, 100, 160, 160, 0x04101f, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_border_width(inner, 1, 0);
+    lv_obj_set_style_border_color(inner, lv_color_hex(0x1f6f93), 0);
+    lv_obj_set_style_bg_opa(inner, LV_OPA_80, 0);
+
+    jarvis_label_shadow_a_ = lv_label_create(screen_);
+    lv_label_set_text(jarvis_label_shadow_a_, "JARVIS");
+    lv_obj_set_style_text_font(jarvis_label_shadow_a_, &BUILTIN_TEXT_FONT, 0);
+    lv_obj_set_style_text_color(jarvis_label_shadow_a_, lv_color_hex(0x2ff3ff), 0);
+    lv_obj_set_style_text_letter_space(jarvis_label_shadow_a_, 3, 0);
+    lv_obj_align(jarvis_label_shadow_a_, LV_ALIGN_CENTER, 1, -10);
+
+    jarvis_label_shadow_b_ = lv_label_create(screen_);
+    lv_label_set_text(jarvis_label_shadow_b_, "JARVIS");
+    lv_obj_set_style_text_font(jarvis_label_shadow_b_, &BUILTIN_TEXT_FONT, 0);
+    lv_obj_set_style_text_color(jarvis_label_shadow_b_, lv_color_hex(0x2ff3ff), 0);
+    lv_obj_set_style_text_letter_space(jarvis_label_shadow_b_, 3, 0);
+    lv_obj_align(jarvis_label_shadow_b_, LV_ALIGN_CENTER, -1, -10);
+
+    jarvis_label_ = lv_label_create(screen_);
+    lv_label_set_text(jarvis_label_, "JARVIS");
+    lv_obj_set_style_text_font(jarvis_label_, &BUILTIN_TEXT_FONT, 0);
+    lv_obj_set_style_text_color(jarvis_label_, lv_color_hex(0xe6fbff), 0);
+    lv_obj_set_style_text_letter_space(jarvis_label_, 3, 0);
+    lv_obj_align(jarvis_label_, LV_ALIGN_CENTER, 0, -10);
+
+    for (int i = 0; i < 5; ++i) {
+        jarvis_bars_[i] = AddBox(screen_, 128 + i * 22, 218, 14, 4, 0x20eaff, LV_RADIUS_CIRCLE);
+        lv_obj_set_style_shadow_width(jarvis_bars_[i], 5, 0);
+        lv_obj_set_style_shadow_color(jarvis_bars_[i], lv_color_hex(0x20eaff), 0);
     }
 
-    lv_obj_set_style_bg_opa(canvas_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(canvas_, 0, 0);
-    lv_obj_clear_flag(canvas_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t* status_bar = AddBox(screen_, 54, 284, 252, 36, 0x07182b, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_border_width(status_bar, 1, 0);
+    lv_obj_set_style_border_color(status_bar, lv_color_hex(0x20eaff), 0);
+    lv_obj_set_style_shadow_width(status_bar, 10, 0);
+    lv_obj_set_style_shadow_color(status_bar, lv_color_hex(0x0b6d99), 0);
+
+    status_label_ = lv_label_create(status_bar);
+    lv_label_set_text(status_label_, "ESP32-S3  PSRAM 8M  BAT 96%");
+    lv_obj_set_style_text_font(status_label_, &BUILTIN_TEXT_FONT, 0);
+    lv_obj_set_style_text_color(status_label_, lv_color_hex(0xc8f7ff), 0);
+    lv_obj_center(status_label_);
 
     timer_ = lv_timer_create(OnTimer, 33, this);
-
-    ESP_LOGI(TAG, "JARVIS Watchface UI created (canvas %dx%d)", W, H);
+    ESP_LOGI(TAG, "JARVIS watchface UI created");
 }
 
 void JarvisWatchface::DestroyUI() {
@@ -289,16 +182,21 @@ void JarvisWatchface::DestroyUI() {
         lv_timer_delete(timer_);
         timer_ = nullptr;
     }
-
-    if (canvas_buf_ != nullptr) {
-        free(canvas_buf_);
-        canvas_buf_ = nullptr;
-    }
-
     if (screen_ != nullptr) {
         lv_obj_del(screen_);
         screen_ = nullptr;
     }
+    previous_screen_ = nullptr;
+    scan_arc_ = nullptr;
+    pulse_arc_ = nullptr;
+    seconds_arc_ = nullptr;
+    jarvis_label_ = nullptr;
+    jarvis_label_shadow_a_ = nullptr;
+    jarvis_label_shadow_b_ = nullptr;
+    status_label_ = nullptr;
+    memset(orbit_dots_, 0, sizeof(orbit_dots_));
+    memset(tick_marks_, 0, sizeof(tick_marks_));
+    memset(jarvis_bars_, 0, sizeof(jarvis_bars_));
 }
 
 void JarvisWatchface::Show() {
@@ -310,18 +208,18 @@ void JarvisWatchface::Show() {
     if (screen_ == nullptr) {
         CreateUI();
     }
-
     if (screen_ != nullptr) {
-        // Hide() keeps the watchface screen object and marks it hidden.
-        // Clear the hidden flag before reloading, otherwise wake-up can look
-        // like it "failed" because the loaded screen remains invisible.
-        lv_obj_clear_flag(screen_, LV_OBJ_FLAG_HIDDEN);
-        lv_screen_load(screen_);
+        lv_obj_t* active = lv_screen_active();
+        if (active != screen_) {
+            previous_screen_ = active;
+            lv_screen_load(screen_);
+        }
         visible_ = true;
-        state_ = State::Starting;
-        state_time_ = 0;
-        InitParticles();
-        ESP_LOGI(TAG, "JARVIS Watchface shown");
+        if (state_ == State::Sleep) {
+            state_ = State::Starting;
+        }
+        UpdateFrame();
+        ESP_LOGI(TAG, "JARVIS watchface shown");
     }
 
     lvgl_port_unlock();
@@ -335,168 +233,66 @@ void JarvisWatchface::Hide() {
 
     visible_ = false;
     state_ = State::Sleep;
-    state_time_ = 0;
-    for (int i = 0; i < RING_COUNT; ++i) {
-        ring_intensity_[i] = 0;
+    if (previous_screen_ != nullptr && previous_screen_ != screen_) {
+        lv_screen_load(previous_screen_);
     }
-    global_energy_ = 0.05f;
-
-    if (screen_ != nullptr) {
-        lv_obj_add_flag(screen_, LV_OBJ_FLAG_HIDDEN);
-    }
-
+    ESP_LOGI(TAG, "JARVIS watchface hidden");
     lvgl_port_unlock();
-    ESP_LOGI(TAG, "JARVIS Watchface hidden");
 }
 
 void JarvisWatchface::SetState(State state) {
-    if (state_ == state) {
-        return;
-    }
     state_ = state;
-    state_time_ = 0;
-    ESP_LOGI(TAG, "JARVIS Watchface state changed to %d", static_cast<int>(state));
 }
 
 void JarvisWatchface::OnTimer(lv_timer_t* timer) {
     auto* self = static_cast<JarvisWatchface*>(lv_timer_get_user_data(timer));
-    if (self != nullptr) {
-        self->UpdateAnimation();
-        self->RedrawCanvas();
+    if (self == nullptr || !self->visible_) {
+        return;
     }
+    self->UpdateFrame();
 }
 
-void JarvisWatchface::RedrawCanvas() {
-    if (canvas_buf_ == nullptr || screen_ == nullptr) {
+void JarvisWatchface::UpdateFrame() {
+    if (screen_ == nullptr || !visible_) {
         return;
     }
 
-    // Clear to background color (dark blue-black)
-    uint32_t bgColor = 0x020a12;
-    for (int y = 0; y < H; ++y) {
-        for (int x = 0; x < W; ++x) {
-            canvas_buf_[y * W + x] = bgColor;
+    const uint32_t tick = lv_tick_get();
+    const int scan_pct = static_cast<int>((tick / 24) % 100);
+
+    lv_arc_set_rotation(scan_arc_, static_cast<int>((tick / 16) % 360));
+    lv_arc_set_rotation(pulse_arc_, static_cast<int>(270 - ((tick / 28) % 360)));
+    lv_arc_set_value(pulse_arc_, 45 + static_cast<int>(sinf(tick / 280.0f) * 34.0f));
+    lv_arc_set_value(seconds_arc_, ClampI32(scan_pct, 0, 100));
+    lv_arc_set_rotation(seconds_arc_, 210);
+
+    const uint32_t jarvis_color = ((tick / 400) % 2) ? 0xffffff : 0x7ff7ff;
+    lv_obj_set_style_text_color(jarvis_label_, lv_color_hex(jarvis_color), 0);
+    lv_obj_set_style_text_color(jarvis_label_shadow_a_, lv_color_hex(0x2ff3ff), 0);
+    lv_obj_set_style_text_color(jarvis_label_shadow_b_, lv_color_hex(0x2ff3ff), 0);
+
+    for (int i = 0; i < kOrbitCount; ++i) {
+        const float angle = tick / (780.0f + i * 29.0f) + i * (2.0f * kPi / kOrbitCount);
+        const float radius = 122.0f + sinf(tick / 500.0f + i) * 10.0f;
+        const int size = (i % 3 == 0) ? 8 : 5;
+        lv_obj_set_pos(orbit_dots_[i], OrbitX(angle, radius) - size / 2, OrbitY(angle, radius) - size / 2);
+        lv_obj_set_style_opa(orbit_dots_[i], static_cast<lv_opa_t>(120 + static_cast<int>(sinf(tick / 260.0f + i) * 80.0f)), 0);
+    }
+
+    if ((tick % 250) < 120) {
+        const int scan_mark = static_cast<int>((tick / 100) % 60);
+        for (int i = 0; i < 60; i += 5) {
+            const bool highlight = (i == scan_mark - (scan_mark % 5));
+            lv_obj_set_style_bg_color(tick_marks_[i], lv_color_hex(highlight ? 0xffd447 : 0x66f6ff), 0);
         }
     }
 
-    // Draw tick marks
-    DrawTickMarks(canvas_buf_, global_energy_, W);
-
-    // Draw rings (from outer to inner)
-    for (int i = 0; i < RING_COUNT; ++i) {
-        DrawGlowRing(canvas_buf_, CX, CY, RINGS[i].r, RINGS[i].width,
-                   RINGS[i].hue, ring_intensity_[i] * global_energy_,
-                   ring_angles_[i], W);
+    for (int i = 0; i < 5; ++i) {
+        const int h = 4 + static_cast<int>(sinf(tick / 150.0f + i * 0.9f) * 8.0f + 8.0f);
+        lv_obj_set_size(jarvis_bars_[i], 14, h);
+        lv_obj_set_pos(jarvis_bars_[i], 128 + i * 22, 230 - h);
+        lv_obj_set_style_opa(jarvis_bars_[i], static_cast<lv_opa_t>(150 + static_cast<int>(sinf(tick / 180.0f + i) * 80.0f)), 0);
     }
 
-    // Draw particles
-    for (int i = 0; i < MAX_PARTICLES; ++i) {
-        const auto& p = particles_[i];
-        int r = RINGS[p.ring_idx].r;
-        DrawParticle(canvas_buf_, p.angle, r, p.drift, p.size,
-                   p.brightness, breath_phase_ + p.flicker,
-                   RINGS[p.ring_idx].hue, W);
-    }
-
-    // Draw core
-    float breath = std::sin(breath_phase_) * 0.5f + 0.5f;
-    int coreR = 78 + static_cast<int>(breath * 5 + global_energy_ * 5);
-    DrawGlowCircle(canvas_buf_, CX, CY, coreR, 190, global_energy_, W);
-
-    // Draw listening effect
-    if (state_ == State::Listening) {
-        DrawListeningWaves(canvas_buf_, state_time_, global_energy_, W);
-    }
-
-    // Draw speaking effect
-    if (state_ == State::Speaking) {
-        DrawSpeakingRays(canvas_buf_, state_time_, global_energy_, coreR, W);
-    }
+    lv_label_set_text_fmt(status_label_, "ESP32-S3  JARVIS HUD  SCAN %02d%%", scan_pct);
 }
-
-void JarvisWatchface::UpdateAnimation() {
-    if (!visible_ || screen_ == nullptr) {
-        return;
-    }
-
-    state_time_ += 33;
-
-    // Update state machine
-    switch (state_) {
-        case State::Sleep:
-            target_energy_ = 0.05f;
-            for (int i = 0; i < RING_COUNT; ++i) {
-                ring_intensity_[i] = 0;
-            }
-            break;
-
-        case State::Starting: {
-            float progress = std::fmin(state_time_ / 3000.0f, 1.0f);
-            target_energy_ = progress;
-
-            for (int i = 0; i < RING_COUNT; ++i) {
-                float delay = i * 600.0f;
-                float ring_progress = std::fmax(0.0f, std::fmin((state_time_ - delay) / 800.0f, 1.0f));
-                ring_intensity_[i] = ring_progress;
-            }
-
-            if (state_time_ > 3000) {
-                SetState(State::Active);
-            }
-            break;
-        }
-
-        case State::Active: {
-            float breath = std::sin(breath_phase_) * 0.5f + 0.5f;
-            target_energy_ = 0.85f + breath * 0.1f;
-            for (int i = 0; i < RING_COUNT; ++i) {
-                ring_intensity_[i] = 0.9f + std::sin(breath_phase_ + i) * 0.1f;
-            }
-            break;
-        }
-
-        case State::Listening: {
-            float listen_breath = std::sin(state_time_ * 0.003f) * 0.5f + 0.5f;
-            target_energy_ = 0.7f + listen_breath * 0.2f;
-            for (int i = 0; i < RING_COUNT; ++i) {
-                ring_intensity_[i] = 0.6f + listen_breath * 0.3f;
-            }
-            break;
-        }
-
-        case State::Speaking: {
-            float speak_pulse = std::sin(state_time_ * 0.005f) * 0.3f + 0.7f;
-            target_energy_ = 0.8f + speak_pulse * 0.2f;
-            for (int i = 0; i < RING_COUNT; ++i) {
-                ring_intensity_[i] = 0.8f + speak_pulse * 0.2f;
-            }
-            break;
-        }
-    }
-
-    // Smooth energy transition
-    global_energy_ += (target_energy_ - global_energy_) * 0.05f;
-
-    // Update ring angles
-    for (int i = 0; i < RING_COUNT; ++i) {
-        ring_angles_[i] += RINGS[i].speed * 0.001f * (0.5f + global_energy_);
-    }
-
-    // Update breath phase
-    breath_phase_ += 0.02f;
-
-    // Update particles
-    UpdateParticles(33);
-}
-
-void JarvisWatchface::UpdateParticles(uint32_t dt) {
-    if (global_energy_ < 0.1f) return;
-
-    for (int i = 0; i < MAX_PARTICLES; ++i) {
-        particles_[i].angle += particles_[i].speed * (1.0f + global_energy_ * 2.0f);
-        particles_[i].flicker += 0.05f;
-    }
-}
-
-// Static member initialization
-uint16_t* JarvisWatchface::canvas_buf_ = nullptr;

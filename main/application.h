@@ -169,6 +169,7 @@ private:
     bool aborted_ = false;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
+    bool jarvis_watchface_active_by_wake_ = false;  // True when current voice session was started by wake word
     bool wifi_connected_debug_shown_ = false;  // WiFi 连接成功提示卡仅显示一次（断线后重置）
     bool internet_failed_shown_ = false;        // 联网失败提示卡仅显示一次（重连成功后重置）
     int clock_ticks_ = 0;

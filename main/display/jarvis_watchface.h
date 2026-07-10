@@ -43,72 +43,43 @@ private:
     JarvisWatchface(const JarvisWatchface&) = delete;
     JarvisWatchface& operator=(const JarvisWatchface&) = delete;
 
-    // UI 创建
     void CreateUI();
     void DestroyUI();
+    void CreateTickMarks();
+    void UpdateFrame();
 
-    // 定时器回调
     static void OnTimer(lv_timer_t* timer);
-    void UpdateAnimation();
-    void RedrawCanvas();
+    lv_obj_t* AddBox(lv_obj_t* parent, int32_t x, int32_t y, int32_t w, int32_t h,
+                     uint32_t color, int32_t radius);
+    lv_obj_t* AddArc(lv_obj_t* parent, int32_t size, int32_t width,
+                     uint32_t base_color, uint32_t active_color);
+    static int ClampI32(int value, int min, int max);
+    static int32_t OrbitX(float angle, float radius);
+    static int32_t OrbitY(float angle, float radius);
 
-    // 粒子系统
-    void InitParticles();
-    void UpdateParticles(uint32_t dt);
-    struct Particle {
-        int ring_idx;
-        float angle;
-        float speed;
-        float size;
-        float brightness;
-        float drift;
-        float life;
-        float flicker;
-    };
+    static constexpr float kPi = 3.14159265358979323846f;
+    static constexpr int kScreenW = 360;
+    static constexpr int kScreenH = 360;
+    static constexpr int kCenterX = 180;
+    static constexpr int kCenterY = 180;
+    static constexpr int kOrbitCount = 12;
 
-    // 坐标辅助
-    static constexpr int W_ = 360;
-    static constexpr int H_ = 360;
-    static constexpr int CX_ = W_ / 2;
-    static constexpr int CY_ = H_ / 2;
-
-    // 环形层配置
-    struct Ring {
-        int r;
-        float speed;
-        int dir;
-        int width;
-        int hue;
-        int segments;
-    };
-    static constexpr int RING_COUNT = 3;
-    static constexpr Ring RINGS[RING_COUNT] = {
-        {158, 0.3f,  1, 2, 180, 36},  // 外环
-        {110, 0.8f,  1, 1, 170, 22},  // 中环
-        { 95, 1.2f, -1, 2, 200, 16},  // 内环
-    };
-
-    // 成员变量
     lv_obj_t* screen_ = nullptr;
-    lv_obj_t* canvas_ = nullptr;
-    static uint16_t* canvas_buf_;
+    lv_obj_t* previous_screen_ = nullptr;
     lv_timer_t* timer_ = nullptr;
+    lv_obj_t* scan_arc_ = nullptr;
+    lv_obj_t* pulse_arc_ = nullptr;
+    lv_obj_t* seconds_arc_ = nullptr;
+    lv_obj_t* jarvis_label_ = nullptr;
+    lv_obj_t* jarvis_label_shadow_a_ = nullptr;
+    lv_obj_t* jarvis_label_shadow_b_ = nullptr;
+    lv_obj_t* status_label_ = nullptr;
+    lv_obj_t* orbit_dots_[kOrbitCount] = {};
+    lv_obj_t* tick_marks_[60] = {};
+    lv_obj_t* jarvis_bars_[5] = {};
 
     bool visible_ = false;
     State state_ = State::Sleep;
-
-    // 动画参数
-    uint32_t state_time_ = 0;
-    float global_energy_ = 0.05f;
-    float target_energy_ = 0.05f;
-    float breath_phase_ = 0;
-
-    float ring_angles_[RING_COUNT] = {0, 0, 0};
-    float ring_intensity_[RING_COUNT] = {0, 0, 0};
-
-    // 粒子
-    static constexpr int MAX_PARTICLES = 45;
-    Particle particles_[MAX_PARTICLES];
 };
 
 #endif // JARVIS_WATCHFACE_H

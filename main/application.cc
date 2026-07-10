@@ -1261,6 +1261,8 @@ void Application::HandleWakeWordDetectedEvent() {
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
 
+    jarvis_watchface_active_by_wake_ = true;
+
     // 调试卡 + 音频播报：检测到唤醒词
     if (auto* attitude = GetAttitudeDisplay()) {
         std::string detail = wake_word.empty() ? std::string("(无)") : wake_word;
@@ -1268,9 +1270,8 @@ void Application::HandleWakeWordDetectedEvent() {
             // 短促本地提示音 + 显示卡（默认 30s，有语音交互则由 RefreshDebugInfoTimer 重计时）
             attitude->ShowDebugInfo("唤醒成功", detail, 30000);
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
-            // 唤醒时进入 JARVIS 动效界面（暂时注释）
-            // attitude->ShowJarvisWatchface();
-            // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
+            attitude->ShowJarvisWatchface();
+            attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
         });
     }
     // 不在此处触发服务端 TTS：唤醒词后 LLM 即将开始接管对话，避免双声道冲突
@@ -1389,25 +1390,26 @@ void Application::HandleStateChangedEvent() {
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
-            if (attitude != nullptr) {
-                // attitude->HideJarvisWatchface();  // 暂时注释
+            if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
+                attitude->HideJarvisWatchface();
+                jarvis_watchface_active_by_wake_ = false;
             }
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
-            if (attitude != nullptr) {
-                // attitude->ShowJarvisWatchface();  // 暂时注释
-                // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);  // 暂时注释
+            if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
+                attitude->ShowJarvisWatchface();
+                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
             }
             break;
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
-            if (attitude != nullptr) {
-                // attitude->ShowJarvisWatchface();  // 暂时注释
-                // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Listening);  // 暂时注释
+            if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
+                attitude->ShowJarvisWatchface();
+                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Listening);
             }
 
             // 重置 listening 超时计时：本次 state 变化是 listening 入口（含 TTS stop 后从 speaking 转入）
@@ -1443,9 +1445,9 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
-            if (attitude != nullptr) {
-                // attitude->ShowJarvisWatchface();  // 暂时注释
-                // attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Speaking);  // 暂时注释
+            if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
+                attitude->ShowJarvisWatchface();
+                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Speaking);
             }
 
             if (!audio_service_.IsRunning()) {
@@ -1461,8 +1463,9 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateWifiConfiguring:
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(false);
-            if (attitude != nullptr) {
-                // attitude->HideJarvisWatchface();  // 暂时注释
+            if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
+                attitude->HideJarvisWatchface();
+                jarvis_watchface_active_by_wake_ = false;
             }
             break;
         default:
