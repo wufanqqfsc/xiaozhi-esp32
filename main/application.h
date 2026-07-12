@@ -40,6 +40,14 @@ enum AecMode {
     kAecOnServerSide,
 };
 
+struct ScheduledTask {
+    std::function<void()> callback;
+    int enqueued_clock_ticks;            // clock_ticks_ at enqueue time
+    bool guarded;                        // true if state-aware guard enabled
+    DeviceState expected_state;          // state required to run the callback
+    int max_age_ticks;                   // drop if clock_ticks_ - enqueued >= max_age_ticks
+};
+
 class Application {
 public:
     static Application& GetInstance() {
@@ -77,6 +85,16 @@ public:
      * Schedule a callback to be executed in the main task
      */
     void Schedule(std::function<void()>&& callback);
+
+    /**
+     * Schedule a guarded callback: it will only run when the device state still
+     * matches `expected_state` and the task has not been queued for more than
+     * `max_age_ticks` clock ticks. Otherwise the task is silently dropped.
+     * Used to avoid stale tasks (e.g. from a closed audio channel) hijacking
+     * a freshly reconnected state machine.
+     */
+    void ScheduleGuarded(DeviceState expected_state, int max_age_ticks,
+                         std::function<void()>&& callback);
 
     /**
      * Alert with status, message, emotion and optional sound
@@ -152,7 +170,7 @@ private:
     ~Application();
 
     std::mutex mutex_;
-    std::deque<std::function<void()>> main_tasks_;
+    std::deque<ScheduledTask> main_tasks_;
     std::unique_ptr<Protocol> protocol_;
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;

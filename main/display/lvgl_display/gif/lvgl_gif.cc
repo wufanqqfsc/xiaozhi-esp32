@@ -31,7 +31,13 @@ LvglGif::LvglGif(const lv_img_dsc_t* img_dsc)
 
     // Render first frame
     if (gif_->canvas) {
+        gd_get_frame(gif_);
         gd_render_frame(gif_, gif_->canvas);
+        // gifdec canvas alpha 初始化为 0（透明），强制设为 255 不透明
+        size_t sz = (size_t)gif_->width * gif_->height * 4;
+        for (size_t i = 3; i < sz; i += 4) {
+            gif_->canvas[i] = 0xFF;
+        }
     }
 
     loaded_ = true;
@@ -113,7 +119,13 @@ void LvglGif::Stop() {
         gd_rewind(gif_);
         // Render first frame without advancing
         if (gif_->canvas) {
+            gd_get_frame(gif_);
             gd_render_frame(gif_, gif_->canvas);
+            // gifdec canvas alpha 初始化为 0（透明），强制设为 255 不透明
+            size_t sz = (size_t)gif_->width * gif_->height * 4;
+            for (size_t i = 3; i < sz; i += 4) {
+                gif_->canvas[i] = 0xFF;
+            }
         }
         ESP_LOGD(TAG, "GIF animation stopped and rewound");
     }
@@ -223,6 +235,11 @@ void LvglGif::NextFrame() {
     // Render current frame
     if (gif_->canvas) {
         gd_render_frame(gif_, gif_->canvas);
+        // gifdec canvas alpha 初始化为 0（透明），强制设为 255 不透明
+        size_t sz = (size_t)gif_->width * gif_->height * 4;
+        for (size_t i = 3; i < sz; i += 4) {
+            gif_->canvas[i] = 0xFF;
+        }
         
         // Call frame callback if set
         if (frame_callback_) {

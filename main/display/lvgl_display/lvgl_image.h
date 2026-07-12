@@ -8,6 +8,7 @@ public:
     virtual const lv_img_dsc_t* image_dsc() const = 0;
     virtual bool IsGif() const { return false; }
     virtual const char* GetFilePath() const { return nullptr; }
+    virtual const char* GetLvglPath() const { return GetFilePath(); }
     virtual ~LvglImage() = default;
 };
 
@@ -60,8 +61,10 @@ public:
     virtual const lv_img_dsc_t* image_dsc() const override { return &image_dsc_; }
     virtual bool IsGif() const override;
     virtual const char* GetFilePath() const override { return file_path_; }
+    virtual const char* GetLvglPath() const override { return lvgl_path_; }
 
 private:
     lv_img_dsc_t image_dsc_;
     char file_path_[512];
+    char lvgl_path_[512];
 };

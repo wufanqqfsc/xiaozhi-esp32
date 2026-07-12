@@ -1,11 +1,13 @@
 #include "attitude_display.h"
 #include "lvgl_theme.h"
 #include "lvgl_image.h"
+#include "gif/lvgl_gif.h"
 #include "application.h"
 #include "assets.h"
 #include "assets/lang_config.h"
 #include "board.h"
 #include "compass_taiji.h"
+#include "fortune_watchface_view.h"
 #include <esp_lvgl_port.h>
 #include <esp_log.h>
 #include <esp_heap_caps.h>
@@ -25,7 +27,6 @@ extern "C" void lv_image_cache_drop(const void * src);
 // 调试信息卡（与后台交互事件）配置
 #define DEBUG_INFO_SHOW_MS        5000   // 功能区提示卡默认显示时长
 #define DEBUG_INFO_HOLD_MAX_MS    10000  // 联动音频播放时的最大允许显示时长（兜底）
-#define DEBUG_INFO_DEDUP_MS       1500   // 同一标题的去重间隔
 // 调试卡配色：与运势卡（金）区分，使用青/品红强调，便于识别
 #define DEBUG_INFO_BORDER_COLOR   lv_color_hex(0x00C8C8)   // 青色描边
 #define DEBUG_INFO_TITLE_COLOR    lv_color_hex(0xD4AF37)  // 金色
@@ -77,17 +78,6 @@ static const lv_color_t kFisheyeBleBorder = lv_color_black();
 static const lv_font_t* GetFisheyeIconFont()
 {
     return &font_awesome_20_4;
-}
-
-static void FisheyeOpaAnimCb(void* obj, int32_t value)
-{
-    lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), static_cast<lv_opa_t>(value), 0);
-}
-
-static void FisheyeBorderColorAnimCb(void* obj, int32_t value)
-{
-    lv_obj_set_style_border_color(static_cast<lv_obj_t*>(obj),
-                                   lv_color_hex(static_cast<uint32_t>(value)), 0);
 }
 
 struct FortuneMenuItemDef {
@@ -252,6 +242,18 @@ AttitudeDisplay::AttitudeDisplay(esp_lcd_panel_io_handle_t panel_io,
 {
     current_theme_ = LvglThemeManager::GetInstance().GetTheme("dark");
     ESP_LOGI(TAG, "AttitudeDisplay constructed, %dx%d", width, height);
+}
+
+AttitudeDisplay::~AttitudeDisplay()
+{
+    DestroyFisheyeResources();
+    ESP_LOGI(TAG, "AttitudeDisplay destroyed");
+}
+
+void AttitudeDisplay::DestroyFisheyeResources()
+{
+    // 原始样式系统：wifi_fisheye_ 和 ble_fisheye_ 由 LVGL 自动管理
+    ESP_LOGD(TAG, "Fisheye resources destroyed");
 }
 
 void AttitudeDisplay::SetupUI()
@@ -535,6 +537,7 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t
     auto img_dsc = preview_image_cache_->image_dsc();
     bool is_gif = preview_image_cache_->IsGif();
     const char* file_path = preview_image_cache_->GetFilePath();
+    const char* lvgl_path = preview_image_cache_->GetLvglPath();
 
     ESP_LOGI(TAG, "SetPreviewImage: %dx%d cf=%d is_gif=%d file=%s",
              img_dsc->header.w, img_dsc->header.h, (int)img_dsc->header.cf, is_gif ? 1 : 0,
@@ -548,8 +551,8 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t
             lvgl_port_unlock();
             return;
         }
-        if (file_path) {
-            lv_image_set_src(preview_gif_, file_path);
+        if (lvgl_path) {
+            lv_image_set_src(preview_gif_, lvgl_path);
         } else {
             lv_image_set_src(preview_gif_, img_dsc);
         }
@@ -565,8 +568,8 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t
             lvgl_port_unlock();
             return;
         }
-        if (file_path) {
-            lv_image_set_src(preview_image_, file_path);
+        if (lvgl_path) {
+            lv_image_set_src(preview_image_, lvgl_path);
         } else {
             lv_image_set_src(preview_image_, img_dsc);
         }
@@ -606,6 +609,7 @@ void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, 
             lv_timer_del(preview_image_hide_timer_);
             preview_image_hide_timer_ = nullptr;
         }
+        StopGifUnlocked();
         if (preview_image_ != nullptr) {
             lv_image_set_src(preview_image_, NULL);
             lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
@@ -689,6 +693,116 @@ void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, 
         lv_timer_del(preview_image_hide_timer_);
     }
     preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, timeout_ms, this);
+}
+
+void AttitudeDisplay::SetPreviewGif(const char* file_path, bool loop, uint32_t timeout_ms)
+{
+    if (lvgl_port_lock(portMAX_DELAY)) {
+        SetPreviewGifUnlocked(file_path, loop, timeout_ms);
+        lvgl_port_unlock();
+    }
+}
+
+void AttitudeDisplay::SetPreviewGifUnlocked(const char* file_path, bool loop, uint32_t timeout_ms)
+{
+    if (file_path == nullptr || file_path[0] == '\0') {
+        StopGifUnlocked();
+        return;
+    }
+
+    if (image_overlay_card_ == nullptr || preview_gif_ == nullptr) {
+        ESP_LOGE(TAG, "SetPreviewGifUnlocked: UI not ready");
+        return;
+    }
+
+    StopGifUnlocked();
+
+    FILE* f = fopen(file_path, "rb");
+    if (!f) {
+        ESP_LOGE(TAG, "SetPreviewGifUnlocked: cannot open %s", file_path);
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t* gif_data = (uint8_t*)malloc(fsize);
+    if (!gif_data || fread(gif_data, 1, fsize, f) != (size_t)fsize) {
+        fclose(f);
+        if (gif_data) free(gif_data);
+        ESP_LOGE(TAG, "SetPreviewGifUnlocked: read failed (%ld bytes)", fsize);
+        return;
+    }
+    fclose(f);
+
+    lv_img_dsc_t img_dsc;
+    memset(&img_dsc, 0, sizeof(img_dsc));
+    img_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    img_dsc.header.cf = LV_COLOR_FORMAT_RAW;
+    img_dsc.data = gif_data;
+    img_dsc.data_size = fsize;
+
+    gif_controller_ = new LvglGif(&img_dsc);
+    if (!gif_controller_ || !gif_controller_->IsLoaded()) {
+        ESP_LOGE(TAG, "SetPreviewGifUnlocked: LvglGif load failed");
+        if (gif_controller_) {
+            delete gif_controller_;
+            gif_controller_ = nullptr;
+        }
+        free(gif_data);
+        gif_raw_data_ = nullptr;
+        gif_raw_size_ = 0;
+        return;
+    }
+    gif_raw_data_ = gif_data;
+    gif_raw_size_ = fsize;
+
+    ESP_LOGI(TAG, "SetPreviewGifUnlocked: %dx%d loop=%d",
+             gif_controller_->width(), gif_controller_->height(), loop ? 1 : 0);
+
+    gif_controller_->SetFrameCallback([this]() {
+        if (gif_controller_ && preview_gif_) {
+            lv_image_set_src(preview_gif_, gif_controller_->image_dsc());
+            lv_obj_invalidate(preview_gif_);
+        }
+    });
+
+    if (loop) {
+        gif_controller_->SetLoopCount(-1);
+    }
+    lv_image_set_src(preview_gif_, gif_controller_->image_dsc());
+    lv_obj_center(preview_gif_);
+    lv_obj_remove_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
+    if (preview_image_ != nullptr) {
+        lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
+    }
+    gif_controller_->Start();
+
+    lv_obj_remove_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+    if (attitude_container_ != nullptr) {
+        lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (preview_image_hide_timer_ != nullptr) {
+        lv_timer_del(preview_image_hide_timer_);
+    }
+    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, timeout_ms, this);
+}
+
+void AttitudeDisplay::StopGifUnlocked()
+{
+    if (gif_controller_ != nullptr) {
+        gif_controller_->Stop();
+        delete gif_controller_;
+        gif_controller_ = nullptr;
+    }
+    if (gif_raw_data_ != nullptr) {
+        free(gif_raw_data_);
+        gif_raw_data_ = nullptr;
+        gif_raw_size_ = 0;
+    }
+    if (preview_gif_ != nullptr) {
+        lv_image_set_src(preview_gif_, NULL);
+    }
 }
 
 void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
@@ -1078,7 +1192,9 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     fortune_menu_selection_active_ = false;
     HideDivinationHintUnlocked();
     HideTaijiPressOverlayUnlocked();
-    HideDebugInfoUnlocked();
+    ClearDebugInfoCard();
+    debug_info_queue_.clear();
+    current_index_ = SIZE_MAX;
 }
 
 void AttitudeDisplay::StartFortuneDivinationUnlocked()
@@ -1143,6 +1259,20 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
 
     ESP_LOGI(TAG, "Fortune divination finished -> %d (%s)",
              result_index, kFortuneMenuDefs[result_index].func_label);
+
+    if (divination_from_jarvis_) {
+        lv_timer_create([](lv_timer_t* timer) {
+            auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
+            if (self != nullptr) {
+                self->SwitchBackFromDivination();
+            }
+            lv_timer_del(timer);
+        }, 2000, this);
+    } else {
+        if (divination_callback_ != nullptr) {
+            divination_callback_(result_index);
+        }
+    }
 }
 
 void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
@@ -1331,8 +1461,20 @@ void AttitudeDisplay::DeselectFortuneMenuItemUnlocked()
     if (prev >= 0 && prev < FORTUNE_MENU_COUNT) {
         UpdateFortuneMenuItemVisual(prev, false);
     }
-    HideDebugInfoUnlocked();
+    ClearDebugInfoCard();
+    debug_info_queue_.clear();
+    current_index_ = SIZE_MAX;
     SetPreviewImageUnlocked(nullptr);
+
+    // 取消选中时隐藏 JARVIS 特效，恢复罗盘主界面
+    if (fortune_watchface_visible_) {
+        FortuneWatchfaceView::GetInstance().Hide();
+        fortune_watchface_visible_ = false;
+    }
+    // 恢复罗盘主界面
+    if (attitude_container_ != nullptr) {
+        lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void AttitudeDisplay::UpdateFortuneMenuItemVisual(int index, bool selected)
@@ -1423,6 +1565,30 @@ void AttitudeDisplay::ShowFortuneFeatureCategoryUnlocked(int index)
     if (index < 0 || index >= FORTUNE_MENU_COUNT) {
         return;
     }
+
+    // 今日运势（index 0）：显示 JARVIS 启动特效，隐藏罗盘主界面
+    if (index == 0) {
+        ESP_LOGI(TAG, "Showing JARVIS watchface effect for Fortune Today");
+        // 隐藏罗盘主界面以降低内存占用
+        if (attitude_container_ != nullptr) {
+            lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+        // Lazy load: Show() 内部会在 overlay_screen_ == nullptr 时创建 UI
+        FortuneWatchfaceView::GetInstance().Show();
+        fortune_watchface_visible_ = true;
+        return;
+    }
+
+    // 其他运势：隐藏特效，恢复罗盘主界面
+    if (fortune_watchface_visible_) {
+        FortuneWatchfaceView::GetInstance().Hide();
+        fortune_watchface_visible_ = false;
+    }
+    // 恢复罗盘主界面
+    if (attitude_container_ != nullptr) {
+        lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+
     // 清掉上一次的"通知/状态"去重上下文，避免本卡被同标题抑制
     debug_info_last_title_.clear();
     debug_info_last_show_ms_ = 0;
@@ -1456,7 +1622,7 @@ bool AttitudeDisplay::HandlePowerKey()
     // 2. 功能区显示状态：隐藏功能区
     if (function_area_card_ != nullptr
         && !lv_obj_has_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN)) {
-        HideDebugInfoUnlocked();
+        PopAndShowNext();
         ESP_LOGI(TAG, "PWR: debug info card dismissed");
         return true;
     }
@@ -1521,55 +1687,7 @@ bool AttitudeDisplay::IsTaijiAutoRotating()
     return CompassTaiji::IsAutoRotating();
 }
 
-void AttitudeDisplay::StartFisheyePulse(lv_obj_t* obj)
-{
-    if (obj == nullptr) {
-        return;
-    }
 
-    lv_anim_delete(obj, FisheyeOpaAnimCb);
-    lv_obj_set_style_opa(obj, 255, 0);
-
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, obj);
-    lv_anim_set_exec_cb(&anim, FisheyeOpaAnimCb);
-    lv_anim_set_values(&anim, 150, 255);
-    lv_anim_set_duration(&anim, FISHEYE_PULSE_MS);
-    lv_anim_set_playback_duration(&anim, FISHEYE_PULSE_MS);
-    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_start(&anim);
-}
-
-void AttitudeDisplay::StartFisheyeBorderPulse(lv_obj_t* obj, uint32_t c1, uint32_t c2)
-{
-    if (obj == nullptr) {
-        return;
-    }
-
-    lv_anim_delete(obj, FisheyeBorderColorAnimCb);
-
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, obj);
-    lv_anim_set_exec_cb(&anim, FisheyeBorderColorAnimCb);
-    lv_anim_set_values(&anim, static_cast<int32_t>(c1), static_cast<int32_t>(c2));
-    lv_anim_set_duration(&anim, FISHEYE_PULSE_MS * 2);
-    lv_anim_set_playback_duration(&anim, FISHEYE_PULSE_MS * 2);
-    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_start(&anim);
-}
-
-void AttitudeDisplay::StopFisheyePulse(lv_obj_t* obj)
-{
-    if (obj == nullptr) {
-        return;
-    }
-
-    lv_anim_delete(obj, FisheyeOpaAnimCb);
-    lv_anim_delete(obj, FisheyeBorderColorAnimCb);
-    lv_obj_set_style_opa(obj, LV_OPA_COVER, 0);
-}
 
 void AttitudeDisplay::CreateWifiFisheye()
 {
@@ -1641,8 +1759,6 @@ void AttitudeDisplay::ApplyWifiFisheyeStyle(WifiStatus status)
         return;
     }
 
-    StopFisheyePulse(wifi_fisheye_);
-
     // 恢复默认边框色（白色）
     lv_obj_set_style_border_color(wifi_fisheye_, kFisheyeWifiBorder, 0);
 
@@ -1654,7 +1770,6 @@ void AttitudeDisplay::ApplyWifiFisheyeStyle(WifiStatus status)
     case WifiStatus::CONNECTING:
         lv_obj_set_style_text_color(wifi_fisheye_icon_, kFisheyeGold, 0);
         lv_label_set_text(wifi_fisheye_icon_, FONT_AWESOME_WIFI);
-        StartFisheyePulse(wifi_fisheye_);
         break;
     case WifiStatus::CONNECTED:
         lv_obj_set_style_text_color(wifi_fisheye_icon_, COLOR_WIFI_GREEN, 0);
@@ -1665,22 +1780,11 @@ void AttitudeDisplay::ApplyWifiFisheyeStyle(WifiStatus status)
     }
 }
 
-void AttitudeDisplay::UpdateWifiFisheyeBorderColor(WifiStatus status)
-{
-    if (wifi_fisheye_ == nullptr) {
-        return;
-    }
-    // 预留：可根据状态动态改变边框颜色
-    lv_obj_set_style_border_color(wifi_fisheye_, kFisheyeWifiBorder, 0);
-}
-
 void AttitudeDisplay::ApplyBleFisheyeStyle(BleStatus status)
 {
     if (ble_fisheye_ == nullptr || ble_fisheye_icon_ == nullptr) {
         return;
     }
-
-    StopFisheyePulse(ble_fisheye_);
 
     // 恢复默认边框色（黑色）
     lv_obj_set_style_border_color(ble_fisheye_, kFisheyeBleBorder, 0);
@@ -1701,14 +1805,6 @@ void AttitudeDisplay::ApplyBleFisheyeStyle(BleStatus status)
     default:
         break;
     }
-}
-
-void AttitudeDisplay::UpdateBleFisheyeBorderColor(BleStatus status)
-{
-    if (ble_fisheye_ == nullptr) {
-        return;
-    }
-    lv_obj_set_style_border_color(ble_fisheye_, kFisheyeBleBorder, 0);
 }
 
 void AttitudeDisplay::UpdateWifiFisheye(WifiStatus status)
@@ -1752,6 +1848,160 @@ void AttitudeDisplay::UpdateTaijiGoldRingColor(lv_color_t color)
     CompassTaiji::UpdateGoldRingColor(color);
 }
 
+// 语音唤醒时显示 JARVIS 启动视图：切换到 JARVIS 屏幕
+void AttitudeDisplay::ShowJarvisWatchface()
+{
+    DisplayLockGuard lock(this);
+    // 已在显示中（运势菜单触发的 JARVIS 或唤醒触发），不重复加载
+    if (fortune_watchface_visible_) {
+        return;
+    }
+    ESP_LOGI(TAG, "ShowJarvisWatchface: voice wake-up triggered");
+    // 直接切换到 JARVIS 屏幕（切换屏幕后主屏幕内容自然不可见，无需手动隐藏）
+    FortuneWatchfaceView::GetInstance().Show();
+    fortune_watchface_visible_ = true;
+}
+
+// 语音交互结束时隐藏 JARVIS 视图：切换回罗盘主屏幕
+void AttitudeDisplay::HideJarvisWatchface()
+{
+    DisplayLockGuard lock(this);
+    if (!fortune_watchface_visible_) {
+        return;
+    }
+    ESP_LOGI(TAG, "HideJarvisWatchface: voice interaction ended");
+    // 直接切换回主屏幕（attitude_container_ 始终可见，无需恢复）
+    FortuneWatchfaceView::GetInstance().Hide();
+    fortune_watchface_visible_ = false;
+}
+
+void AttitudeDisplay::ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {
+    DisplayLockGuard lock(this);
+
+    if (preview_image_hide_timer_ != nullptr) {
+        lv_timer_del(preview_image_hide_timer_);
+        preview_image_hide_timer_ = nullptr;
+    }
+
+    if (image == nullptr) {
+        ESP_LOGW(TAG, "ShowImageOnActiveView: null image");
+        return;
+    }
+
+    if (fortune_watchface_visible_) {
+        auto img_dsc = image->image_dsc();
+        bool is_gif = image->IsGif();
+
+        FortuneWatchfaceView::GetInstance().ShowImage(img_dsc, is_gif, timeout_ms);
+        ESP_LOGI(TAG, "ShowImageOnActiveView: displayed on JARVIS view");
+    } else {
+        SetPreviewImageUnlocked(std::move(image), timeout_ms);
+        ESP_LOGI(TAG, "ShowImageOnActiveView: displayed on main screen");
+    }
+}
+
+void AttitudeDisplay::SwitchToDivination() {
+    DisplayLockGuard lock(this);
+
+    if (fortune_watchface_visible_) {
+        divination_from_jarvis_ = true;
+        HideJarvisWatchface();
+        if (view_stack_.contains(ActiveView::JarvisWatchface)) {
+            view_stack_.push(ActiveView::Divination);
+        }
+        ESP_LOGI(TAG, "SwitchToDivination: JARVIS hidden");
+    } else {
+        divination_from_jarvis_ = false;
+        view_stack_.clear();
+        view_stack_.push(ActiveView::Compass);
+        view_stack_.push(ActiveView::Divination);
+    }
+
+    StartFortuneDivination();
+    ESP_LOGI(TAG, "SwitchToDivination: divination started, current=%d",
+             static_cast<int>(view_stack_.current()));
+}
+
+void AttitudeDisplay::SwitchBackFromDivination() {
+    DisplayLockGuard lock(this);
+
+    StopFortuneDivination();
+    ESP_LOGI(TAG, "SwitchBackFromDivination: divination stopped");
+
+    if (divination_from_jarvis_) {
+        ShowJarvisWatchface();
+        divination_from_jarvis_ = false;
+        if (view_stack_.contains(ActiveView::Divination)) {
+            view_stack_.pop();
+        }
+        ESP_LOGI(TAG, "SwitchBackFromDivination: JARVIS shown, current=%d",
+                 static_cast<int>(view_stack_.current()));
+    }
+
+    int result = GetFortuneDivinationResult();
+    if (divination_callback_ != nullptr) {
+        divination_callback_(result);
+        ESP_LOGI(TAG, "SwitchBackFromDivination: callback triggered, result=%d", result);
+    }
+}
+
+void AttitudeDisplay::SetDivinationCallback(std::function<void(int)> callback) {
+    divination_callback_ = callback;
+}
+
+void AttitudeDisplay::FadeViewTransitionUnlocked(lv_obj_t* from_view, lv_obj_t* to_view, uint32_t duration_ms) {
+    if (from_view == nullptr || to_view == nullptr) {
+        return;
+    }
+    if (from_view == to_view) {
+        return;
+    }
+
+    // 1) 起始视图淡出：opacity 255 -> 0
+    lv_anim_t fade_out_anim;
+    lv_anim_init(&fade_out_anim);
+    lv_anim_set_var(&fade_out_anim, from_view);
+    lv_anim_set_user_data(&fade_out_anim, from_view);
+    lv_anim_set_custom_exec_cb(&fade_out_anim, [](lv_anim_t* a, int32_t v) {
+        lv_obj_t* view = static_cast<lv_obj_t*>(lv_anim_get_user_data(a));
+        if (view != nullptr) {
+            lv_obj_set_style_opa(view, v, 0);
+        }
+    });
+    lv_anim_set_values(&fade_out_anim, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_duration(&fade_out_anim, duration_ms);
+    lv_anim_set_path_cb(&fade_out_anim, lv_anim_path_ease_in_out);
+
+    // 3) 淡出动画结束后隐藏起始视图（在 start 前注册）
+    lv_anim_set_completed_cb(&fade_out_anim, [](lv_anim_t* a) {
+        lv_obj_t* view = static_cast<lv_obj_t*>(lv_anim_get_user_data(a));
+        if (view != nullptr) {
+            lv_obj_add_flag(view, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_opa(view, LV_OPA_COVER, 0);
+        }
+    });
+    lv_anim_start(&fade_out_anim);
+
+    // 2) 目标视图先设为透明，淡入：opacity 0 -> 255
+    lv_obj_set_style_opa(to_view, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(to_view, LV_OBJ_FLAG_HIDDEN);
+
+    lv_anim_t fade_in_anim;
+    lv_anim_init(&fade_in_anim);
+    lv_anim_set_var(&fade_in_anim, to_view);
+    lv_anim_set_user_data(&fade_in_anim, to_view);
+    lv_anim_set_custom_exec_cb(&fade_in_anim, [](lv_anim_t* a, int32_t v) {
+        lv_obj_t* view = static_cast<lv_obj_t*>(lv_anim_get_user_data(a));
+        if (view != nullptr) {
+            lv_obj_set_style_opa(view, v, 0);
+        }
+    });
+    lv_anim_set_values(&fade_in_anim, LV_OPA_TRANSP, LV_OPA_COVER);
+    lv_anim_set_duration(&fade_in_anim, duration_ms);
+    lv_anim_set_path_cb(&fade_in_anim, lv_anim_path_ease_in_out);
+    lv_anim_start(&fade_in_anim);
+}
+
 // ---------------------------------------------------------------------------
 // 迭代 2: AI 运势三态状态机 + 200×240 结果卡
 // ---------------------------------------------------------------------------
@@ -1760,8 +2010,7 @@ void AttitudeDisplay::EnterIdleState()
 {
     DisplayLockGuard lock(this);
     StopFortuneDivinationUnlocked();
-    ApplyWifiFisheyeStyle(wifi_status_);
-    ApplyBleFisheyeStyle(ble_status_);
+    // 鱼眼状态由 UpdateWifiFisheye/UpdateBleFisheye 管理，无需重复刷新
 
     fortune_menu_selected_index_ = -1;
     fortune_menu_selection_active_ = false;
@@ -1840,14 +2089,6 @@ void AttitudeDisplay::CreateDebugInfoCard()
 
     ApplyDebugInfoCardLayout();
 
-    // 关键修复：必须用无限循环（repeat_count = -1）
-    // 原代码设为 1，导致 LVGL 在定时器触发后自动 delete 定时器，
-    // 但 debug_info_hide_timer_ 成员未被置空，下次 ShowDebugInfo 会
-    // 在悬空指针上调用 lv_timer_reset/set_period，卡片永远不消失。
-    // 现在定时器永久运行，由 DestroyDebugInfoCard 显式 delete。
-    debug_info_hide_timer_ = lv_timer_create(OnDebugInfoHideTimer, DEBUG_INFO_SHOW_MS, this);
-    lv_timer_set_repeat_count(debug_info_hide_timer_, -1);
-
     ESP_LOGD(TAG, "Debug info card created: y_title=%d y_detail=%d (detail center=%d, card center=150)",
              y_title, y_detail, y_detail + detail_h / 2);
 }
@@ -1906,10 +2147,17 @@ void AttitudeDisplay::ApplyDebugInfoCardLayout()
 void AttitudeDisplay::DestroyDebugInfoCard()
 {
     StopFortuneDivinationUnlocked();
-    if (debug_info_hide_timer_ != nullptr) {
-        lv_timer_delete(debug_info_hide_timer_);
-        debug_info_hide_timer_ = nullptr;
+    
+    // 清理事件队列中的所有定时器
+    for (auto& item : debug_info_queue_) {
+        if (item.timer != nullptr) {
+            lv_timer_del(item.timer);
+            item.timer = nullptr;
+        }
     }
+    debug_info_queue_.clear();
+    current_index_ = SIZE_MAX;
+    
     if (preview_image_hide_timer_ != nullptr) {
         lv_timer_delete(preview_image_hide_timer_);
         preview_image_hide_timer_ = nullptr;
@@ -1954,29 +2202,6 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
     lv_obj_remove_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(function_area_card_);
     lv_obj_update_layout(function_area_card_);
-    // 注意：不能在持锁情况下调用 lv_refr_now()，LVGL 文档禁止从非 LVGL 任务刷新。
-    // 此函数由 ShowNotification 等 UI 调用方持有 DisplayLockGuard，本身为非 LVGL 任务上下文，
-    // 故移除 lv_refr_now()；下次 LVGL 周期会自动刷新（典型 < 30ms）。
-
-    // Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
-
-    ESP_LOGI(TAG, "DebugInfoCard shown: title=%s hidden=%d card_hidden=%d",
-             title.c_str(),
-             lv_obj_has_flag(debug_info_title_, LV_OBJ_FLAG_HIDDEN) ? 1 : 0,
-             lv_obj_has_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN) ? 1 : 0);
-
-    if (debug_info_hide_timer_ != nullptr) {
-        if (opts.persistent) {
-            lv_timer_pause(debug_info_hide_timer_);
-        } else {
-            const uint32_t actual_hold = (hold_ms == 0) ? DEBUG_INFO_SHOW_MS
-                                    : (hold_ms > DEBUG_INFO_HOLD_MAX_MS) ? DEBUG_INFO_HOLD_MAX_MS
-                                    : hold_ms;
-            lv_timer_resume(debug_info_hide_timer_);
-            lv_timer_set_period(debug_info_hide_timer_, actual_hold);
-            lv_timer_reset(debug_info_hide_timer_);
-        }
-    }
 
     if (opts.persistent) {
         ESP_LOGI(TAG, "Fortune feature card: %s card_title=%dx%d@%d,%d detail=%dx%d builtin_font=%d font=%p",
@@ -1993,17 +2218,101 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
     }
 }
 
-void AttitudeDisplay::OnDebugInfoHideTimer(lv_timer_t* timer)
+void AttitudeDisplay::OnDebugInfoTimer(lv_timer_t* timer)
 {
     auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
     if (self == nullptr) {
         return;
     }
     DisplayLockGuard lock(self);
-    self->HideDebugInfoUnlocked();
-    // 优化：定时器触发后自动暂停，避免卡片已隐藏但定时器仍每 5s 触发
-    // 下次 ShowDebugInfo → PresentDebugInfoCardUnlocked 中会 lv_timer_resume + reset
-    lv_timer_pause(timer);
+    self->PopAndShowNext();
+}
+
+// 根据标题自动推断调试信息优先级
+DebugInfoPriority AttitudeDisplay::InferDebugInfoPriority(const std::string& title)
+{
+    if (title.find("唤醒成功") != std::string::npos) return DebugInfoPriority::CRITICAL;
+    if (title.find("WiFi 已连接") != std::string::npos || title.find("握手成功") != std::string::npos) return DebugInfoPriority::HIGH;
+    if (title.find("识别") != std::string::npos) return DebugInfoPriority::MEDIUM;
+    return DebugInfoPriority::LOW; // 默认
+}
+
+// 将事件加入队列
+DebugInfoItem* AttitudeDisplay::EnqueueItem(const std::string& title, const std::string& detail,
+                                           uint32_t hold_ms, DebugInfoPriority priority)
+{
+    DebugInfoItem item;
+    item.title = title;
+    item.detail = detail;
+    item.hold_ms = hold_ms;
+    item.priority = priority;
+    item.enqueue_tick = esp_timer_get_time() / 1000;
+    item.timer = lv_timer_create(OnDebugInfoTimer, hold_ms, this);
+    lv_timer_pause(item.timer); // 先暂停，由 PopAndShowNext 启动
+    debug_info_queue_.push_back(item);
+    return &debug_info_queue_.back();
+}
+
+// 清理当前事件（定时器 + 从队列移除）
+void AttitudeDisplay::CleanupCurrentItem()
+{
+    if (current_index_ != SIZE_MAX && current_index_ < debug_info_queue_.size()) {
+        auto it = debug_info_queue_.begin() + current_index_;
+        if (it->timer != nullptr) {
+            lv_timer_del(it->timer);
+            it->timer = nullptr;
+        }
+        debug_info_queue_.erase(it);
+    }
+    current_index_ = SIZE_MAX;
+}
+
+// 显示调试信息卡（更新 UI）
+void AttitudeDisplay::DisplayDebugInfoCard(const std::string& title, const std::string& detail)
+{
+    CreateDebugInfoCard();
+    if (function_area_card_ == nullptr || debug_info_title_ == nullptr || debug_info_detail_ == nullptr) {
+        return;
+    }
+    ApplyDebugInfoCardLayout();
+    lv_label_set_text(debug_info_title_, title.c_str());
+    lv_label_set_text(debug_info_detail_, detail.c_str());
+    lv_obj_remove_flag(debug_info_title_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(debug_info_detail_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(function_area_card_);
+    lv_obj_update_layout(function_area_card_);
+    ESP_LOGI(TAG, "DisplayDebugInfoCard: %s | %s", title.c_str(), detail.c_str());
+}
+
+// 清除调试信息卡（隐藏 UI）
+void AttitudeDisplay::ClearDebugInfoCard()
+{
+    if (function_area_card_ != nullptr) {
+        lv_obj_add_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+// 弹出当前事件并显示下一个
+void AttitudeDisplay::PopAndShowNext()
+{
+    // 弹出并清理当前事件
+    if (current_index_ != SIZE_MAX) {
+        CleanupCurrentItem();
+    }
+    
+    // 显示下一个
+    if (!debug_info_queue_.empty()) {
+        DebugInfoItem& next = debug_info_queue_.front();
+        DisplayDebugInfoCard(next.title, next.detail);
+        current_index_ = 0;
+        lv_timer_reset(next.timer);
+        lv_timer_resume(next.timer);
+        ESP_LOGD(TAG, "PopAndShowNext: showing next item, queue size=%d", (int)debug_info_queue_.size());
+    } else {
+        ClearDebugInfoCard();
+        ESP_LOGD(TAG, "PopAndShowNext: queue empty, card cleared");
+    }
 }
 
 void AttitudeDisplay::OnPreviewImageHideTimer(lv_timer_t* timer) {
@@ -2041,72 +2350,70 @@ void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string&
         return;
     }
 
-
-    const uint32_t now = lv_tick_get();
-    // 同标题去重，避免快速连续触发同一事件
-    if (!debug_info_last_title_.empty() && debug_info_last_title_ == title &&
-        (now - debug_info_last_show_ms_) < DEBUG_INFO_DEDUP_MS) {
-        ESP_LOGD(TAG, "ShowDebugInfo dedup: %s", title.c_str());
-        return;
-    }
-
-    CreateDebugInfoCard();
-    if (function_area_card_ == nullptr || debug_info_title_ == nullptr || debug_info_detail_ == nullptr) {
-        return;
-    }
-
-    DebugInfoPresentOpts opts;
-    PresentDebugInfoCardUnlocked(title, detail, hold_ms, opts);
-
-    debug_info_last_title_ = title;
-    debug_info_last_show_ms_ = now;
-}
-
-void AttitudeDisplay::HideDebugInfoUnlocked()
-{
-    if (function_area_card_ != nullptr) {
-        lv_obj_add_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN);
-    }
-    // 功能区提示卡触发事件已全部移除：调试卡消失后不再恢复显示
-
-    // 如果占卜结果弹窗刚消失，显示5秒 ark-reactor-normal.gif
-    if (fortune_divination_state_ == FortuneDivinationState::Result) {
-        // 重置为 Idle 状态，避免每次隐藏其他通知时重复触发
-        fortune_divination_state_ = FortuneDivinationState::Idle;
-        // 清理功能图标选中态
-        DeselectFortuneMenuItemUnlocked();
-        
-        void* gif_data = nullptr;
-        size_t gif_size = 0;
-        if (Assets::GetInstance().GetAssetData("ark-reactor-normal.gif", gif_data, gif_size)) {
-            auto gif_image = std::make_unique<LvglRawImage>(gif_data, gif_size);
-            if (gif_image->IsGif()) {
-                SetPreviewImageUnlocked(std::move(gif_image), 5000); // 5s timeout
-            }
+    // 1. 自动推断优先级
+    DebugInfoPriority priority = InferDebugInfoPriority(title);
+    
+    // 2. 去重检查：若队列中已有相同标题的事件，跳过
+    for (const auto& item : debug_info_queue_) {
+        if (item.title == title) {
+            ESP_LOGD(TAG, "ShowDebugInfo dedup (in queue): %s", title.c_str());
+            return;
         }
     }
+    
+    // 3. 队列满时拒绝 LOW 事件
+    if (debug_info_queue_.size() >= DEBUG_INFO_MAX_QUEUE_SIZE && priority == DebugInfoPriority::LOW) {
+        ESP_LOGD(TAG, "ShowDebugInfo dropped (queue full, LOW priority): %s", title.c_str());
+        return;
+    }
+    
+    // 4. 优先级判断
+    if (current_index_ != SIZE_MAX && current_index_ < debug_info_queue_.size() && 
+        priority < debug_info_queue_[current_index_].priority) {
+        // 新事件优先级更低 → 仅入队，不覆盖当前显示
+        ESP_LOGD(TAG, "ShowDebugInfo queued (lower priority): %s (priority=%d)", 
+                 title.c_str(), (int)priority);
+        EnqueueItem(title, detail, hold_ms, priority);
+        return;
+    }
+    
+    // 5. 新事件优先级 >= 当前 → 覆盖当前，显示新事件
+    if (current_index_ != SIZE_MAX) {
+        CleanupCurrentItem();
+    }
+    
+    // 6. 显示新事件
+    DisplayDebugInfoCard(title, detail);
+    DebugInfoItem* new_item = EnqueueItem(title, detail, hold_ms, priority);
+    current_index_ = debug_info_queue_.size() - 1;
+    lv_timer_resume(new_item->timer);
 }
 
 void AttitudeDisplay::HideDebugInfo()
 {
     DisplayLockGuard lock(this);
-    HideDebugInfoUnlocked();
+    PopAndShowNext();
 }
 
 void AttitudeDisplay::RefreshDebugInfoTimer(uint32_t hold_ms)
 {
     DisplayLockGuard lock(this);
-    if (debug_info_hide_timer_ == nullptr || function_area_card_ == nullptr) {
+    if (current_index_ == SIZE_MAX || current_index_ >= debug_info_queue_.size()) {
         return;
     }
-    // 卡片已隐藏则不重置，避免 LVGL 对隐藏对象计时
-    if (lv_obj_has_flag(function_area_card_, LV_OBJ_FLAG_HIDDEN)) {
+    // 仅当前显示事件仍为队列头部时重置
+    if (current_index_ != 0) {
         return;
     }
-    const uint32_t actual_hold = (hold_ms == 0) ? DEBUG_INFO_SHOW_MS : hold_ms;
-    lv_timer_set_period(debug_info_hide_timer_, actual_hold);
-    lv_timer_reset(debug_info_hide_timer_);
-    lv_timer_resume(debug_info_hide_timer_);
+    auto& front = debug_info_queue_.front();
+    if (front.timer != nullptr) {
+        const uint32_t actual_hold = (hold_ms == 0) ? DEBUG_INFO_SHOW_MS : hold_ms;
+        lv_timer_pause(front.timer);
+        lv_timer_set_period(front.timer, actual_hold);
+        lv_timer_reset(front.timer);
+        lv_timer_resume(front.timer);
+        ESP_LOGD(TAG, "RefreshDebugInfoTimer: reset to %ums", actual_hold);
+    }
 }
 
 bool AttitudeDisplay::HandleBootKey()
@@ -2146,38 +2453,6 @@ bool AttitudeDisplay::HandleFortuneBootLongPress()
     StartFortuneDivinationUnlocked();
     ESP_LOGI(TAG, "Boot long press: fortune divination started");
     return true;
-}
-
-// =================================================================
-// JARVIS Watchface 唤醒界面实现
-// =================================================================
-
-void AttitudeDisplay::ShowJarvisWatchface() {
-    ESP_LOGI(TAG, "Showing JARVIS Watchface");
-    {
-        DisplayLockGuard lock(this);
-        if (attitude_container_ != nullptr) {
-            lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-        }
-        CompassTaiji::SetAutoRotationPaused(true);
-    }
-    JarvisWatchface::GetInstance().Show();
-}
-
-void AttitudeDisplay::HideJarvisWatchface() {
-    ESP_LOGI(TAG, "Hiding JARVIS Watchface");
-    JarvisWatchface::GetInstance().Hide();
-    {
-        DisplayLockGuard lock(this);
-        CompassTaiji::SetAutoRotationPaused(false);
-        if (attitude_container_ != nullptr) {
-            lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-}
-
-void AttitudeDisplay::SetJarvisWatchfaceState(JarvisWatchface::State state) {
-    JarvisWatchface::GetInstance().SetState(state);
 }
 
 // =================================================================

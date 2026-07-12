@@ -174,12 +174,42 @@ void AudioService::Stop() {
         AS_EVENT_WAKE_WORD_RUNNING |
         AS_EVENT_AUDIO_PROCESSOR_RUNNING);
 
-    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
-    audio_encode_queue_.clear();
-    audio_decode_queue_.clear();
-    audio_playback_queue_.clear();
-    audio_testing_queue_.clear();
-    audio_queue_cv_.notify_all();
+    {
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        audio_encode_queue_.clear();
+        audio_decode_queue_.clear();
+        audio_playback_queue_.clear();
+        audio_testing_queue_.clear();
+        audio_queue_cv_.notify_all();
+    }
+
+    // 等待所有任务退出，避免 Stop/Start 竞态条件
+    int timeout_ms = 2000;
+    int interval_ms = 10;
+    while (timeout_ms > 0) {
+        bool all_stopped = true;
+        if (audio_input_task_handle_ != nullptr) {
+            all_stopped = false;
+        }
+        if (audio_output_task_handle_ != nullptr) {
+            all_stopped = false;
+        }
+        if (opus_codec_task_handle_ != nullptr) {
+            all_stopped = false;
+        }
+        if (all_stopped) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(interval_ms));
+        timeout_ms -= interval_ms;
+    }
+    if (timeout_ms <= 0) {
+        ESP_LOGW(TAG, "Stop timed out waiting for tasks to exit");
+        // 超时后强制清空句柄，避免后续 Start 时判断错误
+        audio_input_task_handle_ = nullptr;
+        audio_output_task_handle_ = nullptr;
+        opus_codec_task_handle_ = nullptr;
+    }
 }
 
 bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples) {
@@ -308,6 +338,7 @@ void AudioService::AudioInputTask() {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
+    audio_input_task_handle_ = nullptr;
     ESP_LOGW(TAG, "Audio input task stopped");
 }
 
@@ -359,6 +390,7 @@ void AudioService::AudioOutputTask() {
         }
     }
 
+    audio_output_task_handle_ = nullptr;
     ESP_LOGW(TAG, "Audio output task stopped");
 }
 
@@ -495,6 +527,7 @@ void AudioService::OpusCodecTask() {
         }
     }
 
+    opus_codec_task_handle_ = nullptr;
     ESP_LOGW(TAG, "Opus codec task stopped");
 }
 
@@ -721,11 +754,22 @@ bool AudioService::IsIdle() {
     return audio_encode_queue_.empty() && audio_decode_queue_.empty() && audio_playback_queue_.empty() && audio_testing_queue_.empty();
 }
 
-void AudioService::WaitForPlaybackQueueEmpty() {
+bool AudioService::WaitForPlaybackQueueEmpty(int timeout_ms) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
-    audio_queue_cv_.wait(lock, [this]() { 
+    if (timeout_ms <= 0) {
+        audio_queue_cv_.wait(lock, [this]() { 
+            return service_stopped_ || (audio_decode_queue_.empty() && audio_playback_queue_.empty()); 
+        });
+        return audio_decode_queue_.empty() && audio_playback_queue_.empty();
+    }
+    bool result = audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this]() { 
         return service_stopped_ || (audio_decode_queue_.empty() && audio_playback_queue_.empty()); 
     });
+    if (!result) {
+        ESP_LOGW(TAG, "WaitForPlaybackQueueEmpty timed out after %dms (decode=%zu playback=%zu)",
+                 timeout_ms, audio_decode_queue_.size(), audio_playback_queue_.size());
+    }
+    return result;
 }
 
 void AudioService::ResetDecoder() {

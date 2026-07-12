@@ -92,11 +92,21 @@ LvglSdCardImage::LvglSdCardImage(const char* file_path) {
     memcpy(file_path_, file_path, len);
     file_path_[len] = '\0';
 
+    const char* rel_path = file_path;
+    if (strncmp(file_path, "/sdcard/", 8) == 0) {
+        rel_path = file_path + 8;
+    } else if (strncmp(file_path, "/sdcard", 7) == 0 && file_path[7] == '\0') {
+        rel_path = "";
+    } else if (file_path[0] == '/') {
+        rel_path = file_path + 1;
+    }
+    snprintf(lvgl_path_, sizeof(lvgl_path_), "S:/%s", rel_path);
+
     image_dsc_.data = (uint8_t*)file_path_;
     image_dsc_.data_size = len;
     image_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
     image_dsc_.header.cf = LV_COLOR_FORMAT_UNKNOWN;
-    ESP_LOGI(TAG, "LvglSdCardImage created: %s", file_path_);
+    ESP_LOGI(TAG, "LvglSdCardImage created: %s (lvgl: %s)", file_path_, lvgl_path_);
 }
 
 LvglSdCardImage::~LvglSdCardImage() {

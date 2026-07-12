@@ -36,7 +36,7 @@ set(SOURCES "audio/audio_codec.cc"
             "http_api_unified.cc"
             "display/snapshot/snapshot_service.cc"
             "display/compass_taiji.cc"
-            "display/jarvis_watchface.cc"
+            "display/fortune_watchface_view.cc"
             "audio/music_player.cc"
             "protocols/protocol.cc"
             "protocols/mqtt_protocol.cc"
@@ -52,7 +52,7 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "display/snapshot" "audio" "audio/demuxer" "protocols")
+set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "display/lvgl_display/gif" "display/snapshot" "audio" "audio/demuxer" "protocols")
 
 # Add board common files
 list(APPEND SOURCES

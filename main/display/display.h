@@ -43,6 +43,7 @@ public:
     virtual Theme* GetTheme() { return current_theme_; }
     virtual void UpdateStatusBar(bool update_all = false);
     virtual void SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 10000);
+    virtual void SetPreviewGif(const char* file_path, bool loop, uint32_t timeout_ms = 10000);
     virtual void SetPowerSaveMode(bool on);
     virtual void SetupUI() { 
         setup_ui_called_ = true;

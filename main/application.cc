@@ -112,13 +112,6 @@ void ApplyWifiFisheyeStatus(WifiStatus status)
     }
 }
 
-void ApplyBleFisheyeStatus(BleStatus status)
-{
-    if (auto* attitude = GetAttitudeDisplay()) {
-        attitude->UpdateBleFisheye(status);
-    }
-}
-
 void SyncWifiFisheyeFromNetwork()
 {
     WifiStatus status = WifiStatus::DISCONNECTED;
@@ -211,6 +204,24 @@ void Application::Initialize() {
     auto& mcp_server = McpServer::GetInstance();
     mcp_server.AddCommonTools();
     mcp_server.AddUserOnlyTools();
+
+    // 注册占卜结束回调：通知后端获取结果
+    auto* attitude = GetAttitudeDisplay();
+    if (attitude != nullptr) {
+        attitude->SetDivinationCallback([this](int result) {
+            ESP_LOGI(TAG, "Divination callback triggered, result=%d", result);
+            // 通过 MCP 广播通知后端获取占卜结果
+            cJSON* json = cJSON_CreateObject();
+            cJSON_AddStringToObject(json, "type", "divination_result");
+            cJSON_AddNumberToObject(json, "result", result);
+            char* json_str = cJSON_PrintUnformatted(json);
+            if (json_str != nullptr) {
+                SendMcpMessage(std::string(json_str));
+                cJSON_free(json_str);
+            }
+            cJSON_Delete(json);
+        });
+    }
 
     // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
@@ -421,8 +432,30 @@ void Application::Run() {
             std::unique_lock<std::mutex> lock(mutex_);
             auto tasks = std::move(main_tasks_);
             lock.unlock();
+            int now_ticks = clock_ticks_;
+            DeviceState curr = GetDeviceState();
             for (auto& task : tasks) {
-                task();
+                if (task.guarded) {
+                    if (curr != task.expected_state) {
+                        ESP_LOGW(TAG, "[SCHED-GUARD] drop task: expected=%s current=%s age=%d/%d",
+                                 DeviceStateMachine::GetStateName(task.expected_state),
+                                 DeviceStateMachine::GetStateName(curr),
+                                 now_ticks - task.enqueued_clock_ticks,
+                                 task.max_age_ticks);
+                        continue;
+                    }
+                    if (task.max_age_ticks > 0 &&
+                        (now_ticks - task.enqueued_clock_ticks) >= task.max_age_ticks) {
+                        ESP_LOGW(TAG, "[SCHED-GUARD] drop stale task: expected=%s age=%d/%d",
+                                 DeviceStateMachine::GetStateName(task.expected_state),
+                                 now_ticks - task.enqueued_clock_ticks,
+                                 task.max_age_ticks);
+                        continue;
+                    }
+                }
+                if (task.callback) {
+                    task.callback();
+                }
             }
         }
 
@@ -431,9 +464,9 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
-            // Listening 超时保护：进入 listening 状态后 5s 内若没有 TTS 响应
+            // Listening 超时保护：进入 listening 状态后 20s 内若没有 TTS 响应
             // （服务端 STT 持续超时或网络异常），自动回 Idle 并恢复唤醒词监听
-            constexpr int LISTENING_TIMEOUT_SEC = 5;
+            constexpr int LISTENING_TIMEOUT_SEC = 20;
             DeviceState curr_state = GetDeviceState();
             if (curr_state == kDeviceStateListening) {
                 // 诊断日志：每 5 个 tick（5s）在 listening 时打印状态
@@ -442,8 +475,7 @@ void Application::Run() {
                              clock_ticks_, listening_started_ticks_,
                              clock_ticks_ - listening_started_ticks_, LISTENING_TIMEOUT_SEC);
                 }
-                if (listening_started_ticks_ > 0 &&
-                    clock_ticks_ - listening_started_ticks_ > LISTENING_TIMEOUT_SEC) {
+                if (clock_ticks_ >= LISTENING_TIMEOUT_SEC) {
                     ESP_LOGW(TAG, "Listening timeout (no TTS response in %ds), back to idle",
                              LISTENING_TIMEOUT_SEC);
                     listening_started_ticks_ = 0;
@@ -874,10 +906,20 @@ void Application::InitializeProtocol() {
     
     protocol_->OnAudioChannelClosed([this, &board]() {
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
-        Schedule([this]() {
+        // 用 ScheduleGuarded: 只在 idle/speaking 状态下才回 idle,且最多等 5s,
+        // 避免旧 channel 关闭产生的延迟任务劫持刚进入 listening 的新会话
+        ScheduleGuarded(kDeviceStateIdle, 5, [this]() {
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
+        });
+        // 兜底: 在 connecting/listening 下显式 log 提示
+        Schedule([this]() {
+            DeviceState st = GetDeviceState();
+            if (st == kDeviceStateConnecting || st == kDeviceStateListening) {
+                ESP_LOGW(TAG, "OnAudioChannelClosed: stale event while in %s, ignored",
+                         DeviceStateMachine::GetStateName(st));
+            }
         });
     });
     
@@ -1270,8 +1312,8 @@ void Application::HandleWakeWordDetectedEvent() {
             // 短促本地提示音 + 显示卡（默认 30s，有语音交互则由 RefreshDebugInfoTimer 重计时）
             attitude->ShowDebugInfo("唤醒成功", detail, 30000);
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            // 唤醒时显示 JARVIS 启动视图
             attitude->ShowJarvisWatchface();
-            attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
         });
     }
     // 不在此处触发服务端 TTS：唤醒词后 LLM 即将开始接管对话，避免双声道冲突
@@ -1312,7 +1354,8 @@ void Application::HandleWakeWordDetectedEvent() {
         while (audio_service_.PopPacketFromSendQueue());
 
         // 显式停止本地 TTS 播放，确保新的语音能立即开始
-        audio_service_.Stop();
+        // 使用 ResetDecoder 清空播放队列，而不是 Stop/Start 整个音频服务
+        audio_service_.ResetDecoder();
 
         // 通知服务端检测到唤醒词：服务端会调 handleWakeWord → LLM 问候 + TTS
         audio_service_.EncodeWakeWord();
@@ -1322,14 +1365,12 @@ void Application::HandleWakeWordDetectedEvent() {
         }
 
         if (state == kDeviceStateListening) {
-            audio_service_.ResetDecoder();
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
         } else {
             // speaking 状态：标记在回 listening 时播放提示音
             play_popup_on_listening_ = true;
-            audio_service_.Start();
             audio_service_.EnableWakeWordDetection(true);
         }
     } else if (state == kDeviceStateActivating) {
@@ -1390,9 +1431,9 @@ void Application::HandleStateChangedEvent() {
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
-            if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
+            if (attitude != nullptr) {
+                // 语音交互结束：隐藏 JARVIS 视图，返回罗盘界面
                 attitude->HideJarvisWatchface();
-                jarvis_watchface_active_by_wake_ = false;
             }
             break;
         case kDeviceStateConnecting:
@@ -1416,16 +1457,22 @@ void Application::HandleStateChangedEvent() {
             // clock_ticks_ 已被 HandleStateChangedEvent 入口处重置为 0，所以这里取 0 作为新的起点
             listening_started_ticks_ = clock_ticks_;
 
-            // Make sure the audio processor is running
-            if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
-                // For auto mode, wait for playback queue to be empty before enabling voice processing
-                // This prevents audio truncation when STOP arrives late due to network jitter
-                if (listening_mode_ == kListeningModeAutoStop) {
-                    audio_service_.WaitForPlaybackQueueEmpty();
-                }
-                
-                // Send the start listening command
-                protocol_->SendStartListening(listening_mode_);
+            // For auto mode, wait for playback queue to be empty before enabling voice processing
+            // This prevents audio truncation when STOP arrives late due to network jitter
+            if (listening_mode_ == kListeningModeAutoStop) {
+                // 最多等待 500ms，避免阻塞主循环导致无响应
+                audio_service_.WaitForPlaybackQueueEmpty(500);
+            }
+            
+            // Always send the start listening command to the server
+            // This tells the server to start VAD/STT processing for this listening session
+            protocol_->SendStartListening(listening_mode_);
+            ESP_LOGI(TAG, "[LISTEN-DBG] SendStartListening called, mode=%s", 
+                     listening_mode_ == kListeningModeAutoStop ? "auto" : 
+                     listening_mode_ == kListeningModeRealtime ? "realtime" : "manual");
+            
+            // Ensure audio processing is enabled
+            if (!audio_service_.IsAudioProcessorRunning()) {
                 audio_service_.EnableVoiceProcessing(true);
             }
 
@@ -1475,9 +1522,30 @@ void Application::HandleStateChangedEvent() {
 }
 
 void Application::Schedule(std::function<void()>&& callback) {
+    ScheduledTask task;
+    task.callback = std::move(callback);
+    task.enqueued_clock_ticks = clock_ticks_;
+    task.guarded = false;
+    task.expected_state = kDeviceStateUnknown;
+    task.max_age_ticks = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        main_tasks_.push_back(std::move(callback));
+        main_tasks_.push_back(std::move(task));
+    }
+    xEventGroupSetBits(event_group_, MAIN_EVENT_SCHEDULE);
+}
+
+void Application::ScheduleGuarded(DeviceState expected_state, int max_age_ticks,
+                                  std::function<void()>&& callback) {
+    ScheduledTask task;
+    task.callback = std::move(callback);
+    task.enqueued_clock_ticks = clock_ticks_;
+    task.guarded = true;
+    task.expected_state = expected_state;
+    task.max_age_ticks = max_age_ticks;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        main_tasks_.push_back(std::move(task));
     }
     xEventGroupSetBits(event_group_, MAIN_EVENT_SCHEDULE);
 }

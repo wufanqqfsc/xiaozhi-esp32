@@ -73,6 +73,12 @@ public:
     virtual void SendStopListening();
     virtual void SendAbortSpeaking(AbortReason reason);
     virtual void SendMcpMessage(const std::string& message);
+
+    /**
+     * 重置通道活跃时间戳。device 主动 send_listen/audio 时,
+     * 双向链路仍存活,不应触发超时关闭;调用方可在关键 send 时重置。
+     */
+    void ResetActivityTimer();
     /**
      * 调试用：发送一段用户提示文本让服务端处理（如 TTS 朗读事件文字）。
      * 默认实现发送 {"type":"user_prompt","text":"..."}，服务端可选择性响应。

@@ -120,10 +120,10 @@ void McpServer::AddCommonTools() {
             });
 
         AddTool("self.attitude.start_divination",
-            "Start the fortune divination marquee animation on the compass. The animation will randomly select one of the 12 fortune categories. Call get_divination_result after waiting for the animation to complete (about 15-20 seconds).",
+            "Start the fortune divination marquee animation on the compass. If Jarvis view is visible, it will be hidden during divination and restored afterwards. The animation will randomly select one of the 12 fortune categories. Call get_divination_result after waiting for the animation to complete (about 15-20 seconds).",
             PropertyList(),
             [attitude_display](const PropertyList& properties) -> ReturnValue {
-                attitude_display->StartFortuneDivination();
+                attitude_display->SwitchToDivination();
                 return "占卜已开始，跑马灯动画进行中。约15-20秒后请调用 get_divination_result 获取结果。";
             });
 
@@ -184,7 +184,7 @@ void McpServer::AddCommonTools() {
 
     if (display) {
         AddTool("self.screen.display_gif",
-            "Display a GIF/image from a URL on the device screen. Supports PNG, JPG, and animated GIF.",
+            "Display a GIF/image from a URL on the device screen. Supports PNG, JPG, and animated GIF. If Jarvis view is visible, the image will be displayed on top of it.",
             PropertyList({
                 Property("url", kPropertyTypeString)
             }),
@@ -218,7 +218,12 @@ void McpServer::AddCommonTools() {
                 http->Close();
 
                 auto image = std::make_unique<LvglAllocatedImage>(data, content_length);
-                display->SetPreviewImage(std::move(image));
+                auto attitude_display = dynamic_cast<AttitudeDisplay*>(display);
+                if (attitude_display != nullptr) {
+                    attitude_display->ShowImageOnActiveView(std::move(image), 5000);
+                } else {
+                    display->SetPreviewImage(std::move(image));
+                }
                 return true;
             });
     }

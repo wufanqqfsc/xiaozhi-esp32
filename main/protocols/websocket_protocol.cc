@@ -7,8 +7,13 @@
 #include <cstring>
 #include <cJSON.h>
 #include <esp_log.h>
+#include <esp_netif.h>
 #include <arpa/inet.h>
 #include "assets/lang_config.h"
+
+#if __has_include(<lwip/ip4addr.h>)
+#include <lwip/ip4addr.h>
+#endif
 
 #define TAG "WS"
 
@@ -82,7 +87,6 @@ void WebsocketProtocol::CloseAudioChannel(bool send_goodbye) {
 
 bool WebsocketProtocol::OpenAudioChannel() {
     Settings settings("websocket", false);
-    std::string url = settings.GetString("url");
     std::string token = settings.GetString("token");
     int version = settings.GetInt("version");
     if (version != 0) {
@@ -90,6 +94,16 @@ bool WebsocketProtocol::OpenAudioChannel() {
     }
 
     error_occurred_ = false;
+
+    std::string url = CONFIG_LOCAL_WEBSOCKET_URL;
+    ESP_LOGI(TAG, "Using build-configured websocket URL: %s", url.c_str());
+
+    // 如果仍然没有 URL，报错退出
+    if (url.empty()) {
+        ESP_LOGE(TAG, "No websocket URL available");
+        SetError(Lang::Strings::SERVER_NOT_CONNECTED);
+        return false;
+    }
 
     auto network = Board::GetInstance().GetNetwork();
     websocket_ = network->CreateWebSocket(1);

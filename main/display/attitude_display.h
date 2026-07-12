@@ -3,8 +3,10 @@
 
 #include "lcd_display.h"
 #include "lvgl_image.h"
-#include "jarvis_watchface.h"
 #include <string>
+#include <deque>
+#include <vector>
+#include <cstddef>
 #include <lvgl.h>
 
 #define SCREEN_W              360
@@ -28,6 +30,36 @@
 
 #define COLOR_BT_BLUE         lv_color_hex(0x2196F3)
 #define COLOR_WIFI_GREEN      lv_color_hex(0x00FFFF) // 提高亮度，原为 0x00C8C8
+
+// ---------------------------------------------------------------------------
+// 视图状态：spec 6.1 视图状态枚举
+// ---------------------------------------------------------------------------
+enum class ActiveView {
+    Compass,        // 罗盘主界面
+    JarvisWatchface,// JARVIS HUD 视图
+    Divination,     // 占卜视图
+};
+
+// ---------------------------------------------------------------------------
+// 视图栈：spec 6.2 视图栈结构
+// ---------------------------------------------------------------------------
+struct ViewStack {
+    std::vector<ActiveView> stack;
+    ActiveView current() const { return stack.empty() ? ActiveView::Compass : stack.back(); }
+    void push(ActiveView view) { stack.push_back(view); }
+    void pop() {
+        if (!stack.empty()) {
+            stack.pop_back();
+        }
+    }
+    void clear() { stack.clear(); }
+    bool contains(ActiveView view) const {
+        for (auto v : stack) {
+            if (v == view) return true;
+        }
+        return false;
+    }
+};
 
 #define LAYER4_BOUNDARY_RADIUS (SCREEN_W / 2 - GOLD_RING_ARC_WIDTH / 2)  // 贴屏幕圆边
 #define LAYER4_OUTER_SIZE      (LAYER4_BOUNDARY_RADIUS * 2)
@@ -113,6 +145,26 @@ enum class FortuneDivinationState {
     Result = 2,
 };
 
+// 调试信息优先级（数值越大优先级越高）
+enum class DebugInfoPriority : int {
+    LOW = 0,      // 工具调用(2500ms)
+    MEDIUM = 1,   // 识别到/失败(5000ms)
+    HIGH = 2,     // WiFi已连接/握手成功(5000ms)
+    CRITICAL = 3  // 唤醒成功(30000ms)
+};
+
+// 调试信息队列项
+struct DebugInfoItem {
+    std::string title;
+    std::string detail;
+    uint32_t hold_ms;
+    DebugInfoPriority priority;
+    lv_timer_t* timer;
+    uint64_t enqueue_tick;  // 入队时间戳，用于去重
+};
+
+#define DEBUG_INFO_MAX_QUEUE_SIZE 5
+
 class AttitudeDisplay : public SpiLcdDisplay {
 public:
     AttitudeDisplay(esp_lcd_panel_io_handle_t panel_io,
@@ -121,7 +173,10 @@ public:
                    int offset_x, int offset_y,
                    bool mirror_x, bool mirror_y, bool swap_xy);
 
-    virtual ~AttitudeDisplay() = default;
+    virtual ~AttitudeDisplay();
+
+    // 释放鱼眼预渲染 buffer 资源
+    void DestroyFisheyeResources();
 
     virtual void SetupUI() override;
     virtual void SetTheme(Theme* theme) override;
@@ -137,6 +192,7 @@ public:
     virtual void SetChatMessage(const char* role, const char* content) override;
     virtual void ClearChatMessages() override;
     virtual void SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 10000) override;
+    virtual void SetPreviewGif(const char* file_path, bool loop, uint32_t timeout_ms = 10000) override;
 
     void SetAttitudeData(float pitch, float roll, float yaw);
     void SetInterpretation(const std::string& text);
@@ -157,6 +213,11 @@ public:
     BleStatus GetBleFisheyeStatus() const { return ble_status_; }
 
     void UpdateOuterRingColor();
+
+    // 语音唤醒时显示 JARVIS 启动视图（隐藏罗盘主界面）
+    void ShowJarvisWatchface();
+    // 语音交互结束时隐藏 JARVIS 视图，恢复罗盘主界面
+    void HideJarvisWatchface();
 
     // 运势菜单（短按选中、长按确认；结果卡 Plan A 已彻底删除）
     void EnterIdleState();
@@ -189,15 +250,27 @@ public:
     /** 获取当前占卜状态 */
     int GetFortuneDivinationState() const;
 
-    // ================================================================
-    // JARVIS Watchface 唤醒界面
-    // ================================================================
-    /** 显示 JARVIS Watchface（语音唤醒时调用） */
-    void ShowJarvisWatchface();
-    /** 隐藏 JARVIS Watchface（返回待机状态时调用） */
-    void HideJarvisWatchface();
-    /** 设置 JARVIS Watchface 状态（Listening/Speaking/Active） */
-    void SetJarvisWatchfaceState(JarvisWatchface::State state);
+    // 在当前活动视图（罗盘或 JARVIS）上显示图片/GIF
+    void ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 5000);
+
+    // 从 JARVIS 视图切换到占卜视图（隐藏 JARVIS，显示罗盘并开始占卜）
+    void SwitchToDivination();
+
+    // 占卜结束后切换回 JARVIS 视图
+    void SwitchBackFromDivination();
+
+    // 获取当前是否显示 JARVIS 视图
+    bool IsJarvisWatchfaceVisible() const { return fortune_watchface_visible_; }
+
+    // 设置占卜结束回调
+    void SetDivinationCallback(std::function<void(int)> callback);
+
+    // 获取当前视图栈（spec 6.2 ViewStack）
+    const ViewStack& GetViewStack() const { return view_stack_; }
+    ActiveView GetCurrentView() const { return view_stack_.current(); }
+
+    // 视图切换时的 200ms 淡入淡出过渡（需在 DisplayLockGuard 内调用）
+    void FadeViewTransitionUnlocked(lv_obj_t* from_view, lv_obj_t* to_view, uint32_t duration_ms = 200);
 
 private:
     lv_obj_t* attitude_container_ = nullptr;
@@ -240,18 +313,21 @@ private:
     lv_obj_t* divination_hint_label_ = nullptr;
     lv_obj_t* taiji_press_overlay_ = nullptr;
     bool taiji_rotation_paused_by_press_ = false;
+    bool fortune_watchface_visible_ = false;  // 追踪 FortuneWatchfaceView 显示状态
+    bool divination_from_jarvis_ = false;     // 记录是否从 JARVIS 进入占卜
+    std::function<void(int)> divination_callback_ = nullptr;  // 占卜结束回调
+    ViewStack view_stack_;                     // 视图栈：spec 6.2 定义
 
     float current_pitch_ = 0.0f;
     float current_roll_ = 0.0f;
     float current_yaw_ = 0.0f;
     int current_state_level_ = 0;
 
+    // 鱼眼（原始样式系统）
     lv_obj_t* wifi_fisheye_ = nullptr;
     lv_obj_t* wifi_fisheye_icon_ = nullptr;
-    lv_obj_t* wifi_fisheye_canvas_ = nullptr;
     lv_obj_t* ble_fisheye_ = nullptr;
     lv_obj_t* ble_fisheye_icon_ = nullptr;
-    lv_obj_t* ble_fisheye_canvas_ = nullptr;
     WifiStatus wifi_status_ = WifiStatus::DISCONNECTED;
     BleStatus ble_status_ = BleStatus::DISABLED;
 
@@ -259,18 +335,14 @@ private:
     lv_obj_t* preview_gif_ = nullptr;
     lv_obj_t* image_overlay_card_ = nullptr;
     std::unique_ptr<LvglImage> preview_image_cache_;
+    class LvglGif* gif_controller_ = nullptr;
+    uint8_t* gif_raw_data_ = nullptr;
+    size_t gif_raw_size_ = 0;
 
     void CreateWifiFisheye();
     void CreateBleFisheye();
-    void RedrawWifiFisheyeCanvas();
-    void RedrawBleFisheyeCanvas();
-    void StartFisheyePulse(lv_obj_t* obj);
-    void StartFisheyeBorderPulse(lv_obj_t* obj, uint32_t c1, uint32_t c2);
-    void StopFisheyePulse(lv_obj_t* obj);
     void ApplyWifiFisheyeStyle(WifiStatus status);
     void ApplyBleFisheyeStyle(BleStatus status);
-    void UpdateWifiFisheyeBorderColor(WifiStatus status);
-    void UpdateBleFisheyeBorderColor(BleStatus status);
 
     void UpdateTaijiGoldRingColor(lv_color_t color);
 
@@ -308,6 +380,8 @@ private:
     void ShowFortuneFeatureCategoryUnlocked(int index);
     // 图片显示（持锁状态下调用，不加锁版本）
     void SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 10000);
+    void SetPreviewGifUnlocked(const char* file_path, bool loop, uint32_t timeout_ms);
+    void StopGifUnlocked();
 
     void SetTaijiCoreVisible(bool visible);
 
@@ -317,10 +391,10 @@ private:
     lv_obj_t* function_area_card_ = nullptr;
     lv_obj_t* debug_info_title_ = nullptr;
     lv_obj_t* debug_info_detail_ = nullptr;
-    lv_timer_t* debug_info_hide_timer_ = nullptr;
-    uint32_t debug_info_last_show_ms_ = 0;
-    std::string debug_info_last_title_;
     lv_timer_t* preview_image_hide_timer_ = nullptr;
+    // 上一次的调试信息（用于防抖）
+    std::string debug_info_last_title_;
+    int64_t debug_info_last_show_ms_ = 0;
     static void OnPreviewImageHideTimer(lv_timer_t* timer);
     void CreateDebugInfoCard();
     void DestroyDebugInfoCard();
@@ -330,8 +404,17 @@ private:
     };
     void PresentDebugInfoCardUnlocked(const std::string& title, const std::string& detail,
                                       uint32_t hold_ms, const DebugInfoPresentOpts& opts);
-    void HideDebugInfoUnlocked();
-    static void OnDebugInfoHideTimer(lv_timer_t* timer);
+    void ClearDebugInfoCard();
+    // 事件队列相关
+    std::deque<DebugInfoItem> debug_info_queue_;
+    size_t current_index_ = SIZE_MAX;  // 当前显示事件索引
+    DebugInfoItem* EnqueueItem(const std::string& title, const std::string& detail,
+                               uint32_t hold_ms, DebugInfoPriority priority);
+    void CleanupCurrentItem();
+    static void OnDebugInfoTimer(lv_timer_t* timer);
+    DebugInfoPriority InferDebugInfoPriority(const std::string& title);
+    void DisplayDebugInfoCard(const std::string& title, const std::string& detail);
+    void PopAndShowNext();
 
 
 

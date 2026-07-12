@@ -66,6 +66,9 @@ void Protocol::SendStartListening(ListeningMode mode) {
     }
     message += "}";
     SendText(message);
+    // listen 期间 device 主动发送 listen 帧 + 持续 audio,代表链路仍活跃,
+    // 重置通道超时计时器,避免 listen idle 时被 IsTimeout 误判关闭
+    ResetActivityTimer();
 }
 
 void Protocol::SendStopListening() {
@@ -106,12 +109,18 @@ void Protocol::SendUserPrompt(const std::string& text) {
 }
 
 bool Protocol::IsTimeout() const {
-    const int kTimeoutSeconds = 120;
+    // 阈值从 120s 提高到 300s:listen 阶段 server 不一定会持续推消息,
+    // 但 device 端 send_listen/audio 仍持续发出,只要双向链路存活就不应误判超时
+    const int kTimeoutSeconds = 300;
     auto now = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - last_incoming_time_);
     bool timeout = duration.count() > kTimeoutSeconds;
     if (timeout) {
-        ESP_LOGE(TAG, "Channel timeout %ld seconds", (long)duration.count());
+        ESP_LOGE(TAG, "Channel timeout %ld seconds (threshold=%d)", (long)duration.count(), kTimeoutSeconds);
     }
     return timeout;
+}
+
+void Protocol::ResetActivityTimer() {
+    last_incoming_time_ = std::chrono::steady_clock::now();
 }

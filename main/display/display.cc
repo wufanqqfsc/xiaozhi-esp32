@@ -54,6 +54,13 @@ void Display::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout
     ESP_LOGW(TAG, "SetPreviewImage not implemented by this Display subclass");
 }
 
+void Display::SetPreviewGif(const char* file_path, bool loop, uint32_t timeout_ms) {
+    (void)file_path;
+    (void)loop;
+    (void)timeout_ms;
+    ESP_LOGW(TAG, "SetPreviewGif not implemented by this Display subclass");
+}
+
 void Display::SetTheme(Theme* theme) {
     current_theme_ = theme;
     Settings settings("display", true);

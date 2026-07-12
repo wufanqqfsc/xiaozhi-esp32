@@ -120,7 +120,7 @@ public:
     const std::string& GetLastWakeWord() const;
     bool IsVoiceDetected() const { return voice_detected_; }
     bool IsIdle();
-    void WaitForPlaybackQueueEmpty();
+    bool WaitForPlaybackQueueEmpty(int timeout_ms = 0);
     bool IsWakeWordRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING; }
     bool IsAudioProcessorRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_AUDIO_PROCESSOR_RUNNING; }
     bool IsRunning() const { return (xEventGroupGetBits(event_group_) & (AS_EVENT_AUDIO_PROCESSOR_RUNNING | AS_EVENT_WAKE_WORD_RUNNING)) != 0; }
@@ -138,6 +138,7 @@ public:
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
+    void ClearPlaybackQueue();
     void SetModelsList(srmodel_list_t* models_list);
 
 private:

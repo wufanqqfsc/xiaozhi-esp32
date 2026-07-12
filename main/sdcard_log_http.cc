@@ -5,8 +5,11 @@
 #include "display/display.h"
 #include "display/lvgl_display/jpg/image_to_jpeg.h"
 #include "display/lvgl_display/lvgl_image.h"
-#include "lvgl.h"
+#include "display/lvgl_display/gif/gifdec.h"
+#include "display/attitude_display.h"
+#include "application.h"
 #include "board.h"
+#include "lvgl.h"
 #include "settings.h"
 
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
@@ -367,6 +370,8 @@ static lv_timer_t* g_display_request_timer = nullptr;
 static uint32_t g_display_request_dropped = 0;  // 累计丢包数（用于监控）
 static esp_err_t handle_display_show(httpd_req_t* req);
 static esp_err_t handle_display_hide(httpd_req_t* req);
+static esp_err_t handle_debug_jarvis_show(httpd_req_t* req);
+static esp_err_t handle_debug_jarvis_hide(httpd_req_t* req);
 
 // LVGL 主线程 timer callback：消费 display request queue
 //   每 50ms 检查一次，drain 所有待处理的请求
@@ -876,6 +881,38 @@ static esp_err_t handle_display_hide(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// 调试 API：显示 JARVIS 视图
+static esp_err_t handle_debug_jarvis_show(httpd_req_t* req) {
+    ESP_LOGI(TAG, "Debug: Show Jarvis watchface requested");
+    Application::GetInstance().Schedule([]() {
+        auto* display = Board::GetInstance().GetDisplay();
+        auto* attitude = dynamic_cast<AttitudeDisplay*>(display);
+        if (attitude != nullptr) {
+            attitude->ShowJarvisWatchface();
+        }
+    });
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true,\"action\":\"show_jarvis\"}",
+                    HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+// 调试 API：隐藏 JARVIS 视图
+static esp_err_t handle_debug_jarvis_hide(httpd_req_t* req) {
+    ESP_LOGI(TAG, "Debug: Hide Jarvis watchface requested");
+    Application::GetInstance().Schedule([]() {
+        auto* display = Board::GetInstance().GetDisplay();
+        auto* attitude = dynamic_cast<AttitudeDisplay*>(display);
+        if (attitude != nullptr) {
+            attitude->HideJarvisWatchface();
+        }
+    });
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true,\"action\":\"hide_jarvis\"}",
+                    HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
 // 音频相关 handler
 static esp_err_t handle_audio_play(httpd_req_t* req) {
     // 读取 body（JSON）
@@ -1371,7 +1408,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     httpd_register_uri_handler(g_server, &uri_file_get);
     handler_count++;
 
-    // POST /api/sdcard/files/* - 上传文件
+    // POST /api/sdcard/files/* - 上传文件（multipart/form-data）
     httpd_uri_t uri_file_upload = {
         .uri = "/api/sdcard/files/*",
         .method = HTTP_POST,
@@ -1379,6 +1416,16 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_file_upload);
+    handler_count++;
+
+    // PUT /api/sdcard/files/* - 直接二进制上传
+    httpd_uri_t uri_file_put = {
+        .uri = "/api/sdcard/files/*",
+        .method = HTTP_PUT,
+        .handler = handle_file_upload,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_file_put);
     handler_count++;
 
     // POST /api/display/show - 显示 SD 卡上的资源（JSON body）
@@ -1399,6 +1446,27 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_display_hide);
+    handler_count++;
+
+    // ========== Debug 端点（测试用） ==========
+    // POST /api/debug/jarvis/show - 显示 JARVIS 视图（测试白屏用）
+    httpd_uri_t uri_debug_jarvis_show = {
+        .uri = "/api/debug/jarvis/show",
+        .method = HTTP_POST,
+        .handler = handle_debug_jarvis_show,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_debug_jarvis_show);
+    handler_count++;
+
+    // POST /api/debug/jarvis/hide - 隐藏 JARVIS 视图（测试白屏用）
+    httpd_uri_t uri_debug_jarvis_hide = {
+        .uri = "/api/debug/jarvis/hide",
+        .method = HTTP_POST,
+        .handler = handle_debug_jarvis_hide,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_debug_jarvis_hide);
     handler_count++;
 
     // ========== Audio 端点 ==========
@@ -1995,18 +2063,100 @@ static esp_err_t handle_ble_status(httpd_req_t* req) {
 static bool display_resource_from_file(const char* rel_path, int x, int y,
                                        float scale, uint32_t duration_ms,
                                        bool loop, char* err_msg, size_t err_size) {
-    (void)x; (void)y; (void)scale; (void)duration_ms; (void)loop;
+    (void)x; (void)y; (void)scale;
     (void)err_msg; (void)err_size;
-    (void)g_mount_point;
 
     std::unique_ptr<LvglImage> image;
 
-    // 直接从 SD 卡文件路径加载图片，不读入内存
-    if (rel_path != nullptr && rel_path[0] != '\0' && is_safe_path(rel_path)) {
-        char* fullpath = (char*)malloc(320);
-        if (fullpath && join_full_path(fullpath, 320, g_mount_point, rel_path)) {
-            image = std::make_unique<LvglSdCardImage>(fullpath);
-            ESP_LOGI(TAG, "Loaded image from SD card: %s", fullpath);
+    const char* effective_path = rel_path;
+    char normalized[320] = {0};
+    if (rel_path != nullptr && rel_path[0] == '/') {
+        size_t mount_len = strlen(g_mount_point);
+        if (strncmp(rel_path, g_mount_point, mount_len) == 0 && rel_path[mount_len] == '/') {
+            effective_path = rel_path + mount_len + 1;
+        } else if (rel_path[0] == '/') {
+            effective_path = rel_path + 1;
+        }
+    }
+
+    char* fullpath = nullptr;
+    bool is_gif = false;
+
+    if (effective_path != nullptr && effective_path[0] != '\0' && is_safe_path(effective_path)) {
+        fullpath = (char*)malloc(320);
+        if (fullpath && join_full_path(fullpath, 320, g_mount_point, effective_path)) {
+            struct stat st;
+            if (stat(fullpath, &st) == 0 && S_ISREG(st.st_mode)) {
+                const char* ext = strrchr(effective_path, '.');
+                is_gif = ext && strcasecmp(ext, ".gif") == 0;
+                if (is_gif && loop) {
+                    auto& board = Board::GetInstance();
+                    auto display = board.GetDisplay();
+                    if (display != nullptr) {
+                        display->SetPreviewGif(fullpath, true, duration_ms > 0 ? duration_ms : 10000);
+                        ESP_LOGI(TAG, "GIF animation started: %s (loop, dur=%u)", fullpath, duration_ms);
+                        free(fullpath);
+                        return true;
+                    }
+                } else if (is_gif) {
+                    // 读取 GIF 文件到内存，用 gifdec 解码第一帧
+                    FILE* f = fopen(fullpath, "rb");
+                    if (f) {
+                        fseek(f, 0, SEEK_END);
+                        long fsize = ftell(f);
+                        fseek(f, 0, SEEK_SET);
+                        uint8_t* gif_data = (uint8_t*)heap_caps_malloc(fsize, MALLOC_CAP_SPIRAM);
+                        if (gif_data && fread(gif_data, 1, fsize, f) == (size_t)fsize) {
+                            fclose(f);
+                            gd_GIF* gif = gd_open_gif_data(gif_data);
+                            if (gif) {
+                                uint16_t gw = gif->width;
+                                uint16_t gh = gif->height;
+                                // 必须先调用 gd_get_frame() 读取并解码第一帧，
+                                // 它会设置 gif->fx/fy/fw/fh 帧区域并解压 LZW 数据到 gif->frame
+                                int frame_ret = gd_get_frame(gif);
+                                if (frame_ret == 1) {
+                                    gd_render_frame(gif, gif->canvas);
+                                    size_t canvas_size = (size_t)gw * gh * 4;
+                                    uint8_t* canvas = (uint8_t*)heap_caps_malloc(canvas_size, MALLOC_CAP_SPIRAM);
+                                    if (canvas) {
+                                        memcpy(canvas, gif->canvas, canvas_size);
+                                        // gifdec canvas 初始化 alpha=0（透明），强制设为 255 不透明
+                                        for (size_t i = 3; i < canvas_size; i += 4) {
+                                            canvas[i] = 0xFF;
+                                        }
+                                        gd_close_gif(gif);
+                                        heap_caps_free(gif_data);
+                                        image = std::make_unique<LvglAllocatedImage>(
+                                            canvas, canvas_size, gw, gh, gw * 4, LV_COLOR_FORMAT_ARGB8888);
+                                        ESP_LOGI(TAG, "GIF decoded: %dx%d -> ARGB8888 (alpha=255)", gw, gh);
+                                    } else {
+                                        gd_close_gif(gif);
+                                        heap_caps_free(gif_data);
+                                        ESP_LOGE(TAG, "Failed to alloc canvas for GIF");
+                                    }
+                                } else {
+                                    gd_close_gif(gif);
+                                    heap_caps_free(gif_data);
+                                    ESP_LOGE(TAG, "gd_get_frame failed (ret=%d) for %s", frame_ret, fullpath);
+                                }
+                            } else {
+                                heap_caps_free(gif_data);
+                                ESP_LOGE(TAG, "gd_open_gif_data failed for %s", fullpath);
+                            }
+                        } else {
+                            if (gif_data) heap_caps_free(gif_data);
+                            fclose(f);
+                            ESP_LOGE(TAG, "Failed to read GIF file: %s", fullpath);
+                        }
+                    }
+                } else {
+                    image = std::make_unique<LvglSdCardImage>(fullpath);
+                    ESP_LOGI(TAG, "Loaded image from SD card: %s", fullpath);
+                }
+            } else {
+                ESP_LOGW(TAG, "File not found or not regular: %s", fullpath);
+            }
             free(fullpath);
         } else {
             free(fullpath);
@@ -2127,7 +2277,40 @@ static esp_err_t handle_files_list(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// POST /api/sdcard/files/<path>  请求体：原始二进制
+static esp_err_t parse_multipart_boundary(httpd_req_t* req, char* boundary, size_t boundary_len) {
+    char ct[128];
+    esp_err_t ret = httpd_req_get_hdr_value_str(req, "Content-Type", ct, sizeof(ct));
+    if (ret != ESP_OK) return ESP_FAIL;
+    const char* multipart = "multipart/form-data; boundary=";
+    size_t ml = strlen(multipart);
+    if (strncmp(ct, multipart, ml) != 0) return ESP_FAIL;
+    snprintf(boundary, boundary_len, "--%s", ct + ml);
+    return ESP_OK;
+}
+
+static esp_err_t skip_multipart_header(httpd_req_t* req, size_t* remaining) {
+    char buf[2048];
+    size_t total_scanned = 0;
+    bool in_header = true;
+    while (in_header && *remaining > 0) {
+        size_t to_read = (*remaining < sizeof(buf)) ? *remaining : sizeof(buf);
+        int received = httpd_req_recv(req, buf, to_read);
+        if (received <= 0) return ESP_FAIL;
+        *remaining -= received;
+        for (int i = 0; i < received && in_header; i++) {
+            total_scanned++;
+            if (i + 3 < received && buf[i] == '\r' && buf[i+1] == '\n' && buf[i+2] == '\r' && buf[i+3] == '\n') {
+                in_header = false;
+                *remaining -= 4;
+                break;
+            }
+        }
+    }
+    return in_header ? ESP_FAIL : ESP_OK;
+}
+
+// POST /api/sdcard/files/<path> - multipart/form-data
+// PUT /api/sdcard/files/<path> - 直接二进制上传
 static esp_err_t handle_file_upload(httpd_req_t* req) {
     const char* prefix = "/api/sdcard/files/";
     size_t plen = strlen(prefix);
@@ -2186,8 +2369,27 @@ static esp_err_t handle_file_upload(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
+    bool is_multipart = false;
+    char boundary[128] = {0};
+    if (req->method == HTTP_POST && parse_multipart_boundary(req, boundary, sizeof(boundary)) == ESP_OK) {
+        is_multipart = true;
+        if (skip_multipart_header(req, &remaining) != ESP_OK) {
+            fclose(fp);
+            unlink(fullpath);
+            free(rel_path);
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_send(req, "{\"ok\":false,\"error\":\"multipart parse failed\"}",
+                            HTTPD_RESP_USE_STRLEN);
+            return ESP_FAIL;
+        }
+    }
+
     char buf[1024];
     size_t written = 0;
+    size_t boundary_len = is_multipart ? strlen(boundary) : 0;
+    char* boundary_buf = is_multipart ? (char*)malloc(boundary_len) : nullptr;
+    size_t boundary_pos = 0;
+
     while (remaining > 0) {
         size_t to_read = (remaining < sizeof(buf)) ? remaining : sizeof(buf);
         int received = httpd_req_recv(req, buf, to_read);
@@ -2195,24 +2397,57 @@ static esp_err_t handle_file_upload(httpd_req_t* req) {
             fclose(fp);
             unlink(fullpath);
             free(rel_path);
+            free(boundary_buf);
             httpd_resp_set_status(req, "500 Internal Server Error");
             httpd_resp_send(req, "{\"ok\":false,\"error\":\"recv failed\"}",
                             HTTPD_RESP_USE_STRLEN);
             return ESP_FAIL;
         }
-        if (fwrite(buf, 1, received, fp) != (size_t)received) {
-            fclose(fp);
-            unlink(fullpath);
-            free(rel_path);
-            httpd_resp_set_status(req, "500 Internal Server Error");
-            httpd_resp_send(req, "{\"ok\":false,\"error\":\"write failed\"}",
-                            HTTPD_RESP_USE_STRLEN);
-            return ESP_FAIL;
+
+        if (is_multipart && boundary_buf) {
+            for (int i = 0; i < received; i++) {
+                boundary_buf[boundary_pos++] = buf[i];
+                if (boundary_pos >= boundary_len) {
+                    if (memcmp(boundary_buf, boundary, boundary_len) == 0) {
+                        fclose(fp);
+                        free(rel_path);
+                        free(boundary_buf);
+                        goto upload_done;
+                    }
+                    if (fwrite(boundary_buf, 1, 1, fp) != 1) {
+                        fclose(fp);
+                        unlink(fullpath);
+                        free(rel_path);
+                        free(boundary_buf);
+                        httpd_resp_set_status(req, "500 Internal Server Error");
+                        httpd_resp_send(req, "{\"ok\":false,\"error\":\"write failed\"}",
+                                        HTTPD_RESP_USE_STRLEN);
+                        return ESP_FAIL;
+                    }
+                    written++;
+                    memmove(boundary_buf, boundary_buf + 1, boundary_len - 1);
+                    boundary_pos--;
+                }
+            }
+        } else {
+            if (fwrite(buf, 1, received, fp) != (size_t)received) {
+                fclose(fp);
+                unlink(fullpath);
+                free(rel_path);
+                free(boundary_buf);
+                httpd_resp_set_status(req, "500 Internal Server Error");
+                httpd_resp_send(req, "{\"ok\":false,\"error\":\"write failed\"}",
+                                HTTPD_RESP_USE_STRLEN);
+                return ESP_FAIL;
+            }
+            written += received;
         }
-        written += received;
         remaining -= received;
     }
     fclose(fp);
+    free(boundary_buf);
+
+upload_done:
 
     const char* ctype = get_content_type(rel_path);
     char* resp_path_copy = strdup(rel_path);
