@@ -1442,7 +1442,6 @@ void Application::HandleStateChangedEvent() {
             display->SetChatMessage("system", "");
             if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
                 attitude->ShowJarvisWatchface();
-                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Starting);
             }
             break;
         case kDeviceStateListening:
@@ -1450,7 +1449,6 @@ void Application::HandleStateChangedEvent() {
             display->SetEmotion("neutral");
             if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
                 attitude->ShowJarvisWatchface();
-                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Listening);
             }
 
             // 重置 listening 超时计时：本次 state 变化是 listening 入口（含 TTS stop 后从 speaking 转入）
@@ -1494,7 +1492,6 @@ void Application::HandleStateChangedEvent() {
             display->SetStatus(Lang::Strings::SPEAKING);
             if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
                 attitude->ShowJarvisWatchface();
-                attitude->SetJarvisWatchfaceState(JarvisWatchface::State::Speaking);
             }
 
             if (!audio_service_.IsRunning()) {
