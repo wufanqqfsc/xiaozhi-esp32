@@ -33,6 +33,11 @@ size_t http_api_device_logs(char* out_buf, size_t size);
 // 获取 OTA/WS URL 配置（NVS vs build config）
 cJSON* http_api_device_ota_url(void);
 
+// 设置服务端 IP（OTA + WebSocket），写入 NVS 并立即断开当前连接以生效
+// ip: 完整 IPv4（192.168.0.198）或简写（0.198）
+// 返回 cJSON: {ok, ip, ota_url, websocket_url, applied}
+cJSON* http_api_device_set_server_config(const char* ip, char* err_buf, size_t err_size);
+
 // 清除 NVS 中存储的 ota_url 和 websocket_url
 // key: "ota_url" | "websocket_url" | NULL（全部）
 bool http_api_device_clear_nvs(const char* key, char* err_buf, size_t err_size);

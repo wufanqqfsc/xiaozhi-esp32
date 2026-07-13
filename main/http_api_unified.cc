@@ -26,9 +26,14 @@
 #include "settings.h"
 #include "board.h"
 #include "display/display.h"
+#include "display/attitude_display.h"
 #include "display/lvgl_display/lvgl_image.h"
 #include "wifi_config_backup.h"
 #include <ssid_manager.h>
+#include <wifi_manager.h>
+
+#include "application.h"
+#include "server_config.h"
 
 #if CONFIG_XIAOZHI_ENABLE_BLE_FISHEYE
 #include "ble/ble_server.h"
@@ -189,6 +194,18 @@ extern "C" cJSON* http_api_device_status(void) {
     cJSON_AddBoolToObject(root, "http_running", SdCardLogHttpIsRunning());
     cJSON_AddNumberToObject(root, "http_port", SdCardLogHttpGetPort());
 
+    auto& wifi = WifiManager::GetInstance();
+    bool wifi_connected = wifi.IsInitialized() && wifi.IsConnected();
+    cJSON_AddBoolToObject(root, "wifi_connected", wifi_connected);
+    if (wifi_connected) {
+        cJSON_AddStringToObject(root, "device_ip", wifi.GetIpAddress().c_str());
+    }
+
+    cJSON* server = cJSON_CreateObject();
+    cJSON_AddStringToObject(server, "ota_url", ServerConfig::GetEffectiveOtaUrl().c_str());
+    cJSON_AddStringToObject(server, "websocket_url", ServerConfig::GetEffectiveWebsocketUrl().c_str());
+    cJSON_AddItemToObject(root, "server", server);
+
     cJSON* mem = cJSON_CreateObject();
     cJSON_AddNumberToObject(mem, "free_heap", esp_get_free_heap_size());
     cJSON_AddNumberToObject(mem, "min_free_heap", esp_get_minimum_free_heap_size());
@@ -266,8 +283,42 @@ extern "C" cJSON* http_api_device_ota_url(void) {
 #ifdef CONFIG_LOCAL_WEBSOCKET_URL
     cJSON_AddStringToObject(root, "build_websocket_url", CONFIG_LOCAL_WEBSOCKET_URL);
 #endif
+    cJSON_AddStringToObject(root, "effective_ota_url", ServerConfig::GetEffectiveOtaUrl().c_str());
+    cJSON_AddStringToObject(root, "effective_websocket_url", ServerConfig::GetEffectiveWebsocketUrl().c_str());
     cJSON_AddBoolToObject(root, "nvs_ota_overridden", !nvs_ota_url.empty());
     cJSON_AddBoolToObject(root, "nvs_ws_overridden", !nvs_ws_url.empty());
+    return root;
+}
+
+extern "C" cJSON* http_api_device_set_server_config(const char* ip, char* err_buf, size_t err_size) {
+    if (ip == nullptr || ip[0] == '\0') {
+        copy_err(err_buf, err_size, "missing ip");
+        return nullptr;
+    }
+
+    std::string normalized;
+    std::string err;
+    if (!ServerConfig::NormalizeIp(ip, &normalized, &err)) {
+        copy_err(err_buf, err_size, err.c_str());
+        return nullptr;
+    }
+
+    std::string ota_url;
+    std::string ws_url;
+    if (!ServerConfig::SetServerIp(normalized, &ota_url, &ws_url, &err)) {
+        copy_err(err_buf, err_size, err.c_str());
+        return nullptr;
+    }
+
+    Application::GetInstance().ApplyServerConfig();
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", true);
+    cJSON_AddStringToObject(root, "ip", normalized.c_str());
+    cJSON_AddStringToObject(root, "ota_url", ota_url.c_str());
+    cJSON_AddStringToObject(root, "websocket_url", ws_url.c_str());
+    cJSON_AddBoolToObject(root, "applied", true);
+    cJSON_AddStringToObject(root, "message", "Saved to NVS; audio channel closed for immediate reconnect");
     return root;
 }
 
@@ -619,11 +670,15 @@ extern "C" bool http_api_display_show(const char* path, int x, int y,
         copy_err(err_buf, err_size, "display not available");
         return false;
     }
-    display->SetPreviewImage(std::move(image));
+    uint32_t timeout_ms = duration_ms > 0 ? duration_ms : 5000;
+    auto* attitude_display = dynamic_cast<AttitudeDisplay*>(display);
+    if (attitude_display != nullptr) {
+        attitude_display->ShowImageOnActiveView(std::move(image), timeout_ms);
+    } else {
+        display->SetPreviewImage(std::move(image));
+    }
     ESP_LOGI(TAG, "Displayed resource: %s (%zu bytes, scale=%.2f, x=%d, y=%d, duration=%ums, loop=%d)",
              path, file_size, scale, x, y, (unsigned)duration_ms, (int)loop);
-    (void)duration_ms;
-    (void)loop;
     return true;
 }
 

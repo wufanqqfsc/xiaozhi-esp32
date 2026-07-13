@@ -1,4 +1,5 @@
 #include "ota.h"
+#include "server_config.h"
 #include "system_info.h"
 #include "settings.h"
 #include "assets/lang_config.h"
@@ -44,7 +45,7 @@ Ota::~Ota() {
 }
 
 std::string Ota::GetCheckVersionUrl() {
-    return CONFIG_OTA_URL;
+    return ServerConfig::GetEffectiveOtaUrl();
 }
 
 std::unique_ptr<Http> Ota::SetupHttp() {
@@ -78,6 +79,7 @@ esp_err_t Ota::CheckVersion() {
     ESP_LOGI(TAG, "Current version: %s", current_version_.c_str());
 
     std::string url = GetCheckVersionUrl();
+    ESP_LOGI(TAG, "Check version URL: %s", url.c_str());
     if (url.length() < 10) {
         last_error_message_ = "URL_INVALID";
         last_socket_error_ = 0;

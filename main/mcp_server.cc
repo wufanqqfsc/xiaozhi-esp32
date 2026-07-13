@@ -463,6 +463,24 @@ void McpServer::ParseCapabilities(const cJSON* capabilities) {
             return true;
         });
 
+    AddUserOnlyTool("self.device.set_server_config",
+        "Set backend server IP for OTA (8091) and WebSocket (8092); saves to NVS and applies immediately. "
+        "Equivalent to HTTP POST /api/device/server-config.",
+        PropertyList({
+            Property("ip", kPropertyTypeString)
+        }),
+        [](const PropertyList& properties) -> ReturnValue {
+            auto ip = properties["ip"].value<std::string>();
+            char err[128] = {0};
+            cJSON* root = http_api_device_set_server_config(ip.c_str(), err, sizeof(err));
+            if (root == nullptr) throw std::runtime_error(err);
+            char* json = cJSON_PrintUnformatted(root);
+            std::string result = json ? json : "{}";
+            if (json) free(json);
+            cJSON_Delete(root);
+            return result;
+        });
+
     // -------- Display API --------
 
     AddUserOnlyTool("self.display.show",

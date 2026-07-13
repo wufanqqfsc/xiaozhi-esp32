@@ -1,4 +1,5 @@
 #include "application.h"
+#include "server_config.h"
 #include "board.h"
 #include "display.h"
 #include "attitude_display.h"
@@ -689,6 +690,7 @@ void Application::ActivationTask() {
     ESP_LOGI(TAG, "ActivationTask: Assets version check done");
 
     // Check for new firmware version (contacts server for OTA + WebSocket config)
+    ServerConfig::SyncBuildEndpointsToNvs();
     ESP_LOGI(TAG, "ActivationTask: Checking new version...");
     CheckNewVersion();
     ESP_LOGI(TAG, "ActivationTask: New version check done");
@@ -856,7 +858,10 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
-    // 空指针保护：ota_ 可能在 ActivationTask 中创建失败或未初始化
+#if CONFIG_SERVER_MODE_LOCAL
+    ESP_LOGI(TAG, "Local server mode: force WebSocket protocol");
+    protocol_ = std::make_unique<WebsocketProtocol>();
+#else
     if (ota_ && ota_->HasMqttConfig()) {
         protocol_ = std::make_unique<MqttProtocol>();
     } else if (ota_ && ota_->HasWebsocketConfig()) {
@@ -865,6 +870,7 @@ void Application::InitializeProtocol() {
         ESP_LOGW(TAG, "No protocol specified in the OTA config, using WebSocket (build config fallback)");
         protocol_ = std::make_unique<WebsocketProtocol>();
     }
+#endif
 
     protocol_->OnConnected([this]() {
         DismissAlert();
@@ -931,9 +937,6 @@ void Application::InitializeProtocol() {
             if (strcmp(state->valuestring, "start") == 0) {
             Schedule([this]() {
                 aborted_ = false;
-                // TTS 开始时自动把音量调到最大，保证回放声音足够响
-                Board::GetInstance().GetAudioCodec()->SetOutputVolume(100);
-                // 若"唤醒成功"调试卡仍可见，重置其隐藏计时器（持续显示）
                 if (auto* attitude = GetAttitudeDisplay()) {
                     attitude->RefreshDebugInfoTimer(30000);
                 }
@@ -1067,6 +1070,23 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->Start();
+
+#if CONFIG_SERVER_MODE_LOCAL
+    ESP_LOGI(TAG, "Local server OTA: %s", ServerConfig::GetEffectiveOtaUrl().c_str());
+    ESP_LOGI(TAG, "Local server WS:  %s", ServerConfig::GetEffectiveWebsocketUrl().c_str());
+    // 本地模式：启动后与 8092 建立 WebSocket，后端才能显示在线
+    Schedule([this]() {
+        if (!protocol_ || protocol_->IsAudioChannelOpened()) {
+            return;
+        }
+        ESP_LOGI(TAG, "Local mode: connecting WebSocket to register with server");
+        if (protocol_->OpenAudioChannel()) {
+            ESP_LOGI(TAG, "Local mode: WebSocket connected to server");
+        } else {
+            ESP_LOGW(TAG, "Local mode: WebSocket connect failed");
+        }
+    });
+#endif
 }
 
 void Application::ShowActivationCode(const std::string& code, const std::string& message) {
@@ -1432,8 +1452,8 @@ void Application::HandleStateChangedEvent() {
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
             if (attitude != nullptr) {
-                // 语音交互结束：隐藏 JARVIS 视图，返回罗盘界面
                 attitude->HideJarvisWatchface();
+                jarvis_watchface_active_by_wake_ = false;
             }
             break;
         case kDeviceStateConnecting:
@@ -1796,6 +1816,16 @@ void Application::ResetProtocol() {
         }
         // Reset protocol
         protocol_.reset();
+    });
+}
+
+void Application::ApplyServerConfig() {
+    Schedule([this]() {
+        internet_failed_shown_ = false;
+        if (protocol_ && protocol_->IsAudioChannelOpened()) {
+            ESP_LOGI(TAG, "ApplyServerConfig: closing audio channel for new server URL");
+            protocol_->CloseAudioChannel();
+        }
     });
 }
 

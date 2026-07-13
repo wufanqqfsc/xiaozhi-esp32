@@ -18,6 +18,8 @@
 
 #include <string.h>
 #include <strings.h>
+#include <string>
+#include <algorithm>
 #include <stdio.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -1114,6 +1116,7 @@ static esp_err_t handle_device_logs(httpd_req_t* req);
 static esp_err_t handle_device_logs_flush(httpd_req_t* req);
 static esp_err_t handle_device_ota_url(httpd_req_t* req);
 static esp_err_t handle_device_clear_nvs(httpd_req_t* req);
+static esp_err_t handle_device_server_config(httpd_req_t* req);
 
 static esp_err_t handle_wifi_clear_nvs(httpd_req_t* req);
 static esp_err_t handle_wifi_status(httpd_req_t* req);
@@ -1344,6 +1347,16 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_clear_nvs);
+    handler_count++;
+
+    // 设置服务端 IP API: POST /api/device/server-config
+    httpd_uri_t uri_device_server_config = {
+        .uri = "/api/device/server-config",
+        .method = HTTP_POST,
+        .handler = handle_device_server_config,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_device_server_config);
     handler_count++;
 
     // WiFi 备份管理 API
@@ -1736,41 +1749,7 @@ bool SdCardLogHttpTriggerSnapshot(void) {
 
 // HTTP GET /api/device/status - 获取设备状态
 static esp_err_t handle_device_status(httpd_req_t* req) {
-    cJSON* root = cJSON_CreateObject();
-
-    // WiFi 状态 - 通过 HTTP 服务运行状态间接判断
-    cJSON_AddBoolToObject(root, "wifi_connected", g_server != nullptr);
-
-    // SD 卡状态
-    struct stat st;
-    bool sdcard_ok = (stat(g_mount_point, &st) == 0 && S_ISDIR(st.st_mode));
-    cJSON_AddBoolToObject(root, "sdcard_mounted", sdcard_ok);
-
-    // 日志状态
-    cJSON_AddBoolToObject(root, "log_active", SdCardLogIsActive());
-
-    // HTTP 服务状态
-    cJSON_AddBoolToObject(root, "http_running", g_server != nullptr);
-    cJSON_AddNumberToObject(root, "http_port", g_port);
-
-    // 内存信息
-    cJSON* mem = cJSON_CreateObject();
-    cJSON_AddNumberToObject(mem, "free_heap", esp_get_free_heap_size());
-    cJSON_AddNumberToObject(mem, "min_free_heap", esp_get_minimum_free_heap_size());
-    cJSON_AddItemToObject(root, "memory", mem);
-
-    // 运行时间
-    int64_t uptime_us = esp_timer_get_time();
-    cJSON_AddNumberToObject(root, "uptime_seconds", (double)(uptime_us / 1000000));
-
-    // 最后截图
-    if (g_last_screenshot[0]) {
-        cJSON_AddStringToObject(root, "last_screenshot", g_last_screenshot);
-    }
-    if (g_last_error_screenshot[0]) {
-        cJSON_AddStringToObject(root, "last_error_screenshot", g_last_error_screenshot);
-    }
-
+    cJSON* root = http_api_device_status();
     char* json_str = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
@@ -1934,22 +1913,69 @@ static esp_err_t handle_device_logs_flush(httpd_req_t* req) {
 
 // HTTP GET /api/device/ota-url - 查询当前 OTA URL 配置（用于诊断 NVS 覆盖）
 static esp_err_t handle_device_ota_url(httpd_req_t* req) {
-    Settings nvs_settings("wifi", false);
-    Settings ws_settings("websocket", false);
-    std::string nvs_ota_url = nvs_settings.GetString("ota_url", "");
-    std::string nvs_ws_url = ws_settings.GetString("url", "");
-
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "nvs_ota_url", nvs_ota_url.c_str());
-    cJSON_AddStringToObject(root, "nvs_websocket_url", nvs_ws_url.c_str());
-    cJSON_AddStringToObject(root, "build_ota_url", CONFIG_OTA_URL);
-    cJSON_AddStringToObject(root, "build_websocket_url", CONFIG_LOCAL_WEBSOCKET_URL);
-    cJSON_AddBoolToObject(root, "nvs_ota_overridden", !nvs_ota_url.empty());
-    cJSON_AddBoolToObject(root, "nvs_ws_overridden", !nvs_ws_url.empty());
-
+    cJSON* root = http_api_device_ota_url();
     char* json_str = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// HTTP POST /api/device/server-config - 设置 OTA/WS 服务端 IP，立即生效
+// Body: {"ip":"192.168.0.198"} 或 query: ?ip=0.198
+static esp_err_t handle_device_server_config(httpd_req_t* req) {
+    std::string ip;
+
+    char query_ip[64] = {0};
+    if (httpd_query_key_value(req->uri, "ip", query_ip, sizeof(query_ip)) == ESP_OK &&
+        query_ip[0] != '\0') {
+        ip = query_ip;
+    }
+
+    if (ip.empty() && req->content_len > 0) {
+        char buf[256] = {0};
+        size_t recv_sz = (std::min)(sizeof(buf) - 1, static_cast<size_t>(req->content_len));
+        int recv_len = httpd_req_recv(req, buf, static_cast<int>(recv_sz));
+        if (recv_len > 0) {
+            buf[recv_len] = '\0';
+            cJSON* root = cJSON_Parse(buf);
+            if (root != nullptr) {
+                const cJSON* jip = cJSON_GetObjectItem(root, "ip");
+                if (cJSON_IsString(jip) && jip->valuestring != nullptr) {
+                    ip = jip->valuestring;
+                }
+                cJSON_Delete(root);
+            }
+        }
+    }
+
+    if (ip.empty()) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"missing ip (use JSON {\\\"ip\\\":\\\"0.198\\\"} or ?ip=0.198)\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    char err[128] = {0};
+    cJSON* root = http_api_device_set_server_config(ip.c_str(), err, sizeof(err));
+    if (root == nullptr) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        cJSON* err_json = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err_json, "ok", false);
+        cJSON_AddStringToObject(err_json, "error", err[0] ? err : "invalid ip");
+        char* err_str = cJSON_PrintUnformatted(err_json);
+        httpd_resp_send(req, err_str ? err_str : "{\"ok\":false}", HTTPD_RESP_USE_STRLEN);
+        if (err_str) free(err_str);
+        cJSON_Delete(err_json);
+        return ESP_FAIL;
+    }
+
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
     if (json_str) free(json_str);
     cJSON_Delete(root);
     return ESP_OK;
@@ -2156,13 +2182,33 @@ static bool display_resource_from_file(const char* rel_path, int x, int y,
                 const char* ext = strrchr(effective_path, '.');
                 is_gif = ext && strcasecmp(ext, ".gif") == 0;
                 if (is_gif && loop) {
-                    auto& board = Board::GetInstance();
-                    auto display = board.GetDisplay();
-                    if (display != nullptr) {
-                        display->SetPreviewGif(fullpath, true, duration_ms > 0 ? duration_ms : 10000);
-                        ESP_LOGI(TAG, "GIF animation started: %s (loop, dur=%u)", fullpath, duration_ms);
-                        free(fullpath);
-                        return true;
+                    FILE* gf = fopen(fullpath, "rb");
+                    if (gf) {
+                        fseek(gf, 0, SEEK_END);
+                        long gfsize = ftell(gf);
+                        fseek(gf, 0, SEEK_SET);
+                        if (gfsize > 0 && gfsize <= 512 * 1024) {
+                            uint8_t* gif_data = (uint8_t*)heap_caps_malloc(gfsize, MALLOC_CAP_SPIRAM);
+                            if (gif_data == nullptr) gif_data = (uint8_t*)malloc(gfsize);
+                            if (gif_data && fread(gif_data, 1, gfsize, gf) == (size_t)gfsize) {
+                                fclose(gf);
+                                auto gif_image = std::make_unique<LvglAllocatedImage>(gif_data, (size_t)gfsize);
+                                auto& board = Board::GetInstance();
+                                auto display = board.GetDisplay();
+                                uint32_t timeout = duration_ms > 0 ? duration_ms : 5000;
+                                auto* attitude = dynamic_cast<AttitudeDisplay*>(display);
+                                if (attitude != nullptr) {
+                                    attitude->ShowImageOnActiveView(std::move(gif_image), timeout);
+                                } else if (display != nullptr) {
+                                    display->SetPreviewImage(std::move(gif_image));
+                                }
+                                ESP_LOGI(TAG, "GIF animation started: %s (loop, dur=%u)", fullpath, timeout);
+                                free(fullpath);
+                                return true;
+                            }
+                            if (gif_data) free(gif_data);
+                        }
+                        fclose(gf);
                     }
                 } else if (is_gif) {
                     // 读取 GIF 文件到内存，用 gifdec 解码第一帧
@@ -2261,8 +2307,14 @@ static bool display_resource_from_file(const char* rel_path, int x, int y,
     auto display = board.GetDisplay();
     if (display == nullptr) return false;
 
-    display->SetPreviewImage(std::move(image));
-    ESP_LOGI(TAG, "Preview displayed");
+    uint32_t timeout = duration_ms > 0 ? duration_ms : 5000;
+    auto* attitude_display = dynamic_cast<AttitudeDisplay*>(display);
+    if (attitude_display != nullptr) {
+        attitude_display->ShowImageOnActiveView(std::move(image), timeout);
+    } else {
+        display->SetPreviewImage(std::move(image));
+    }
+    ESP_LOGI(TAG, "Preview displayed (timeout=%ums)", timeout);
 
     return true;
 }

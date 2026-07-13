@@ -104,112 +104,6 @@ static const FortuneMenuItemDef kFortuneMenuDefs[FORTUNE_MENU_COUNT] = {
     {FONT_AWESOME_STAR, "贵人运势", 11, 3},
 };
 
-// =================================================================
-// 一级功能分类内容（用于 DebugInfo 视图展示）
-// 来源：doc/ai_compass_feature_expansion.md v1.18
-// 索引与 kFortuneMenuDefs 一一对应（FortuneMenuType 0..11）
-// 展示策略：
-//   - title    = "图标 + 主功能名"（如 "🧮 财运"）
-//   - details  = 一级功能分类列表（每行一类）
-// =================================================================
-struct FortuneMenuFeatureCategory {
-    const char* title;   // DebugInfo 标题
-    const char* details; // DebugInfo 详情（一级分类文本）
-};
-
-static const FortuneMenuFeatureCategory kFortuneMenuFeatureCategories[FORTUNE_MENU_COUNT] = {
-    // 0 · 今日运势
-    {
-        FONT_AWESOME_SUN " 今日运势",
-        "1. 信息聚合\n"
-        "2. 运势延伸\n"
-        "3. 互动延伸"
-    },
-    // 1 · 财运 — 财富罗盘
-    {
-        FONT_AWESOME_CALCULATOR " 财运",
-        "1. 股票预测\n"
-        "2. 理财延伸\n"
-        "3. 传统财运"
-    },
-    // 2 · 事业运势 — 职场指南针
-    {
-        FONT_AWESOME_GEAR " 事业运势",
-        "1. 职场情报\n"
-        "2. 职场建议\n"
-        "3. 自我提升"
-    },
-    // 3 · 感情运势 — 情感罗盘
-    {
-        FONT_AWESOME_HEART " 感情运势",
-        "1. 情感状态\n"
-        "2. 互动内容\n"
-        "3. 心理健康\n"
-        "4. 社交延伸"
-    },
-    // 4 · 心情卦 — 内心卦象 & 放松娱乐
-    {
-        FONT_AWESOME_MUSIC " 心情卦",
-        "1. 娱乐节奏\n"
-        "2. 卦象互动\n"
-        "3. 深度心理\n"
-        "4. 情绪复盘"
-    },
-    // 5 · 黄历宜忌 — 万年历助手
-    {
-        FONT_AWESOME_CALENDAR " 黄历宜忌",
-        "1. 传统历法\n"
-        "2. 核心历法"
-    },
-    // 6 · 节气提示 — 时节养生
-    {
-        FONT_AWESOME_CLOUD_SUN " 节气提示",
-        "1. 节气核心\n"
-        "2. 养生建议\n"
-        "3. 气候数据\n"
-        "4. 节气文化"
-    },
-    // 7 · 系统设置 — 设备管家 & YIXING 控制台
-    {
-        FONT_AWESOME_LOCK " 系统设置",
-        "1. YIXING AI 配置\n"
-        "2. 配网与连接\n"
-        "3. 音频设置\n"
-        "4. 设备管理"
-    },
-    // 8 · 健康运势 — 健康助手
-    {
-        FONT_AWESOME_TEMPERATURE_HALF " 健康运势",
-        "1. 身体状态\n"
-        "2. 中医养生\n"
-        "3. 健康资讯"
-    },
-    // 9 · 学业运势 — 学习罗盘
-    {
-        FONT_AWESOME_GLASSES " 学业运势",
-        "1. 专注计时\n"
-        "2. 学习建议\n"
-        "3. 考试辅助\n"
-        "4. 趣味学习"
-    },
-    // 10 · 出行吉日 — 出行助手
-    {
-        FONT_AWESOME_GLOBE " 出行吉日",
-        "1. 吉日查询\n"
-        "2. 出行必备\n"
-        "3. 行程助手\n"
-        "4. 安全提示"
-    },
-    // 11 · 贵人运势 — 人际罗盘
-    {
-        FONT_AWESOME_STAR " 贵人运势",
-        "1. 贵人信息\n"
-        "2. 人脉管理\n"
-        "3. 社交建议\n"
-        "4. 人际关系"
-    },
-};
-
 static const lv_font_t* GetFortuneMenuIconFont()
 {
     return &font_awesome_30_4;
@@ -1555,51 +1449,30 @@ void AttitudeDisplay::SetFortuneMenuVisible(bool visible)
 // ShowFortuneMenuFeatureCardUnlocked 已彻底删除：功能区提示卡触发事件已全部移除
 // ShowFortuneMenuFeatureCard 已彻底删除：公共 API 已被下游禁用
 
-// 在 DebugInfo 卡上展示指定索引主功能的一级分类（持锁状态下调用）
-// 调用前必须已持有 DisplayLockGuard（外部调用方 SelectFortuneMenuItemUnlocked
-// / CycleFortuneMenuSelectionUnlocked / HandleFortuneBootLongPress 均已加锁）
-// 注意：直接走 PresentDebugInfoCardUnlocked，绕过 ShowDebugInfo 的
-// "fortune_menu_selection_active_ 时被短路"的逻辑，确保选中态也能展示
+// 根据选中项切换 JARVIS / 罗盘主界面（不再弹出功能信息卡）
 void AttitudeDisplay::ShowFortuneFeatureCategoryUnlocked(int index)
 {
     if (index < 0 || index >= FORTUNE_MENU_COUNT) {
         return;
     }
 
-    // 今日运势（index 0）：显示 JARVIS 启动特效，隐藏罗盘主界面
     if (index == 0) {
         ESP_LOGI(TAG, "Showing JARVIS watchface effect for Fortune Today");
-        // 隐藏罗盘主界面以降低内存占用
         if (attitude_container_ != nullptr) {
             lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
         }
-        // Lazy load: Show() 内部会在 overlay_screen_ == nullptr 时创建 UI
         FortuneWatchfaceView::GetInstance().Show();
         fortune_watchface_visible_ = true;
         return;
     }
 
-    // 其他运势：隐藏特效，恢复罗盘主界面
     if (fortune_watchface_visible_) {
         FortuneWatchfaceView::GetInstance().Hide();
         fortune_watchface_visible_ = false;
     }
-    // 恢复罗盘主界面
     if (attitude_container_ != nullptr) {
         lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
     }
-
-    // 清掉上一次的"通知/状态"去重上下文，避免本卡被同标题抑制
-    debug_info_last_title_.clear();
-    debug_info_last_show_ms_ = 0;
-
-    DebugInfoPresentOpts opts;
-    // 长按确认场景会在调用方覆盖为 persistent；此处默认 transient（5s 后自动收）
-    PresentDebugInfoCardUnlocked(
-        kFortuneMenuFeatureCategories[index].title,
-        kFortuneMenuFeatureCategories[index].details,
-        /*hold_ms=*/0,
-        opts);
 }
 
 bool AttitudeDisplay::HandlePowerKey()
@@ -1857,7 +1730,9 @@ void AttitudeDisplay::ShowJarvisWatchface()
         return;
     }
     ESP_LOGI(TAG, "ShowJarvisWatchface: voice wake-up triggered");
-    // 直接切换到 JARVIS 屏幕（切换屏幕后主屏幕内容自然不可见，无需手动隐藏）
+    if (!view_stack_.contains(ActiveView::JarvisWatchface)) {
+        view_stack_.push(ActiveView::JarvisWatchface);
+    }
     FortuneWatchfaceView::GetInstance().Show();
     fortune_watchface_visible_ = true;
 }
@@ -1870,9 +1745,11 @@ void AttitudeDisplay::HideJarvisWatchface()
         return;
     }
     ESP_LOGI(TAG, "HideJarvisWatchface: voice interaction ended");
-    // 直接切换回主屏幕（attitude_container_ 始终可见，无需恢复）
     FortuneWatchfaceView::GetInstance().Hide();
     fortune_watchface_visible_ = false;
+    if (view_stack_.contains(ActiveView::JarvisWatchface)) {
+        view_stack_.pop();
+    }
 }
 
 void AttitudeDisplay::ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {

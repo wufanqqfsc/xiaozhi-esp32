@@ -165,6 +165,11 @@ public:
      */
     void ResetProtocol();
 
+    /**
+     * 更新服务端 IP 后立即生效：关闭当前音频通道，下次唤醒/连接将使用新 URL。
+     */
+    void ApplyServerConfig();
+
 private:
     Application();
     ~Application();

@@ -76,6 +76,7 @@ static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of 
 #define FISHEYE_BORDER_WIDTH  2
 
 // 功能显示区（短按功能图标后的提示卡）：356px 直径，覆盖外部圆环边界
+// 注：功能图标选中不再弹出信息卡，此区域仅用于系统通知/状态等 DebugInfo
 #define DEBUG_INFO_CARD_SIZE     LAYER4_OUTER_SIZE
 #define DEBUG_INFO_CARD_W        DEBUG_INFO_CARD_SIZE
 #define DEBUG_INFO_CARD_H        DEBUG_INFO_CARD_SIZE
@@ -377,7 +378,7 @@ private:
     void ShowTaijiPressOverlayUnlocked();
     void HideTaijiPressOverlayUnlocked();
     // 在 DebugInfo 卡上展示指定索引主功能的一级分类（持锁状态下调用）
-    void ShowFortuneFeatureCategoryUnlocked(int index);
+    void ShowFortuneFeatureCategoryUnlocked(int index);  // 切换 JARVIS/罗盘视图（不弹信息卡）
     // 图片显示（持锁状态下调用，不加锁版本）
     void SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 10000);
     void SetPreviewGifUnlocked(const char* file_path, bool loop, uint32_t timeout_ms);

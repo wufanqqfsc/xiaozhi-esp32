@@ -3,6 +3,7 @@
 #include "system_info.h"
 #include "application.h"
 #include "settings.h"
+#include "server_config.h"
 
 #include <cstring>
 #include <cJSON.h>
@@ -95,15 +96,13 @@ bool WebsocketProtocol::OpenAudioChannel() {
 
     error_occurred_ = false;
 
-    std::string url = CONFIG_LOCAL_WEBSOCKET_URL;
-    ESP_LOGI(TAG, "Using build-configured websocket URL: %s", url.c_str());
-
-    // 如果仍然没有 URL，报错退出
+    std::string url = ServerConfig::GetEffectiveWebsocketUrl();
     if (url.empty()) {
         ESP_LOGE(TAG, "No websocket URL available");
         SetError(Lang::Strings::SERVER_NOT_CONNECTED);
         return false;
     }
+    ESP_LOGI(TAG, "Using websocket URL: %s", url.c_str());
 
     auto network = Board::GetInstance().GetNetwork();
     websocket_ = network->CreateWebSocket(1);
