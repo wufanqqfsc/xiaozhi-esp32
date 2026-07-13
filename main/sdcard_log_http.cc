@@ -1111,6 +1111,7 @@ static esp_err_t handle_shot_delete(httpd_req_t* req);
 static esp_err_t handle_device_status(httpd_req_t* req);
 static esp_err_t handle_device_reboot(httpd_req_t* req);
 static esp_err_t handle_device_logs(httpd_req_t* req);
+static esp_err_t handle_device_logs_flush(httpd_req_t* req);
 static esp_err_t handle_device_ota_url(httpd_req_t* req);
 static esp_err_t handle_device_clear_nvs(httpd_req_t* req);
 
@@ -1312,6 +1313,17 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_logs);
+    handler_count++;
+
+    // 主动 fsync 内存日志到 SD 卡 + 返回详细内存指标
+    // POST /api/device/logs/flush
+    httpd_uri_t uri_device_logs_flush = {
+        .uri = "/api/device/logs/flush",
+        .method = HTTP_POST,
+        .handler = handle_device_logs_flush,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_device_logs_flush);
     handler_count++;
 
     // OTA URL 查询 API: GET /api/device/ota-url
@@ -1849,7 +1861,10 @@ static esp_err_t handle_device_logs(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/plain; charset=utf-8");
 
     const int CHUNK = 4096;
-    char* buf = (char*)malloc(CHUNK);
+    char* buf = (char*)heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (buf == nullptr) {
+        buf = (char*)malloc(CHUNK);
+    }
     if (!buf) {
         close(fd);
         httpd_resp_send_500(req);
@@ -1860,9 +1875,60 @@ static esp_err_t handle_device_logs(httpd_req_t* req) {
     while ((n = read(fd, buf, CHUNK)) > 0) {
         if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) break;
     }
-    free(buf);
+    heap_caps_free(buf);
     close(fd);
     httpd_resp_send_chunk(req, nullptr, 0);
+    return ESP_OK;
+}
+
+// HTTP POST /api/device/logs/flush - 主动 fsync 内存日志到 SD 卡 + 返回详细内存指标
+static esp_err_t handle_device_logs_flush(httpd_req_t* req) {
+    cJSON* root = cJSON_CreateObject();
+
+    // 1. 主动刷新内存日志到 SD 卡（确保刷新 API 调用本身的日志立即落盘）
+    bool log_flushed = false;
+    const char* active_log_path = SdCardLogGetPath();
+    if (active_log_path != nullptr && active_log_path[0] != '\0') {
+        SdCardLogFlush();
+        log_flushed = true;
+        cJSON_AddStringToObject(root, "log_path", active_log_path);
+    } else {
+        cJSON_AddStringToObject(root, "log_path", "");
+    }
+    cJSON_AddBoolToObject(root, "log_active", SdCardLogIsActive());
+    cJSON_AddBoolToObject(root, "log_flushed", log_flushed);
+
+    // 2. 总体堆信息
+    cJSON_AddNumberToObject(root, "free_heap", esp_get_free_heap_size());
+    cJSON_AddNumberToObject(root, "min_free_heap", esp_get_minimum_free_heap_size());
+
+    // 3. Internal SRAM 水位线（OOM 早期预警）
+    cJSON_AddNumberToObject(root, "free_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    cJSON_AddNumberToObject(root, "min_free_internal", heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+
+    // 4. PSRAM 信息
+    cJSON_AddNumberToObject(root, "free_spiram", heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+
+    // 5. Internal SRAM 最大连续块（决定能否分配大对象）
+    cJSON_AddNumberToObject(root, "largest_internal_block", heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+
+    // 6. OOM 风险评估（基于 min_free_internal）
+    size_t min_internal = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const char* risk = "low";
+    if (min_internal < 4096) {
+        risk = "critical";
+    } else if (min_internal < 8192) {
+        risk = "high";
+    } else if (min_internal < 16384) {
+        risk = "moderate";
+    }
+    cJSON_AddStringToObject(root, "internal_sram_risk", risk);
+
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
     return ESP_OK;
 }
 
