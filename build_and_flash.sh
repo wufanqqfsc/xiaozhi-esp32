@@ -53,11 +53,90 @@ BOARD_TYPE="waveshare/esp32-s3-touch-lcd-1.85b"
 BOARD_NAME="Waveshare ESP32-S3-Touch-LCD-1.85B"
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# 编译锁：用于防止并发执行 build_and_flash 导致 build/ 目录竞争
+# 实现方式：mkdir 目录锁（POSIX 原子语义）+ PID 文件（信息展示 + 探活）
+# 之所以不依赖 flock：macOS 默认 BSD userland 没有 flock
+BUILD_LOCK_DIR="$PROJECT_DIR/.build.lock"
+BUILD_LOCK_FILE="$BUILD_LOCK_DIR/pid"
+BUILD_LOCK_ACQUIRED=0
+
 # ESP-IDF路径配置（已安装的版本）
 IDF_PATHS=(
     "$HOME/.espressif/v5.5.4/esp-idf"
     "$HOME/esp/esp-idf"
 )
+
+# 检查是否有其它 build_and_flash 正在编译中
+# 返回 0 表示空闲（可继续），返回非 0 表示忙（应退出）
+# 实现原理：
+#   mkdir 是原子操作，作为目录锁使用；
+#   锁目录里的 pid 文件记录持有者的 PID/启动时间/动作类型；
+#   持锁方在退出时通过 trap 主动 rmdir 释放；
+#   若发现锁目录存在但持有者 PID 已死，则视为过期锁并清理后继续。
+check_build_lock() {
+    # 先检查一次：若锁已存在但 PID 已死，尝试自动清理
+    if [ -d "$BUILD_LOCK_DIR" ] && [ -f "$BUILD_LOCK_FILE" ]; then
+        local existing_pid
+        existing_pid=$(awk -F= '/^PID=/{print $2; exit}' "$BUILD_LOCK_FILE" 2>/dev/null || true)
+        if [ -n "$existing_pid" ] && ! kill -0 "$existing_pid" 2>/dev/null; then
+            print_warning "发现过期的编译锁（持有者 PID=$existing_pid 不存在），自动清理"
+            rm -rf "$BUILD_LOCK_DIR" 2>/dev/null || true
+        fi
+    fi
+
+    # 原子获取锁：mkdir 失败 = 锁被别人持有；成功 = 我们拿到了
+    if ! mkdir "$BUILD_LOCK_DIR" 2>/dev/null; then
+        local holder_pid=""
+        local started_at=""
+        local holder_action=""
+        local has_pid_file=0
+        if [ -f "$BUILD_LOCK_FILE" ]; then
+            has_pid_file=1
+            holder_pid=$(awk -F= '/^PID=/{print $2; exit}' "$BUILD_LOCK_FILE" 2>/dev/null || true)
+            started_at=$(awk -F= '/^STARTED=/{$1=""; sub(/^ /,""); print; exit}' "$BUILD_LOCK_FILE" 2>/dev/null || true)
+            holder_action=$(awk -F= '/^ACTION=/{$1=""; sub(/^ /,""); print; exit}' "$BUILD_LOCK_FILE" 2>/dev/null || true)
+        fi
+
+        # 持有者进程还活着 -> 明确拒绝
+        if [ "$has_pid_file" -eq 1 ] && [ -n "$holder_pid" ] && kill -0 "$holder_pid" 2>/dev/null; then
+            print_error "检测到已有编译任务正在进行 (PID=$holder_pid, action=$holder_action, started=$started_at)"
+            print_info "请等待当前编译结束后再执行 ./build_and_flash.sh"
+            return 1
+        fi
+
+        # 锁目录存在但 PID 文件缺失 / 持有者已退出 -> 视为过期锁，自动清理并重试
+        print_warning ".build.lock 残留（无 PID 或持有者已退出），自动清理后继续"
+        rm -rf "$BUILD_LOCK_DIR" 2>/dev/null || true
+        if ! mkdir "$BUILD_LOCK_DIR" 2>/dev/null; then
+            print_error "清理后仍无法获取锁 ($BUILD_LOCK_DIR)，请检查是否有其它编译进程"
+            return 1
+        fi
+    fi
+
+    # 拿到锁，写入诊断信息
+    BUILD_LOCK_ACQUIRED=1
+    {
+        echo "PID=$$"
+        echo "PPID=$PPID"
+        echo "STARTED=$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "ACTION=${ACTION:-unknown}"
+        echo "HOST=$(uname -n 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+    } > "$BUILD_LOCK_FILE"
+
+    # 注册退出清理：无论成功/失败/中断，都释放锁
+    trap 'release_build_lock' EXIT
+    trap 'release_build_lock; exit 130' INT
+    trap 'release_build_lock; exit 143' TERM
+    return 0
+}
+
+# 释放编译锁（仅当本进程确实持有时执行）
+release_build_lock() {
+    if [ "${BUILD_LOCK_ACQUIRED:-0}" -eq 1 ]; then
+        rm -rf "$BUILD_LOCK_DIR" 2>/dev/null || true
+        BUILD_LOCK_ACQUIRED=0
+    fi
+}
 
 # 检查ESP-IDF环境
 check_idf_env() {
@@ -457,6 +536,12 @@ main() {
     # 执行操作
     case "$ACTION" in
         "build")
+            # 编译前检查：避免并发编译污染 build/ 目录
+            print_progress "步骤 0/2: 检查编译锁（防止并发编译）"
+            if ! check_build_lock; then
+                exit 1
+            fi
+            echo ""
             print_progress "步骤2/2: 编译固件"
             build_firmware
             ;;
@@ -469,6 +554,12 @@ main() {
             monitor_device
             ;;
         "all")
+            # 编译前检查：避免并发编译污染 build/ 目录
+            print_progress "步骤 0/4: 检查编译锁（防止并发编译）"
+            if ! check_build_lock; then
+                exit 1
+            fi
+            echo ""
             print_progress "步骤3/4: 编译固件"
             build_firmware
             echo ""

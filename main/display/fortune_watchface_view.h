@@ -38,6 +38,17 @@ public:
     void HideImage();
     bool IsImageVisible() const;
 
+    // 语音交互状态文本（覆盖默认扫描进度显示）
+    void SetStatusText(const char* text);
+    void ClearStatusText();
+
+    // 设置语音交互消息（专用接口，自动启用滚动模式）
+    void SetVoiceMessage(const char* text);
+    void ClearVoiceMessage();
+
+    // 更新外环颜色（与罗盘主界面保持一致）
+    void UpdateOuterRingColor(lv_color_t color);
+
     // 获取覆盖层独立屏幕（供 AttitudeDisplay 做视图切换淡入淡出使用）
     lv_obj_t* GetOverlayScreen() { return overlay_screen_; }
 
@@ -48,6 +59,12 @@ private:
     // 禁用拷贝
     FortuneWatchfaceView(const FortuneWatchfaceView&) = delete;
     FortuneWatchfaceView& operator=(const FortuneWatchfaceView&) = delete;
+
+    // 状态栏显示模式
+    enum StatusMode {
+        kModeDefault,      // 默认模式：显示扫描进度
+        kModeVoiceActive   // 语音交互模式：显示交互文本
+    };
 
     // UI 创建
     void CreateUI();
@@ -87,6 +104,7 @@ private:
     lv_obj_t* scan_arc_ = nullptr;
     lv_obj_t* pulse_arc_ = nullptr;
     lv_obj_t* seconds_arc_ = nullptr;
+    lv_obj_t* outer_ring_ = nullptr;
     lv_obj_t* jarvis_label_ = nullptr;
     lv_obj_t* jarvis_label_shadow_a_ = nullptr;
     lv_obj_t* jarvis_label_shadow_b_ = nullptr;
@@ -97,6 +115,10 @@ private:
     lv_obj_t* jarvis_bars_[5];
 
     lv_timer_t* timer_ = nullptr;
+
+    // 状态栏模式
+    StatusMode status_mode_ = kModeDefault;
+    std::string voice_status_text_;
 
     // 图片覆盖层
     lv_obj_t* image_overlay_ = nullptr;

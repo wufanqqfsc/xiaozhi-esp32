@@ -203,12 +203,25 @@ void AfeWakeWord::AudioDetectionTask() {
 }
 
 void AfeWakeWord::StoreWakeWordData(const int16_t* data, size_t samples) {
-    // store audio data to wake_word_pcm_
-    wake_word_pcm_.emplace_back(std::vector<int16_t>(data, data + samples));
-    // keep about 2 seconds of data, detect duration is 30ms (sample_rate == 16000, chunksize == 512)
-    while (wake_word_pcm_.size() > 2000 / 30) {
+    // 按字节总量封顶：避免 deque 段碎片化累积
+    // 历史实现：以 entry 数 (66) 上限裁剪，导致大量小 vector 持续 pop_front，
+    // deque 的段管理不会立刻释放底层内存，唤醒词路径长时间运行后
+    // 容易与 encode 任务 (~30KB PSRAM) 叠加，将 free_sram 压至 ~4KB
+    // (xiaozhi_2026-07-13_*.log 中 minimal_sram 多次跌至 4xxx)。
+    // 改为按字节上限 (~2s @ 16kHz) 裁剪，最大化回收底层 vector buffer。
+    // 注意：保持原有"无锁"调用语义（与 EncodeWakeWordData 的读取是 race，
+    //       与历史实现一致；当前 fix 仅改裁剪粒度，不引入锁竞争）。
+    static constexpr size_t kWakeWordMaxBytes = 16000 * 2 * 2;  // 2s x 16kHz x 2bytes x 2 (safety)
+    const size_t incoming_bytes = samples * sizeof(int16_t);
+    size_t total_bytes = 0;
+    for (const auto& v : wake_word_pcm_) {
+        total_bytes += v.size() * sizeof(int16_t);
+    }
+    while (total_bytes + incoming_bytes > kWakeWordMaxBytes && !wake_word_pcm_.empty()) {
+        total_bytes -= wake_word_pcm_.front().size() * sizeof(int16_t);
         wake_word_pcm_.pop_front();
     }
+    wake_word_pcm_.emplace_back(data, data + samples);
 }
 
 void AfeWakeWord::EncodeWakeWordData() {

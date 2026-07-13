@@ -19,6 +19,7 @@ static const char* TAG = "FortuneWatchfaceView";
 
 // 字体声明（使用项目中已有的字体）
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
+LV_FONT_DECLARE(font_puhui_14_1);
 
 FortuneWatchfaceView& FortuneWatchfaceView::GetInstance() {
     static FortuneWatchfaceView instance;
@@ -153,6 +154,25 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     // 秒弧
     seconds_arc_ = AddArc(screen, 202, 5, 0x102138, 0xffd447);
 
+    // 外环（与罗盘主界面一致：贴屏幕圆边，3px金色描边）
+    const int outer_r = W_ / 2 - 3 / 2;
+    const int outer_size = outer_r * 2;
+    outer_ring_ = lv_arc_create(screen);
+    lv_obj_set_size(outer_ring_, outer_size, outer_size);
+    lv_obj_set_pos(outer_ring_, CX_ - outer_r, CY_ - outer_r);
+    lv_arc_set_range(outer_ring_, 0, 360);
+    lv_arc_set_value(outer_ring_, 360);
+    lv_arc_set_bg_angles(outer_ring_, 0, 360);
+    lv_arc_set_angles(outer_ring_, 0, 360);
+    lv_obj_set_style_arc_width(outer_ring_, 0, 0);
+    lv_obj_set_style_arc_color(outer_ring_, lv_color_hex(0xD4AF37), 0);
+    lv_obj_set_style_arc_width(outer_ring_, 3, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(outer_ring_, lv_color_hex(0xD4AF37), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(outer_ring_, true, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(outer_ring_, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_opa(outer_ring_, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_clear_flag(outer_ring_, LV_OBJ_FLAG_CLICKABLE);
+
     // 轨道点 - 使用单个 canvas 替代多个对象
     if (canvas_buffer_ != nullptr) {
         orbit_canvas_ = lv_canvas_create(screen);
@@ -199,17 +219,31 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
         lv_obj_set_style_shadow_color(jarvis_bars_[i], lv_color_hex(0x20eaff), 0);
     }
 
-    // 状态栏
-    lv_obj_t* status_bar = AddBox(screen, 54, 284, 252, 36, 0x07182b, LV_RADIUS_CIRCLE);
+    // 状态栏（向上移动 20px，加宽加高，支持两行显示和滚动）
+    // 位置 y=264（原 284），宽度 290（原 252），高度 56（原 36），容纳两行 14px 文本
+    lv_obj_t* status_bar = AddBox(screen, 35, 264, 290, 56, 0x07182b, LV_RADIUS_CIRCLE);
     lv_obj_set_style_border_width(status_bar, 1, 0);
     lv_obj_set_style_border_color(status_bar, lv_color_hex(0x20eaff), 0);
     lv_obj_set_style_shadow_width(status_bar, 10, 0);
     lv_obj_set_style_shadow_color(status_bar, lv_color_hex(0x0b6d99), 0);
+    // 状态栏上下左右内边距
+    lv_obj_set_style_pad_left(status_bar, 10, 0);
+    lv_obj_set_style_pad_right(status_bar, 10, 0);
+    lv_obj_set_style_pad_top(status_bar, 4, 0);
+    lv_obj_set_style_pad_bottom(status_bar, 4, 0);
+    // 设置文字行间距，让两行文字更紧凑
+    lv_obj_set_style_text_line_space(status_bar, 2, 0);
 
     status_label_ = lv_label_create(status_bar);
     lv_label_set_text(status_label_, "ESP32-S3  PSRAM 8M  BAT 96%");
-    lv_obj_set_style_text_font(status_label_, &BUILTIN_TEXT_FONT, 0);
+    // 使用 SCROLL_CIRCULAR 模式：单行超出自动左右循环滚动
+    lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    // 字体缩小到 14px 以容纳更多字符（约 14px/中文字符）
+    lv_obj_set_style_text_font(status_label_, &font_puhui_14_1, 0);
     lv_obj_set_style_text_color(status_label_, lv_color_hex(0xc8f7ff), 0);
+    // 设置高度支持两行（14px 行高 * 2 + 行间距 = ~30px）
+    lv_obj_set_height(status_label_, 44);
+    lv_obj_set_width(status_label_, 270);
     lv_obj_center(status_label_);
 
     // 图片覆盖层 - 居中显示，300x300 圆形
@@ -436,8 +470,8 @@ void FortuneWatchfaceView::UpdateAnimation() {
                             static_cast<lv_opa_t>(150 + static_cast<int>(sinf(tick / 180.0f + i) * 80.0f)), 0);
     }
 
-    // 状态栏文本
-    if (status_label_ != nullptr) {
+    // 状态栏文本：仅在默认模式下显示扫描进度
+    if (status_label_ != nullptr && status_mode_ == kModeDefault) {
         lv_label_set_text_fmt(status_label_, "ESP32-S3  JARVIS HUD  SCAN %02d%%", scan_pct);
     }
 }
@@ -555,6 +589,94 @@ void FortuneWatchfaceView::HideImage() {
 
 bool FortuneWatchfaceView::IsImageVisible() const {
     return image_visible_;
+}
+
+void FortuneWatchfaceView::SetStatusText(const char* text) {
+    // lock timeout 由 100ms 提升到 300ms：
+    // AttitudeDisplay::SetStatus 在 JARVIS 视图活跃时走该函数，
+    // AttitudeDisplay 内多处用 DisplayLockGuard 默认 30s 持锁，
+    // 100ms 短锁会多次撞到持锁方并丢失状态文本，直接表现为"白屏重启"前兆。
+    if (!lvgl_port_lock(300)) {
+        ESP_LOGW(TAG, "SetStatusText: LVGL lock timeout");
+        return;
+    }
+
+    status_mode_ = kModeVoiceActive;
+    voice_status_text_ = text ? text : "";
+
+    if (status_label_ != nullptr) {
+        lv_label_set_text(status_label_, voice_status_text_.c_str());
+    }
+
+    ESP_LOGD(TAG, "SetStatusText: %s", voice_status_text_.c_str());
+    lvgl_port_unlock();
+}
+
+void FortuneWatchfaceView::ClearStatusText() {
+    if (!lvgl_port_lock(300)) {
+        ESP_LOGW(TAG, "ClearStatusText: LVGL lock timeout");
+        return;
+    }
+
+    status_mode_ = kModeDefault;
+    voice_status_text_.clear();
+
+    ESP_LOGD(TAG, "ClearStatusText: restored to default mode");
+    lvgl_port_unlock();
+    // UpdateAnimation() 会在下次定时器回调中恢复扫描进度显示
+}
+
+void FortuneWatchfaceView::UpdateOuterRingColor(lv_color_t color) {
+    if (!lvgl_port_lock(300)) {
+        ESP_LOGW(TAG, "UpdateOuterRingColor: LVGL lock timeout");
+        return;
+    }
+
+    if (outer_ring_ != nullptr) {
+        lv_obj_set_style_arc_color(outer_ring_, color, LV_PART_INDICATOR);
+    }
+
+    lvgl_port_unlock();
+}
+
+void FortuneWatchfaceView::SetVoiceMessage(const char* text) {
+    if (!lvgl_port_lock(300)) {
+        // listening 中 WS 回调与 AttitudeDisplay::SetStatus 同时调用
+        // 100ms 短锁会直接放弃并丢失消息；提升到 300ms 大概率能取得锁。
+        ESP_LOGW(TAG, "SetVoiceMessage: LVGL lock timeout");
+        return;
+    }
+
+    status_mode_ = kModeVoiceActive;
+    voice_status_text_ = text ? text : "";
+
+    if (status_label_ != nullptr) {
+        // 使用长文本滚动模式，自动循环滚动超出部分
+        lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_label_set_text(status_label_, voice_status_text_.c_str());
+    }
+
+    ESP_LOGD(TAG, "SetVoiceMessage: %s", voice_status_text_.c_str());
+    lvgl_port_unlock();
+}
+
+void FortuneWatchfaceView::ClearVoiceMessage() {
+    if (!lvgl_port_lock(300)) {
+        ESP_LOGW(TAG, "ClearVoiceMessage: LVGL lock timeout");
+        return;
+    }
+
+    status_mode_ = kModeDefault;
+    voice_status_text_.clear();
+
+    if (status_label_ != nullptr) {
+        // 恢复默认文本模式，由 UpdateAnimation() 接管扫描进度显示
+        lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_label_set_text(status_label_, "ESP32-S3  JARVIS HUD  SCAN 00%");
+    }
+
+    ESP_LOGD(TAG, "ClearVoiceMessage: restored to default mode");
+    lvgl_port_unlock();
 }
 
 

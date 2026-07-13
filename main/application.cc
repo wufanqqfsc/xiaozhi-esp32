@@ -465,9 +465,11 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
-            // Listening 超时保护：进入 listening 状态后 20s 内若没有 TTS 响应
+            // Listening 超时保护：进入 listening 状态后 30s 内若没有 TTS 响应
             // （服务端 STT 持续超时或网络异常），自动回 Idle 并恢复唤醒词监听
-            constexpr int LISTENING_TIMEOUT_SEC = 20;
+            // 修复 v3 白屏重启：后端 TTS_FIRST_CHUNK 偶发 >5s（EdgeTTS 限流），
+            // 20s 超时太短，导致设备回 idle 后收到延迟到达的 TTS，与 wake-word 启用时序竞争崩溃
+            constexpr int LISTENING_TIMEOUT_SEC = 30;
             DeviceState curr_state = GetDeviceState();
             if (curr_state == kDeviceStateListening) {
                 // 诊断日志：每 5 个 tick（5s）在 listening 时打印状态
@@ -689,11 +691,9 @@ void Application::ActivationTask() {
     CheckAssetsVersion();
     ESP_LOGI(TAG, "ActivationTask: Assets version check done");
 
-    // Check for new firmware version (contacts server for OTA + WebSocket config)
-    ServerConfig::SyncBuildEndpointsToNvs();
-    ESP_LOGI(TAG, "ActivationTask: Checking new version...");
-    CheckNewVersion();
-    ESP_LOGI(TAG, "ActivationTask: New version check done");
+    // Skip OTA version check for faster startup, use build config for WebSocket
+    // OTA can be triggered manually via MCP tool self.upgrade_firmware
+    ESP_LOGI(TAG, "ActivationTask: Skipping OTA version check for faster startup");
 
     // 不要在 ActivationTask 完成后停止 Http Server，让它继续运行
     // ...
@@ -942,6 +942,12 @@ void Application::InitializeProtocol() {
                 }
                 // TTS 响应到达，清除 listening 超时监控
                 listening_started_ticks_ = 0;
+                // 修复 v3 白屏重启：listening 超时后设备回 idle 并启用 wake-word，
+                // 此时 TTS 延迟到达会与 wake-word 启动竞争。显式停止 wake-word 再切到 speaking。
+                if (GetDeviceState() == kDeviceStateIdle) {
+                    audio_service_.EnableWakeWordDetection(false);
+                    ESP_LOGI(TAG, "TTS start after idle: disabled wake-word, switching to speaking");
+                }
                 SetDeviceState(kDeviceStateSpeaking);
             });
         } else if (strcmp(state->valuestring, "stop") == 0) {

@@ -187,6 +187,13 @@ private:
     bool service_stopped_ = true;
     bool audio_input_need_warmup_ = false;
 
+    // 幂等标志：用于避免 Enable/Disable 短时间内被重复调用时频繁操作底层资源
+    // 典型场景：listening 超时回 idle 时，application 状态机可能在 100ms 内连续两次
+    // 调用 EnableWakeWordDetection(true)，导致 AFE 重启引起 SRAM 抖动 + LVGL lock timeout
+    std::mutex wake_word_state_mutex_;
+    bool wake_word_running_ = false;
+    bool voice_processing_running_ = false;
+
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;
     std::chrono::steady_clock::time_point last_output_time_;

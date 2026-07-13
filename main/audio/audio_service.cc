@@ -127,6 +127,14 @@ void AudioService::Start() {
     service_stopped_ = false;
     xEventGroupClearBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING | AS_EVENT_WAKE_WORD_RUNNING | AS_EVENT_AUDIO_PROCESSOR_RUNNING);
 
+    // 与 event_group 保持一致：service 启动时外部认为所有模式都关闭，幂等状态也需复位
+    // 否则上一次运行结束的 true/false 状态会让本次启动的首次 Enable(true) 被误判 skip
+    {
+        std::lock_guard<std::mutex> lock(wake_word_state_mutex_);
+        wake_word_running_ = false;
+        voice_processing_running_ = false;
+    }
+
     esp_timer_start_periodic(audio_power_timer_, 1000000);
 
 #if CONFIG_USE_AUDIO_PROCESSOR
@@ -646,11 +654,28 @@ void AudioService::EnableWakeWordDetection(bool enable) {
         return;
     }
 
+    // 幂等：同状态重复调用直接返回，避免 AFE Start/Stop 在 100ms 内被多次触发
+    // 复现：listening 超时 → 状态机进入 idle 前后短时间内两次 Enable(true)
+    // 直接导致 AudioInputTask 在 WS_TX 路径上重复初始化 wake_word_->Feed()，
+    // 进而触发 LVGL lock timeout + SRAM 跌至 ~4KB → 白屏重启
+    {
+        std::lock_guard<std::mutex> lock(wake_word_state_mutex_);
+        if (wake_word_running_ == enable) {
+            ESP_LOGD(TAG, "EnableWakeWordDetection: already %s, skip (idempotent)",
+                     enable ? "enabled" : "disabled");
+            return;
+        }
+        wake_word_running_ = enable;
+    }
+
     ESP_LOGI(TAG, "%s wake word detection (initialized=%d)", enable ? "Enabling" : "Disabling", wake_word_initialized_);
     if (enable) {
         if (!wake_word_initialized_) {
             if (!wake_word_->Initialize(codec_, models_list_)) {
                 ESP_LOGE(TAG, "Failed to initialize wake word");
+                // 初始化失败：回滚幂等标志，保证下次可重试
+                std::lock_guard<std::mutex> lock(wake_word_state_mutex_);
+                wake_word_running_ = false;
                 return;
             }
             wake_word_initialized_ = true;
@@ -674,6 +699,19 @@ void AudioService::EnableWakeWordDetection(bool enable) {
 
 void AudioService::EnableVoiceProcessing(bool enable) {
     ESP_LOGD(TAG, "%s voice processing", enable ? "Enabling" : "Disabling");
+
+    // 幂等：与 EnableWakeWordDetection 对称处理，避免 listening/speaking 状态来回切换时
+    // audio_processor_->Start/Stop 被频繁调用造成 AFE pipeline 重建和 SRAM 抖动
+    {
+        std::lock_guard<std::mutex> lock(wake_word_state_mutex_);
+        if (voice_processing_running_ == enable) {
+            ESP_LOGD(TAG, "EnableVoiceProcessing: already %s, skip (idempotent)",
+                     enable ? "enabled" : "disabled");
+            return;
+        }
+        voice_processing_running_ = enable;
+    }
+
     if (enable) {
         if (!audio_processor_initialized_) {
             audio_processor_->Initialize(codec_, OPUS_FRAME_DURATION_MS, models_list_);

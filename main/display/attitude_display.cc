@@ -345,7 +345,14 @@ void AttitudeDisplay::SetStatus(const char* status)
         return;
     }
     ESP_LOGD(TAG, "SetStatus: %s", status);
-    // 状态信息短暂显示 5 秒，避免和通知抢占显示
+
+    // JARVIS 视图可见时，直接更新其状态栏
+    if (fortune_watchface_visible_) {
+        FortuneWatchfaceView::GetInstance().SetStatusText(status);
+        return;
+    }
+
+    // 否则显示在罗盘的调试信息卡
     DisplayLockGuard lock(this);
     ShowDebugInfo("状态", std::string(status), 5000);
 }
@@ -370,6 +377,22 @@ void AttitudeDisplay::SetChatMessage(const char* role, const char* content)
     }
     ESP_LOGD(TAG, "SetChatMessage: role=%s content=%.40s%s",
              role, content, (strlen(content) > 40 ? "..." : ""));
+
+    // JARVIS 视图可见时，所有消息都路由到状态栏显示（支持滚动）
+    if (fortune_watchface_visible_) {
+        // 根据 role 添加前缀，便于辨识消息来源
+        std::string prefixed;
+        if (strcmp(role, "assistant") == 0) {
+            prefixed = std::string("#AI:") + content;
+        } else if (strcmp(role, "user") == 0) {
+            prefixed = std::string("#你:") + content;
+        } else {
+            prefixed = std::string("#系统:") + content;
+        }
+        FortuneWatchfaceView::GetInstance().SetVoiceMessage(prefixed.c_str());
+        return;
+    }
+
     // 仅对 system 消息使用 DebugInfoCard 提示，普通对话由 attitude UI 自行表达
     if (strcmp(role, "system") == 0) {
         DisplayLockGuard lock(this);
@@ -392,7 +415,10 @@ void AttitudeDisplay::ClearChatMessages()
 // 线程：内部加 LVGL 互斥锁（lvgl_port_lock 100ms），可以从其他 task 安全调用
 void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms)
 {
-    if (!lvgl_port_lock(100)) {
+    // 锁超时由 100ms 提升到 300ms，与 FortuneWatchfaceView 同次修复：
+    // LVGL tick 在大量 widget reflow 时可能短时 >100ms，
+    // 100ms 短锁会被错误放弃并造成预览图不显示。
+    if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "SetPreviewImage: LVGL lock timeout, skipping");
         return;
     }
@@ -937,7 +963,11 @@ void AttitudeDisplay::HideTaijiPressOverlayUnlocked()
 
 void AttitudeDisplay::PlayFortuneMenuSelectSound()
 {
-    Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_POPUP);
+    // 功能图标选中时播放音效已被刻意禁用：
+    // 触摸/短按切换选中态时不应有"叮"反馈，避免在用户浏览功能时
+    // 频繁打断以及消耗 I2S / Opus 解码路径。
+    // 选中态视觉反馈（icon 放大 + 颜色高亮）由 UpdateFortuneMenuItemVisual 提供。
+    // 仅个别真正"业务反馈"路径（起卦结果、长按确认）继续播放 OGG_POPUP / OGG_SUCCESS。
 }
 
 void AttitudeDisplay::PlayFortuneDivinationMarqueeSound()
@@ -1328,16 +1358,20 @@ void AttitudeDisplay::SelectFortuneMenuItemUnlocked(int index)
     const bool was_active = fortune_menu_selection_active_;
     fortune_menu_selection_active_ = true;
     fortune_menu_selected_index_ = index;
+    // 选中态的音效已禁用（见 PlayFortuneMenuSelectSound）
+    // 仅保留视觉反馈：UpdateFortuneMenuItemVisual → icon 放大 + 颜色高亮
     if (was_active && prev != index) {
         UpdateFortuneMenuItemVisual(prev, false);
-        PlayFortuneMenuSelectSound();
-    } else if (!was_active) {
-        PlayFortuneMenuSelectSound();
     }
     UpdateFortuneMenuItemVisual(index, true);
 
     SetPreviewImageUnlocked(nullptr);
-    ShowFortuneFeatureCategoryUnlocked(index);
+    // 触摸功能图标 → 不显示 infocard（仅 0 号会进入 JARVIS watchface 特效，保持）
+    if (index == 0) {
+        ShowFortuneFeatureCategoryUnlocked(index);
+    } else {
+        ESP_LOGD(TAG, "Fortune menu touch: skip infocard for index=%d (silent select)", index);
+    }
     ESP_LOGI(TAG, "Fortune menu select -> %d (%s)", index,
              kFortuneMenuDefs[index].func_label);
 }
@@ -1407,11 +1441,16 @@ void AttitudeDisplay::CycleFortuneMenuSelectionUnlocked()
     fortune_menu_selected_index_ = (prev + 1) % FORTUNE_MENU_COUNT;
     UpdateFortuneMenuItemVisual(prev, false);
     UpdateFortuneMenuItemVisual(fortune_menu_selected_index_, true);
-    PlayFortuneMenuSelectSound();
+    // 循环切换选中态 → 不再播放音效（PlayFortuneMenuSelectSound 已禁用）
+    // 且非 0 号不再显示 infocard，只在 index==0 时进入 JARVIS watchface 特效
 
     const int idx = fortune_menu_selected_index_;
     SetPreviewImageUnlocked(nullptr);
-    ShowFortuneFeatureCategoryUnlocked(idx);
+    if (idx == 0) {
+        ShowFortuneFeatureCategoryUnlocked(idx);
+    } else {
+        ESP_LOGD(TAG, "Fortune menu cycle: skip infocard for idx=%d (silent select)", idx);
+    }
     ESP_LOGI(TAG, "Fortune menu selected -> %d (%s)",
              idx, kFortuneMenuDefs[idx].func_label);
 }
@@ -1711,6 +1750,11 @@ void AttitudeDisplay::UpdateOuterRingColor()
         lv_obj_set_style_arc_color(layer4_outer_ring_, color, LV_PART_INDICATOR);
     }
 
+    // 同步更新 JARVIS HUD 视图的外环颜色（如果可见）
+    if (fortune_watchface_visible_) {
+        FortuneWatchfaceView::GetInstance().UpdateOuterRingColor(color);
+    }
+
     if (!taiji_rotation_paused_by_press_) {
         UpdateTaijiGoldRingColor(color);
     }
@@ -1735,6 +1779,15 @@ void AttitudeDisplay::ShowJarvisWatchface()
     }
     FortuneWatchfaceView::GetInstance().Show();
     fortune_watchface_visible_ = true;
+
+    // 初始化 JARVIS 视图的外环颜色（与当前网络状态一致）
+    lv_color_t color = COLOR_TEXT_MAIN;
+    if (wifi_status_ == WifiStatus::CONNECTED) {
+        color = COLOR_WIFI_GREEN;
+    } else if (ble_status_ == BleStatus::CONNECTED) {
+        color = COLOR_BT_BLUE;
+    }
+    FortuneWatchfaceView::GetInstance().UpdateOuterRingColor(color);
 }
 
 // 语音交互结束时隐藏 JARVIS 视图：切换回罗盘主屏幕
@@ -1745,6 +1798,11 @@ void AttitudeDisplay::HideJarvisWatchface()
         return;
     }
     ESP_LOGI(TAG, "HideJarvisWatchface: voice interaction ended");
+
+    // 清除语音交互消息文本，恢复默认扫描进度
+    FortuneWatchfaceView::GetInstance().ClearVoiceMessage();
+
+    // 直接切换回主屏幕（attitude_container_ 始终可见，无需恢复）
     FortuneWatchfaceView::GetInstance().Hide();
     fortune_watchface_visible_ = false;
     if (view_stack_.contains(ActiveView::JarvisWatchface)) {
@@ -2056,6 +2114,13 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
                                                     uint32_t hold_ms,
                                                     const DebugInfoPresentOpts& opts)
 {
+    // JARVIS HUD 可见时：路由到 status_label_，避免在语音交互过程中弹出功能卡
+    if (fortune_watchface_visible_) {
+        std::string combined = title + "\n" + detail;
+        FortuneWatchfaceView::GetInstance().SetVoiceMessage(combined.c_str());
+        return;
+    }
+
     CreateDebugInfoCard();
     if (function_area_card_ == nullptr || debug_info_title_ == nullptr || debug_info_detail_ == nullptr) {
         ESP_LOGW(TAG, "PresentDebugInfoCard: widgets missing");
@@ -2147,10 +2212,23 @@ void AttitudeDisplay::CleanupCurrentItem()
 // 显示调试信息卡（更新 UI）
 void AttitudeDisplay::DisplayDebugInfoCard(const std::string& title, const std::string& detail)
 {
+    // JARVIS HUD 可见时：直接走 status_label_，避免 function_area_card_ 显示
+    if (fortune_watchface_visible_) {
+        std::string combined;
+        if (!title.empty()) {
+            combined = title + ":" + detail;
+        } else {
+            combined = detail;
+        }
+        FortuneWatchfaceView::GetInstance().SetVoiceMessage(combined.c_str());
+        return;
+    }
+
     CreateDebugInfoCard();
     if (function_area_card_ == nullptr || debug_info_title_ == nullptr || debug_info_detail_ == nullptr) {
         return;
     }
+
     ApplyDebugInfoCardLayout();
     lv_label_set_text(debug_info_title_, title.c_str());
     lv_label_set_text(debug_info_detail_, detail.c_str());
@@ -2215,6 +2293,19 @@ void AttitudeDisplay::OnPreviewImageHideTimer(lv_timer_t* timer) {
 
 void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms)
 {
+    // JARVIS HUD 可见时：所有调试信息直接走 status_label_，不显示 function_area_card_
+    // 避免 UI 交互造成性能问题，并保持 JARVIS HUD 的视觉一致性
+    if (fortune_watchface_visible_) {
+        std::string combined;
+        if (!title.empty()) {
+            combined = title + ":" + detail;
+        } else {
+            combined = detail;
+        }
+        FortuneWatchfaceView::GetInstance().SetVoiceMessage(combined.c_str());
+        return;
+    }
+
     DisplayLockGuard lock(this);
 
     if (fortune_divination_state_ == FortuneDivinationState::Animating) {
@@ -2229,7 +2320,7 @@ void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string&
 
     // 1. 自动推断优先级
     DebugInfoPriority priority = InferDebugInfoPriority(title);
-    
+
     // 2. 去重检查：若队列中已有相同标题的事件，跳过
     for (const auto& item : debug_info_queue_) {
         if (item.title == title) {
@@ -2237,28 +2328,28 @@ void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string&
             return;
         }
     }
-    
+
     // 3. 队列满时拒绝 LOW 事件
     if (debug_info_queue_.size() >= DEBUG_INFO_MAX_QUEUE_SIZE && priority == DebugInfoPriority::LOW) {
         ESP_LOGD(TAG, "ShowDebugInfo dropped (queue full, LOW priority): %s", title.c_str());
         return;
     }
-    
+
     // 4. 优先级判断
-    if (current_index_ != SIZE_MAX && current_index_ < debug_info_queue_.size() && 
+    if (current_index_ != SIZE_MAX && current_index_ < debug_info_queue_.size() &&
         priority < debug_info_queue_[current_index_].priority) {
         // 新事件优先级更低 → 仅入队，不覆盖当前显示
-        ESP_LOGD(TAG, "ShowDebugInfo queued (lower priority): %s (priority=%d)", 
+        ESP_LOGD(TAG, "ShowDebugInfo queued (lower priority): %s (priority=%d)",
                  title.c_str(), (int)priority);
         EnqueueItem(title, detail, hold_ms, priority);
         return;
     }
-    
+
     // 5. 新事件优先级 >= 当前 → 覆盖当前，显示新事件
     if (current_index_ != SIZE_MAX) {
         CleanupCurrentItem();
     }
-    
+
     // 6. 显示新事件
     DisplayDebugInfoCard(title, detail);
     DebugInfoItem* new_item = EnqueueItem(title, detail, hold_ms, priority);
