@@ -948,6 +948,8 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     fortune_divination_last_tick_index_ = -1;
     fortune_divination_highlight_ = -1;
     fortune_divination_result_ = -1;
+    divination_from_shake_ = false;
+    divination_waiting_for_tts_ = false;
     for (int k = 0; k < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++k) {
         fortune_divination_active_indices_[k] = -1;
     }
@@ -1086,7 +1088,7 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
         if (now - self->fortune_divination_start_ms_ > 35000) {
             ESP_LOGW(TAG, "Fortune divination timeout waiting for TTS");
             self->divination_waiting_for_tts_ = false;
-            self->FinishFortuneDivinationUnlocked(self->fortune_divination_result_);
+            self->StopFortuneDivinationUnlocked();
             self->ShowDebugInfo("占卜超时", "后端未响应", 5000);
             return;
         }
