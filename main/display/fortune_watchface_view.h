@@ -3,9 +3,7 @@
 
 #include <lvgl.h>
 #include <cstdint>
-#include <memory>
 #include <string>
-#include "lvgl_image.h"
 /**
  * FortuneWatchfaceView - JARVIS 启动界面特效视图
  *
@@ -32,16 +30,9 @@ public:
     // 生命周期绑定到 attitude_display
     void SetParentContainer(lv_obj_t* container);
 
-    // 图片覆盖层（由 GifPreviewPlayer + AttitudeDisplay 统一驱动）
-    void BeginImageOverlay();
-    void EndImageOverlay();
-    lv_obj_t* GetImageWidget() const { return image_widget_; }
-    lv_obj_t* GetImageOverlay() const { return image_overlay_; }
-    bool IsImageVisible() const { return image_visible_; }
+    // 空闲时释放 JARVIS LVGL 屏幕树与语音状态文本，下次 Show 时重建
+    void ReleaseIdleResources();
 
-    // 兼容旧调用：委托 AttitudeDisplay::ShowImageOnActiveView
-    void ShowImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 5000);
-    void HideImage();
     // 语音交互状态文本（覆盖默认扫描进度显示）
     void SetStatusText(const char* text);
     void ClearStatusText();
@@ -136,10 +127,6 @@ private:
     StatusMode status_mode_ = kModeDefault;
     std::string voice_status_text_;
 
-    // 图片覆盖层
-    lv_obj_t* image_overlay_ = nullptr;
-    lv_obj_t* image_widget_ = nullptr;
-    bool image_visible_ = false;
     bool visible_ = false;
 };
 

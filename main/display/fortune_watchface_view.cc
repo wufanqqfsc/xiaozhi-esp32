@@ -1,7 +1,6 @@
 #include "fortune_watchface_view.h"
 #include "application.h"
 #include "lvgl_theme.h"
-#include "gif/gif_preview_player.h"
 #include "assets/lang_config.h"
 #include <esp_lvgl_port.h>
 #include <esp_log.h>
@@ -246,25 +245,6 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     lv_obj_set_width(status_label_, STATUS_BAR_W_ - 20);
     lv_obj_center(status_label_);
 
-    // 图片覆盖层 - 居中显示，300x300 圆形
-    image_overlay_ = lv_obj_create(screen);
-    lv_obj_set_size(image_overlay_, 300, 300);
-    lv_obj_center(image_overlay_);
-    lv_obj_set_style_radius(image_overlay_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(image_overlay_, lv_color_hex(0x0A1414), 0);
-    lv_obj_set_style_bg_opa(image_overlay_, LV_OPA_80, 0);
-    lv_obj_set_style_border_width(image_overlay_, 2, 0);
-    lv_obj_set_style_border_color(image_overlay_, lv_color_hex(0xD4AF37), 0);
-    lv_obj_clear_flag(image_overlay_, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(image_overlay_, LV_OBJ_FLAG_HIDDEN);
-
-    // 图片控件 - 居中放置，260x260
-    image_widget_ = lv_image_create(image_overlay_);
-    lv_obj_set_size(image_widget_, 260, 260);
-    lv_obj_center(image_widget_);
-    lv_img_set_zoom(image_widget_, 256);
-    lv_obj_add_flag(image_widget_, LV_OBJ_FLAG_HIDDEN);
-
     overlay_screen_ = screen;
 }
 
@@ -279,12 +259,6 @@ void FortuneWatchfaceView::CreateUI() {
 }
 
 void FortuneWatchfaceView::DestroyUI() {
-    GifPreviewPlayer::GetInstance().Hide();
-
-    image_widget_ = nullptr;
-    image_overlay_ = nullptr;
-    image_visible_ = false;
-
     if (overlay_screen_ != nullptr) {
         lv_obj_del(overlay_screen_);
         overlay_screen_ = nullptr;
@@ -311,6 +285,10 @@ void FortuneWatchfaceView::Show() {
     if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "Show: LVGL lock timeout");
         return;
+    }
+
+    if (overlay_screen_ == nullptr) {
+        CreateUI();
     }
 
     // 保存当前活动屏幕，用于 Hide 时恢复
@@ -350,6 +328,33 @@ void FortuneWatchfaceView::Hide() {
         ESP_LOGI(TAG, "FortuneWatchfaceView hidden, restored to prev_screen=%p", prev_screen_);
     } else {
         ESP_LOGW(TAG, "Hide: prev_screen_ is nullptr, cannot restore");
+    }
+
+    lvgl_port_unlock();
+}
+
+void FortuneWatchfaceView::ReleaseIdleResources() {
+    if (!lvgl_port_lock(300)) {
+        ESP_LOGW(TAG, "ReleaseIdleResources: LVGL lock timeout");
+        return;
+    }
+
+    if (visible_) {
+        visible_ = false;
+        if (timer_ != nullptr) {
+            lv_timer_pause(timer_);
+        }
+        if (prev_screen_ != nullptr) {
+            lv_screen_load(prev_screen_);
+        }
+    }
+    prev_screen_ = nullptr;
+    status_mode_ = kModeDefault;
+    voice_status_text_.clear();
+
+    if (overlay_screen_ != nullptr) {
+        DestroyUI();
+        ESP_LOGI(TAG, "ReleaseIdleResources: JARVIS UI destroyed");
     }
 
     lvgl_port_unlock();
@@ -462,68 +467,6 @@ void FortuneWatchfaceView::UpdateAnimation() {
     if (status_label_ != nullptr && status_mode_ == kModeDefault) {
         lv_label_set_text_fmt(status_label_, "ESP32-S3  JARVIS HUD  SCAN %02d%%", scan_pct);
     }
-}
-
-void FortuneWatchfaceView::BeginImageOverlay() {
-    if (timer_ != nullptr) {
-        lv_timer_pause(timer_);
-    }
-
-    if (image_overlay_ != nullptr) {
-        lv_obj_remove_flag(image_overlay_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_opa(image_overlay_, 0, 0);
-        lv_anim_t anim;
-        lv_anim_init(&anim);
-        lv_anim_set_var(&anim, image_overlay_);
-        lv_anim_set_values(&anim, 0, LV_OPA_COVER);
-        lv_anim_set_time(&anim, 300);
-        lv_anim_set_exec_cb(&anim, [](void* var, int32_t value) {
-            lv_obj_set_style_opa((lv_obj_t*)var, value, 0);
-        });
-        lv_anim_start(&anim);
-    }
-
-    image_visible_ = true;
-}
-
-void FortuneWatchfaceView::EndImageOverlay() {
-    if (image_overlay_ != nullptr) {
-        lv_anim_t anim;
-        lv_anim_init(&anim);
-        lv_anim_set_var(&anim, image_overlay_);
-        lv_anim_set_values(&anim, LV_OPA_COVER, 0);
-        lv_anim_set_time(&anim, 300);
-        lv_anim_set_exec_cb(&anim, [](void* var, int32_t value) {
-            lv_obj_set_style_opa((lv_obj_t*)var, value, 0);
-        });
-        lv_anim_set_ready_cb(&anim, [](lv_anim_t* anim) {
-            lv_obj_add_flag((lv_obj_t*)lv_anim_get_user_data(anim), LV_OBJ_FLAG_HIDDEN);
-        });
-        lv_anim_set_user_data(&anim, image_overlay_);
-        lv_anim_start(&anim);
-    }
-
-    if (timer_ != nullptr && visible_) {
-        lv_timer_resume(timer_);
-    }
-
-    image_visible_ = false;
-}
-
-void FortuneWatchfaceView::ShowImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {
-    (void)image;
-    (void)timeout_ms;
-    ESP_LOGW(TAG, "ShowImage: deprecated, use AttitudeDisplay::ShowImageOnActiveView");
-}
-
-void FortuneWatchfaceView::HideImage() {
-    if (!lvgl_port_lock(300)) {
-        ESP_LOGW(TAG, "HideImage: LVGL lock timeout");
-        return;
-    }
-
-    GifPreviewPlayer::GetInstance().Hide();
-    lvgl_port_unlock();
 }
 
 void FortuneWatchfaceView::SetStatusText(const char* text) {

@@ -685,7 +685,9 @@ extern "C" bool http_api_display_show(const char* path, int x, int y,
 extern "C" void http_api_display_hide(void) {
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
-    if (display != nullptr) {
+    auto* attitude_display = dynamic_cast<AttitudeDisplay*>(display);
+    if (attitude_display != nullptr) {
+        attitude_display->HideImagePreview();
         ESP_LOGI(TAG, "Display hide requested");
     }
 }

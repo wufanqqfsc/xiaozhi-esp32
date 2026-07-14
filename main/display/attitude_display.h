@@ -39,6 +39,7 @@ enum class ActiveView {
     Compass,        // 罗盘主界面
     JarvisWatchface,// JARVIS HUD 视图
     Divination,     // 占卜视图
+    ImagePreview,   // 独立图片/GIF 预览视图
 };
 
 // ---------------------------------------------------------------------------
@@ -228,6 +229,8 @@ public:
     void ShowJarvisWatchface();
     // 语音交互结束时隐藏 JARVIS 视图，恢复罗盘主界面
     void HideJarvisWatchface();
+    // 无新交互回到罗盘待机：释放叠加视图、图片/GIF、占卜与调试队列占用的内存
+    void ReturnToCompassIdleView();
 
     // 运势菜单（短按选中、长按确认；结果卡 Plan A 已彻底删除）
     void EnterIdleState();
@@ -260,9 +263,10 @@ public:
     /** 获取当前占卜状态 */
     int GetFortuneDivinationState() const;
 
-    // 在当前活动视图（罗盘或 JARVIS）上显示图片/GIF
+    // 显示独立图片预览视图（隐藏当前视图，超时后自动恢复）
     void ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 5000,
                                bool loop = true);
+    void HideImagePreview();
 
     // 从 JARVIS 视图切换到占卜视图（隐藏 JARVIS，显示罗盘并开始占卜）
     void SwitchToDivination();
@@ -270,8 +274,8 @@ public:
     // 占卜结束后切换回 JARVIS 视图
     void SwitchBackFromDivination();
 
-    // 获取当前是否显示 JARVIS 视图
-    bool IsJarvisWatchfaceVisible() const { return fortune_watchface_visible_; }
+    // 获取当前是否显示 JARVIS 视图（含 FortuneWatchfaceView 实际可见状态）
+    bool IsJarvisWatchfaceVisible() const;
 
     // 设置占卜结束回调
     void SetDivinationCallback(std::function<void(int)> callback);
@@ -325,6 +329,7 @@ private:
     lv_obj_t* taiji_press_overlay_ = nullptr;
     bool taiji_rotation_paused_by_press_ = false;
     bool fortune_watchface_visible_ = false;  // 追踪 FortuneWatchfaceView 显示状态
+    bool image_preview_active_ = false;       // 独立图片预览视图是否在前台
     bool divination_from_jarvis_ = false;     // 记录是否从 JARVIS 进入占卜
     std::function<void(int)> divination_callback_ = nullptr;  // 占卜结束回调
     ViewStack view_stack_;                     // 视图栈：spec 6.2 定义
@@ -341,10 +346,6 @@ private:
     lv_obj_t* ble_fisheye_icon_ = nullptr;
     WifiStatus wifi_status_ = WifiStatus::DISCONNECTED;
     BleStatus ble_status_ = BleStatus::DISABLED;
-
-    lv_obj_t* preview_image_ = nullptr;
-    lv_obj_t* preview_gif_ = nullptr;
-    lv_obj_t* image_overlay_card_ = nullptr;
 
     void CreateWifiFisheye();
     void CreateBleFisheye();
@@ -389,8 +390,11 @@ private:
     void SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 10000);
     void ShowImageOnActiveViewUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms,
                                        bool loop);
-    GifPreviewTarget BuildCompassPreviewTarget(const LvglImage* image) const;
-    GifPreviewTarget BuildJarvisPreviewTarget(const LvglImage* image) const;
+    void EnterImagePreviewViewUnlocked();
+    void ExitImagePreviewViewUnlocked();
+    GifPreviewTarget BuildImagePreviewTarget(const LvglImage* image);
+    void ClearDebugInfoQueueUnlocked();
+    void ReturnToCompassIdleViewUnlocked();
 
     void SetTaijiCoreVisible(bool visible);
 
@@ -422,6 +426,9 @@ private:
     DebugInfoPriority InferDebugInfoPriority(const std::string& title);
     void DisplayDebugInfoCard(const std::string& title, const std::string& detail);
     void PopAndShowNext();
+    bool IsJarvisHudActive() const;
+    void RouteToJarvisStatusBar(const std::string& text);
+    void SuppressDebugInfoCardForJarvisUnlocked();
 
 
 

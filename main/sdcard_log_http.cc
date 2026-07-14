@@ -874,12 +874,11 @@ static esp_err_t handle_display_show(httpd_req_t* req) {
 // POST /api/display/hide
 // 隐藏当前显示的资源（实际上是删除最后一个 SetPreviewImage 创建的 lv_obj）
 static esp_err_t handle_display_hide(httpd_req_t* req) {
-    // 简单实现：仅记录日志，调用方负责后续行为
-    // 真正的隐藏需要在 Display 类中增加 ResetPreviewImage() 方法
-    ESP_LOGI(TAG, "Display hide requested");
+    Application::GetInstance().Schedule([]() {
+        http_api_display_hide();
+    });
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, "{\"ok\":true,\"note\":\"hide not fully implemented\"}",
-                    HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
 

@@ -3,6 +3,7 @@
 #include "lvgl_image.h"
 #include "gif/gif_image_loader.h"
 #include "gif/gif_preview_player.h"
+#include "image_preview_view.h"
 #include "application.h"
 #include "assets.h"
 #include "assets/lang_config.h"
@@ -213,37 +214,6 @@ void AttitudeDisplay::SetupUI()
     CreateDivinationHintLabel();
     // 方位圆点已移除（v1.2+ 视觉简化，运势高亮见迭代 2 再定）
 
-    // ============================================================
-    // 图片浮层（仿 DebugInfoCard 风格）
-    //   image_overlay_card_  圆形深色面板（300x300，金色边框，圆形遮罩）
-    //   preview_image_       lv_image widget（用于 PNG / JPG / BIN 静态图）
-    //   preview_gif_         lv_image widget（用于 GIF/PNG/JPG 静态预览，LVGL 9.x 已移除 lv_gif，改用 lv_image）
-    // ============================================================
-    image_overlay_card_ = lv_obj_create(screen);
-    lv_obj_set_size(image_overlay_card_, DEBUG_INFO_CARD_W, DEBUG_INFO_CARD_H);
-    lv_obj_set_pos(image_overlay_card_, DEBUG_INFO_CARD_X, DEBUG_INFO_CARD_Y);
-    lv_obj_set_style_radius(image_overlay_card_, DEBUG_INFO_CARD_RADIUS, 0);
-    lv_obj_set_style_clip_corner(image_overlay_card_, true, 0);
-    lv_obj_set_style_bg_color(image_overlay_card_, lv_color_hex(0x0A1414), 0);
-    lv_obj_set_style_bg_opa(image_overlay_card_, LV_OPA_90, 0);
-    lv_obj_set_style_border_color(image_overlay_card_, DEBUG_INFO_BORDER_COLOR, 0);
-    lv_obj_set_style_border_width(image_overlay_card_, 2, 0);
-    lv_obj_set_style_pad_all(image_overlay_card_, 0, 0);
-    lv_obj_clear_flag(image_overlay_card_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-
-    // 静态图 widget（PNG / JPG / BIN 等）
-    preview_image_ = lv_image_create(image_overlay_card_);
-    lv_obj_set_size(preview_image_, DEBUG_INFO_CARD_W, DEBUG_INFO_CARD_H);
-    lv_obj_center(preview_image_);
-    lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-
-    // 静态图 widget（GIF/PNG/JPG）—— 与 preview_image_ 互斥显示
-    preview_gif_ = lv_image_create(image_overlay_card_);
-    lv_obj_set_size(preview_gif_, DEBUG_INFO_CARD_W, DEBUG_INFO_CARD_H);
-    lv_obj_center(preview_gif_);
-    lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
-
     // 首帧全屏铺深色底，避免 SPI 分块刷新露出开机白底
     lv_obj_invalidate(attitude_container_);
     if (display_ != nullptr) {
@@ -294,6 +264,29 @@ void AttitudeDisplay::UpdateStatusBar(bool update_all)
     (void)update_all;
 }
 
+bool AttitudeDisplay::IsJarvisWatchfaceVisible() const
+{
+    return fortune_watchface_visible_ || FortuneWatchfaceView::GetInstance().IsVisible();
+}
+
+bool AttitudeDisplay::IsJarvisHudActive() const
+{
+    return IsJarvisWatchfaceVisible();
+}
+
+void AttitudeDisplay::RouteToJarvisStatusBar(const std::string& text)
+{
+    if (text.empty()) {
+        return;
+    }
+    FortuneWatchfaceView::GetInstance().SetVoiceMessage(text.c_str());
+}
+
+void AttitudeDisplay::SuppressDebugInfoCardForJarvisUnlocked()
+{
+    ClearDebugInfoQueueUnlocked();
+}
+
 void AttitudeDisplay::SetTheme(Theme* theme)
 {
     Display::SetTheme(theme);
@@ -318,9 +311,8 @@ void AttitudeDisplay::ShowNotification(const char* notification, int duration_ms
     ESP_LOGD(TAG, "ShowNotification: %s (duration=%dms)", notification, duration_ms);
 
     // JARVIS 视图可见时，通知走状态栏，避免 function_area_card_ 在后台屏幕弹出
-    if (fortune_watchface_visible_) {
-        std::string prefixed = std::string("通知:") + notification;
-        FortuneWatchfaceView::GetInstance().SetVoiceMessage(prefixed.c_str());
+    if (IsJarvisHudActive()) {
+        RouteToJarvisStatusBar(std::string("通知:") + notification);
         return;
     }
 
@@ -354,7 +346,7 @@ void AttitudeDisplay::SetStatus(const char* status)
     ESP_LOGD(TAG, "SetStatus: %s", status);
 
     // JARVIS 视图可见时，直接更新其状态栏
-    if (fortune_watchface_visible_) {
+    if (IsJarvisHudActive()) {
         FortuneWatchfaceView::GetInstance().SetStatusText(status);
         return;
     }
@@ -386,8 +378,7 @@ void AttitudeDisplay::SetChatMessage(const char* role, const char* content)
              role, content, (strlen(content) > 40 ? "..." : ""));
 
     // JARVIS 视图可见时，所有消息都路由到状态栏显示（支持滚动）
-    if (fortune_watchface_visible_) {
-        // 根据 role 添加前缀，便于辨识消息来源
+    if (IsJarvisHudActive()) {
         std::string prefixed;
         if (strcmp(role, "assistant") == 0) {
             prefixed = std::string("#AI:") + content;
@@ -396,7 +387,7 @@ void AttitudeDisplay::SetChatMessage(const char* role, const char* content)
         } else {
             prefixed = std::string("#系统:") + content;
         }
-        FortuneWatchfaceView::GetInstance().SetVoiceMessage(prefixed.c_str());
+        RouteToJarvisStatusBar(prefixed);
         return;
     }
 
@@ -413,45 +404,45 @@ void AttitudeDisplay::ClearChatMessages()
     ESP_LOGD(TAG, "ClearChatMessages (no-op, attitude ui has no message bubbles)");
 }
 
-// 功能：在 AttitudeDisplay 上显示一张外部图片（PNG / JPG / GIF / BIN 等）
-//   - 隐藏在 attitude_container_ 之后的太极/鱼眼等 UI
-//   - 在 300x300 的 image_overlay_card_ 圆形浮层（仿 DebugInfoCard 样式）上居中渲染
-GifPreviewTarget AttitudeDisplay::BuildCompassPreviewTarget(const LvglImage* image) const {
+// 功能：显示外部图片（PNG / JPG / GIF），走独立 ImagePreviewView
+void AttitudeDisplay::EnterImagePreviewViewUnlocked() {
+    if (image_preview_active_) {
+        return;
+    }
+    if (!view_stack_.contains(ActiveView::ImagePreview)) {
+        view_stack_.push(ActiveView::ImagePreview);
+    }
+    ImagePreviewView::GetInstance().Show();
+    image_preview_active_ = true;
+    ESP_LOGI(TAG, "EnterImagePreviewView: current=%d",
+             static_cast<int>(view_stack_.current()));
+}
+
+void AttitudeDisplay::ExitImagePreviewViewUnlocked() {
+    if (!image_preview_active_) {
+        return;
+    }
+    ImagePreviewView::GetInstance().Hide();
+    image_preview_active_ = false;
+    view_stack_.pop_if_top(ActiveView::ImagePreview);
+    ESP_LOGI(TAG, "ExitImagePreviewView: restored current=%d",
+             static_cast<int>(view_stack_.current()));
+}
+
+GifPreviewTarget AttitudeDisplay::BuildImagePreviewTarget(const LvglImage* image) {
+    auto& view = ImagePreviewView::GetInstance();
     GifPreviewTarget target;
-    target.gif_widget = preview_gif_;
-    target.static_widget = preview_image_;
+    target.gif_widget = view.GetGifWidget();
+    target.static_widget = view.GetStaticWidget();
     if (image != nullptr) {
         const lv_img_dsc_t* img_dsc = image->image_dsc();
         if (img_dsc != nullptr && img_dsc->header.w > 0) {
-            target.static_image_scale = 128 * DEBUG_INFO_CARD_W / img_dsc->header.w;
+            target.static_image_scale =
+                128 * ImagePreviewView::kCardSize / img_dsc->header.w;
         }
     }
-    target.on_before_show = [this]() {
-        if (image_overlay_card_ != nullptr) {
-            lv_obj_remove_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (attitude_container_ != nullptr) {
-            lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-        }
-    };
-    target.on_after_hide = [this]() {
-        if (image_overlay_card_ != nullptr) {
-            lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (attitude_container_ != nullptr) {
-            lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-        }
-    };
-    return target;
-}
-
-GifPreviewTarget AttitudeDisplay::BuildJarvisPreviewTarget(const LvglImage* /*image*/) const {
-    auto& jarvis = FortuneWatchfaceView::GetInstance();
-    GifPreviewTarget target;
-    target.gif_widget = jarvis.GetImageWidget();
-    target.static_widget = jarvis.GetImageWidget();
-    target.on_before_show = [&jarvis]() { jarvis.BeginImageOverlay(); };
-    target.on_after_hide = [&jarvis]() { jarvis.EndImageOverlay(); };
+    target.on_before_show = [this]() { EnterImagePreviewViewUnlocked(); };
+    target.on_after_hide = [this]() { ExitImagePreviewViewUnlocked(); };
     return target;
 }
 
@@ -462,24 +453,25 @@ void AttitudeDisplay::ShowImageOnActiveViewUnlocked(std::unique_ptr<LvglImage> i
         return;
     }
 
-    if (image_overlay_card_ == nullptr && !fortune_watchface_visible_) {
-        ESP_LOGE(TAG, "ShowImageOnActiveViewUnlocked: compass overlay not ready");
-        return;
+    if (timeout_ms == 0) {
+        timeout_ms = 5000;
     }
 
     const LvglImage* preview = image.get();
-    GifPreviewTarget target = fortune_watchface_visible_
-        ? BuildJarvisPreviewTarget(preview)
-        : BuildCompassPreviewTarget(preview);
-
+    GifPreviewTarget target = BuildImagePreviewTarget(preview);
     if (target.gif_widget == nullptr) {
-        ESP_LOGE(TAG, "ShowImageOnActiveViewUnlocked: preview widget not ready");
+        ESP_LOGE(TAG, "ShowImageOnActiveViewUnlocked: ImagePreviewView not ready");
         return;
     }
 
     if (!GifPreviewPlayer::GetInstance().Show(std::move(image), target, timeout_ms, loop)) {
         ESP_LOGE(TAG, "ShowImageOnActiveViewUnlocked: GifPreviewPlayer::Show failed");
     }
+}
+
+void AttitudeDisplay::HideImagePreview() {
+    DisplayLockGuard lock(this);
+    GifPreviewPlayer::GetInstance().Hide();
 }
 
 void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms)
@@ -495,13 +487,7 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t
         return;
     }
 
-    if (image_overlay_card_ == nullptr) {
-        ESP_LOGE(TAG, "SetPreviewImage: image_overlay_card_ not created (SetupUI not called?)");
-        lvgl_port_unlock();
-        return;
-    }
-
-    SetPreviewImageUnlocked(std::move(image), timeout_ms);
+    ShowImageOnActiveViewUnlocked(std::move(image), timeout_ms, true);
     lvgl_port_unlock();
 }
 
@@ -512,21 +498,7 @@ void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, 
         return;
     }
 
-    if (image_overlay_card_ == nullptr) {
-        ESP_LOGE(TAG, "SetPreviewImageUnlocked: image_overlay_card_ not created");
-        return;
-    }
-
-    const LvglImage* preview = image.get();
-    GifPreviewTarget target = BuildCompassPreviewTarget(preview);
-    if (target.gif_widget == nullptr) {
-        ESP_LOGE(TAG, "SetPreviewImageUnlocked: preview widget not ready");
-        return;
-    }
-
-    if (!GifPreviewPlayer::GetInstance().Show(std::move(image), target, timeout_ms, true)) {
-        ESP_LOGE(TAG, "SetPreviewImageUnlocked: GifPreviewPlayer::Show failed");
-    }
+    ShowImageOnActiveViewUnlocked(std::move(image), timeout_ms, true);
 }
 
 void AttitudeDisplay::SetPreviewGif(const char* file_path, bool loop, uint32_t timeout_ms)
@@ -542,16 +514,7 @@ void AttitudeDisplay::SetPreviewGif(const char* file_path, bool loop, uint32_t t
         return;
     }
 
-    if (image_overlay_card_ == nullptr || preview_gif_ == nullptr) {
-        ESP_LOGE(TAG, "SetPreviewGif: UI not ready");
-        lvgl_port_unlock();
-        return;
-    }
-
-    GifPreviewTarget target = BuildCompassPreviewTarget(image.get());
-    if (!GifPreviewPlayer::GetInstance().Show(std::move(image), target, timeout_ms, loop)) {
-        ESP_LOGE(TAG, "SetPreviewGif: GifPreviewPlayer::Show failed");
-    }
+    ShowImageOnActiveViewUnlocked(std::move(image), timeout_ms, loop);
     lvgl_port_unlock();
 }
 
@@ -946,9 +909,20 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     fortune_menu_selection_active_ = false;
     HideDivinationHintUnlocked();
     HideTaijiPressOverlayUnlocked();
-    ClearDebugInfoCard();
+    ClearDebugInfoQueueUnlocked();
+}
+
+void AttitudeDisplay::ClearDebugInfoQueueUnlocked()
+{
+    for (auto& item : debug_info_queue_) {
+        if (item.timer != nullptr) {
+            lv_timer_del(item.timer);
+            item.timer = nullptr;
+        }
+    }
     debug_info_queue_.clear();
     current_index_ = SIZE_MAX;
+    ClearDebugInfoCard();
 }
 
 void AttitudeDisplay::StartFortuneDivinationUnlocked()
@@ -1219,9 +1193,7 @@ void AttitudeDisplay::DeselectFortuneMenuItemUnlocked()
     if (prev >= 0 && prev < FORTUNE_MENU_COUNT) {
         UpdateFortuneMenuItemVisual(prev, false);
     }
-    ClearDebugInfoCard();
-    debug_info_queue_.clear();
-    current_index_ = SIZE_MAX;
+    ClearDebugInfoQueueUnlocked();
     SetPreviewImageUnlocked(nullptr);
 
     // 取消选中时隐藏 JARVIS 特效，恢复罗盘主界面
@@ -1327,6 +1299,7 @@ void AttitudeDisplay::ShowFortuneFeatureCategoryUnlocked(int index)
 
     if (index == 0) {
         ESP_LOGI(TAG, "Showing JARVIS watchface effect for Fortune Today");
+        SuppressDebugInfoCardForJarvisUnlocked();
         if (attitude_container_ != nullptr) {
             lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -1604,6 +1577,8 @@ void AttitudeDisplay::ShowJarvisWatchface()
         return;
     }
     ESP_LOGI(TAG, "ShowJarvisWatchface: voice wake-up triggered");
+    // 进入 JARVIS 前清理罗盘 InfoCard 队列，避免定时器在后台弹出功能卡
+    SuppressDebugInfoCardForJarvisUnlocked();
     if (!view_stack_.contains(ActiveView::JarvisWatchface)) {
         view_stack_.push(ActiveView::JarvisWatchface);
     }
@@ -1629,14 +1604,72 @@ void AttitudeDisplay::HideJarvisWatchface()
     }
     ESP_LOGI(TAG, "HideJarvisWatchface: voice interaction ended");
 
-    // 清除语音交互消息文本，恢复默认扫描进度
     FortuneWatchfaceView::GetInstance().ClearVoiceMessage();
-    FortuneWatchfaceView::GetInstance().HideImage();
+    GifPreviewPlayer::GetInstance().Hide();
 
-    // 直接切换回主屏幕（attitude_container_ 始终可见，无需恢复）
     FortuneWatchfaceView::GetInstance().Hide();
     fortune_watchface_visible_ = false;
     view_stack_.pop_if_top(ActiveView::JarvisWatchface);
+    FortuneWatchfaceView::GetInstance().ReleaseIdleResources();
+}
+
+void AttitudeDisplay::ReturnToCompassIdleView()
+{
+    DisplayLockGuard lock(this);
+    ReturnToCompassIdleViewUnlocked();
+}
+
+void AttitudeDisplay::ReturnToCompassIdleViewUnlocked()
+{
+    const size_t free_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    const size_t min_sram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+
+    // 1. 释放图片/GIF 预览（含解码缓存与独立 screen）
+    GifPreviewPlayer::GetInstance().Hide();
+    if (image_preview_active_) {
+        ExitImagePreviewViewUnlocked();
+    }
+
+    // 2. 停止占卜动画/结果与关联音效
+    if (fortune_divination_state_ != FortuneDivinationState::Idle) {
+        StopFortuneDivinationUnlocked();
+    }
+
+    // 3. 清空调试信息队列（lv_timer + 字符串）
+    ClearDebugInfoQueueUnlocked();
+
+    // 4. 取消运势菜单选中态
+    if (fortune_menu_selection_active_) {
+        const int prev = fortune_menu_selected_index_;
+        fortune_menu_selection_active_ = false;
+        if (prev >= 0 && prev < FORTUNE_MENU_COUNT) {
+            UpdateFortuneMenuItemVisual(prev, false);
+        }
+    }
+
+    // 5. 隐藏 JARVIS 并销毁其 LVGL 屏幕树
+    if (fortune_watchface_visible_) {
+        FortuneWatchfaceView::GetInstance().ClearVoiceMessage();
+        FortuneWatchfaceView::GetInstance().Hide();
+        fortune_watchface_visible_ = false;
+    }
+    FortuneWatchfaceView::GetInstance().ReleaseIdleResources();
+
+    // 6. 确保罗盘主容器可见
+    if (attitude_container_ != nullptr) {
+        lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 7. 视图栈归一为罗盘
+    view_stack_.clear();
+    view_stack_.push(ActiveView::Compass);
+    divination_from_jarvis_ = false;
+    image_preview_active_ = false;
+
+    const size_t free_after = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    ESP_LOGI(TAG,
+             "ReturnToCompassIdleView: free_sram %u->%u bytes, min_sram=%u",
+             (unsigned)free_before, (unsigned)free_after, (unsigned)min_sram);
 }
 
 void AttitudeDisplay::ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms,
@@ -1918,9 +1951,8 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
                                                     const DebugInfoPresentOpts& opts)
 {
     // JARVIS HUD 可见时：路由到 status_label_，避免在语音交互过程中弹出功能卡
-    if (fortune_watchface_visible_) {
-        std::string combined = title + "\n" + detail;
-        FortuneWatchfaceView::GetInstance().SetVoiceMessage(combined.c_str());
+    if (IsJarvisHudActive()) {
+        RouteToJarvisStatusBar(title + "\n" + detail);
         return;
     }
 
@@ -2016,14 +2048,14 @@ void AttitudeDisplay::CleanupCurrentItem()
 void AttitudeDisplay::DisplayDebugInfoCard(const std::string& title, const std::string& detail)
 {
     // JARVIS HUD 可见时：直接走 status_label_，避免 function_area_card_ 显示
-    if (fortune_watchface_visible_) {
+    if (IsJarvisHudActive()) {
         std::string combined;
         if (!title.empty()) {
             combined = title + ":" + detail;
         } else {
             combined = detail;
         }
-        FortuneWatchfaceView::GetInstance().SetVoiceMessage(combined.c_str());
+        RouteToJarvisStatusBar(combined);
         return;
     }
 
@@ -2075,16 +2107,15 @@ void AttitudeDisplay::PopAndShowNext()
 
 void AttitudeDisplay::ShowDebugInfo(const std::string& title, const std::string& detail, uint32_t hold_ms)
 {
-    // JARVIS HUD 可见时：所有调试信息直接走 status_label_，不显示 function_area_card_
-    // 避免 UI 交互造成性能问题，并保持 JARVIS HUD 的视觉一致性
-    if (fortune_watchface_visible_) {
+    // JARVIS HUD 可见时：所有调试信息直接走 status_label_，不入队、不弹 InfoCard
+    if (IsJarvisHudActive()) {
         std::string combined;
         if (!title.empty()) {
             combined = title + ":" + detail;
         } else {
             combined = detail;
         }
-        FortuneWatchfaceView::GetInstance().SetVoiceMessage(combined.c_str());
+        RouteToJarvisStatusBar(combined);
         return;
     }
 

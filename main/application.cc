@@ -1335,11 +1335,10 @@ void Application::HandleWakeWordDetectedEvent() {
     if (auto* attitude = GetAttitudeDisplay()) {
         std::string detail = wake_word.empty() ? std::string("(无)") : wake_word;
         Schedule([this, attitude, detail]() {
-            // 短促本地提示音 + 显示卡（默认 30s，有语音交互则由 RefreshDebugInfoTimer 重计时）
+            // 先切 JARVIS 视图，再写状态栏，避免 ShowDebugInfo 在罗盘 InfoCard 上弹出
+            attitude->ShowJarvisWatchface();
             attitude->ShowDebugInfo("唤醒成功", detail, 30000);
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
-            // 唤醒时显示 JARVIS 启动视图
-            attitude->ShowJarvisWatchface();
         });
     }
     // 不在此处触发服务端 TTS：唤醒词后 LLM 即将开始接管对话，避免双声道冲突
@@ -1457,8 +1456,9 @@ void Application::HandleStateChangedEvent() {
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
+            audio_service_.ResetDecoder();
             if (attitude != nullptr) {
-                attitude->HideJarvisWatchface();
+                attitude->ReturnToCompassIdleView();
                 jarvis_watchface_active_by_wake_ = false;
             }
             break;
@@ -1533,8 +1533,9 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateWifiConfiguring:
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(false);
-            if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
-                attitude->HideJarvisWatchface();
+            audio_service_.ResetDecoder();
+            if (attitude != nullptr) {
+                attitude->ReturnToCompassIdleView();
                 jarvis_watchface_active_by_wake_ = false;
             }
             break;

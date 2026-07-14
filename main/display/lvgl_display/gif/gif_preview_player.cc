@@ -1,5 +1,8 @@
 #include "gif_preview_player.h"
 
+#include "application.h"
+#include "board.h"
+#include "display/attitude_display.h"
 #include <esp_log.h>
 
 extern "C" void lv_image_cache_drop(const void* src);
@@ -58,9 +61,18 @@ void GifPreviewPlayer::HideUnlocked() {
 
 void GifPreviewPlayer::OnHideTimer(lv_timer_t* timer) {
     auto* self = static_cast<GifPreviewPlayer*>(lv_timer_get_user_data(timer));
-    if (self != nullptr) {
-        self->HideUnlocked();
+    if (self == nullptr) {
+        return;
     }
+    Application::GetInstance().Schedule([self]() {
+        auto* attitude = dynamic_cast<AttitudeDisplay*>(Board::GetInstance().GetDisplay());
+        if (attitude == nullptr) {
+            self->HideUnlocked();
+            return;
+        }
+        DisplayLockGuard lock(attitude);
+        self->HideUnlocked();
+    });
 }
 
 bool GifPreviewPlayer::Show(std::unique_ptr<LvglImage> image, const GifPreviewTarget& target,
@@ -114,6 +126,10 @@ bool GifPreviewPlayer::Show(std::unique_ptr<LvglImage> image, const GifPreviewTa
         }
 
         lv_image_set_src(active_widget_, gif_controller_->image_dsc());
+        if (target_.static_image_scale > 0) {
+            lv_image_set_scale(active_widget_, target_.static_image_scale);
+        }
+        lv_obj_center(active_widget_);
         gif_controller_->Start();
 
         ESP_LOGI(TAG, "Show GIF %ux%u loop=%d timeout=%ums",
