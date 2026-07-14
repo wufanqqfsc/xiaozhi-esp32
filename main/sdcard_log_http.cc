@@ -1154,7 +1154,7 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     ESP_LOGI(TAG, "[2/5] Configuring HTTP server (port=%u)...", port);
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
-    config.max_uri_handlers = 30;  // 增加到 30 以支持通用文件管理 + WiFi 备份 API
+    config.max_uri_handlers = 40;  // 增加以支持 volume API + WiFi 备份 API
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 10;
     // 增大 httpd task 栈：默认 4096 bytes 不够
@@ -2137,7 +2137,11 @@ static esp_err_t handle_device_volume(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
-    codec->SetOutputVolume(volume);
+    // 通过 Application::Schedule 在主任务中执行 SetOutputVolume
+    // 避免 HTTP 任务栈（PSRAM）直接调用导致 flash 写入时崩溃
+    Application::GetInstance().Schedule([codec, volume]() {
+        codec->SetOutputVolume(volume);
+    });
 
     cJSON* root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "ok", true);
