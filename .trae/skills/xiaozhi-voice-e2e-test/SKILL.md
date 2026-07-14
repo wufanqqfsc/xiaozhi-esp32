@@ -268,4 +268,5 @@ curl -s -o /tmp/after.jpg "http://$DEVICE_IP:8080/api/sdcard/shots/$AFTER"
 | TTS 测试接口 | `xiaozhi-server/.../config/TtsTestController.java` |
 | 设备 HTTP API | `xiaozhi-esp32/.trae/skills/esp32-http-api/SKILL.md` |
 | E2E 调试手册 | `xiaozhi-esp32/.trae/skills/xiaozhi-e2e-debug/SKILL.md` |
+| JARVIS 设备调试 | `xiaozhi-esp32/.trae/skills/jarvis-device-debug/SKILL.md` |
 | 交互计划文档 | `xiaozhi-esp32/.trae/documents/jarvis_interaction_plan.md` |

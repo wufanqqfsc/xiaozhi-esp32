@@ -5,7 +5,7 @@ description: "Automated E2E analyzer for Jarvis voice interactions. Generates ja
 
 # Jarvis E2E 自动分析与闭环修复技能
 
-自动分析最近的贾维斯语音交互流程，生成与 `jarvis_e2e_analysis_*.md` 同格式的分析报告，并基于分析结果调用 `xiaozhi-e2e-pipeline` / `xiaozhi-server-java` / `esp32-http-api` 三个相关技能完成问题排查、代码修复和闭环验证。
+自动分析最近的贾维斯语音交互流程，生成与 `jarvis_e2e_analysis_*.md` 同格式的分析报告，并基于分析结果调用 `xiaozhi-e2e-debug` / `xiaozhi-server` / `esp32-http-api` / `jarvis-device-debug` 等相关技能完成问题排查、代码修复和闭环验证。
 
 ## 适用场景
 
@@ -258,6 +258,7 @@ unzip -p xiaozhi-ai/target/xiaozhi-ai-5.0.0.jar com/xiaozhi/ai/tts/SentenceHelpe
 | **xiaozhi-server-java** | 提供后端代码位置、配置说明、构建命令 |
 | **esp32-http-api** | 提供设备侧 API 列表（NVS 清除、状态查询、日志下载） |
 | **xiaozhi-voice-e2e-test** | 阶段 6 验证时调用执行 TTS + afplay 测试 |
+| **jarvis-device-debug** | JARVIS HUD 冻结/重启/LVGL panic：编译烧录、串口 monitor、backtrace 解码与 UI 层修复 |
 
 ## 已知问题与对应修复（参考库）
 

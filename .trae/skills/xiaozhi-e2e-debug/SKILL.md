@@ -426,3 +426,11 @@ grep -E "检测到语音开始|状态转换.*THINKING|LLM_FIRST_TOKEN" logs/xiao
 | Persona 聚合 | `xiaozhi-dialogue/.../runtime/Persona.java` | 123, 160, 165 |
 | TTS 合成器 | `xiaozhi-dialogue/.../playback/FileSynthesizer.java` | 65, 89 |
 | 延迟追踪 | `xiaozhi-common/.../utils/LatencyTracer.java` | 75, 95, 101 |
+
+---
+
+## JARVIS HUD / LVGL 设备问题
+
+本技能覆盖**语音 E2E 链路**（STT/LLM/TTS/WebSocket）。若问题是 JARVIS 界面冻结、联网后重启、`Guru Meditation`、LVGL 锁超时等**显示层/固件崩溃**，请改用：
+
+- `.trae/skills/jarvis-device-debug/SKILL.md` — 编译烧录、串口 monitor、backtrace 解码、`FortuneWatchfaceView` 修复 playbook
