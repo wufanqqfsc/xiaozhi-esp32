@@ -3,6 +3,7 @@
 
 #include "lcd_display.h"
 #include "lvgl_image.h"
+#include "lvgl_display/gif/gif_preview_player.h"
 #include <string>
 #include <deque>
 #include <vector>
@@ -260,7 +261,8 @@ public:
     int GetFortuneDivinationState() const;
 
     // 在当前活动视图（罗盘或 JARVIS）上显示图片/GIF
-    void ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 5000);
+    void ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 5000,
+                               bool loop = true);
 
     // 从 JARVIS 视图切换到占卜视图（隐藏 JARVIS，显示罗盘并开始占卜）
     void SwitchToDivination();
@@ -343,10 +345,6 @@ private:
     lv_obj_t* preview_image_ = nullptr;
     lv_obj_t* preview_gif_ = nullptr;
     lv_obj_t* image_overlay_card_ = nullptr;
-    std::unique_ptr<LvglImage> preview_image_cache_;
-    class LvglGif* gif_controller_ = nullptr;
-    uint8_t* gif_raw_data_ = nullptr;
-    size_t gif_raw_size_ = 0;
 
     void CreateWifiFisheye();
     void CreateBleFisheye();
@@ -389,8 +387,10 @@ private:
     void ShowFortuneFeatureCategoryUnlocked(int index);  // 切换 JARVIS/罗盘视图（不弹信息卡）
     // 图片显示（持锁状态下调用，不加锁版本）
     void SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 10000);
-    void SetPreviewGifUnlocked(const char* file_path, bool loop, uint32_t timeout_ms);
-    void StopGifUnlocked();
+    void ShowImageOnActiveViewUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms,
+                                       bool loop);
+    GifPreviewTarget BuildCompassPreviewTarget(const LvglImage* image) const;
+    GifPreviewTarget BuildJarvisPreviewTarget(const LvglImage* image) const;
 
     void SetTaijiCoreVisible(bool visible);
 
@@ -400,11 +400,9 @@ private:
     lv_obj_t* function_area_card_ = nullptr;
     lv_obj_t* debug_info_title_ = nullptr;
     lv_obj_t* debug_info_detail_ = nullptr;
-    lv_timer_t* preview_image_hide_timer_ = nullptr;
     // 上一次的调试信息（用于防抖）
     std::string debug_info_last_title_;
     int64_t debug_info_last_show_ms_ = 0;
-    static void OnPreviewImageHideTimer(lv_timer_t* timer);
     void CreateDebugInfoCard();
     void DestroyDebugInfoCard();
     void ApplyDebugInfoCardLayout();

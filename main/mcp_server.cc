@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstring>
 #include <esp_pthread.h>
+#include <esp_heap_caps.h>
 
 #include "application.h"
 #include "display.h"
@@ -18,6 +19,7 @@
 #include "lvgl_theme.h"
 #include "lvgl_display.h"
 #include "attitude_display.h"
+#include "display/lvgl_display/gif/gif_image_loader.h"
 #include "http_api_unified.h"
 #include "music_player.h"
 
@@ -201,7 +203,13 @@ void McpServer::AddCommonTools() {
                 }
 
                 size_t content_length = http->GetBodyLength();
-                char* data = (char*)heap_caps_malloc(content_length, MALLOC_CAP_8BIT);
+                if (content_length == 0 || content_length > GifImageLoader::kDefaultMaxBytes) {
+                    throw std::runtime_error("Image too large (max 512KB): " + url);
+                }
+                char* data = (char*)heap_caps_malloc(content_length, MALLOC_CAP_SPIRAM);
+                if (data == nullptr) {
+                    data = (char*)malloc(content_length);
+                }
                 if (data == nullptr) {
                     throw std::runtime_error("Failed to allocate memory for image: " + url);
                 }
@@ -311,7 +319,13 @@ void McpServer::AddUserOnlyTools() {
                 }
 
                 size_t content_length = http->GetBodyLength();
-                char* data = (char*)heap_caps_malloc(content_length, MALLOC_CAP_8BIT);
+                if (content_length == 0 || content_length > GifImageLoader::kDefaultMaxBytes) {
+                    throw std::runtime_error("Image too large (max 512KB): " + url);
+                }
+                char* data = (char*)heap_caps_malloc(content_length, MALLOC_CAP_SPIRAM);
+                if (data == nullptr) {
+                    data = (char*)malloc(content_length);
+                }
                 if (data == nullptr) {
                     throw std::runtime_error("Failed to allocate memory for image: " + url);
                 }

@@ -4,9 +4,8 @@
 #include <lvgl.h>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include "lvgl_image.h"
-#include "lvgl_gif.h"
-
 /**
  * FortuneWatchfaceView - JARVIS 启动界面特效视图
  *
@@ -33,11 +32,16 @@ public:
     // 生命周期绑定到 attitude_display
     void SetParentContainer(lv_obj_t* container);
 
-    // 图片显示（在 JARVIS 视图之上覆盖显示；接管 image 所有权直至 HideImage）
+    // 图片覆盖层（由 GifPreviewPlayer + AttitudeDisplay 统一驱动）
+    void BeginImageOverlay();
+    void EndImageOverlay();
+    lv_obj_t* GetImageWidget() const { return image_widget_; }
+    lv_obj_t* GetImageOverlay() const { return image_overlay_; }
+    bool IsImageVisible() const { return image_visible_; }
+
+    // 兼容旧调用：委托 AttitudeDisplay::ShowImageOnActiveView
     void ShowImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 5000);
     void HideImage();
-    bool IsImageVisible() const;
-
     // 语音交互状态文本（覆盖默认扫描进度显示）
     void SetStatusText(const char* text);
     void ClearStatusText();
@@ -95,6 +99,18 @@ private:
     static constexpr int CY_ = H_ / 2;
     static constexpr int ORBIT_COUNT_ = 12;
 
+    // JARVIS 金色主题（与外环 0xD4AF37 一致）
+    static constexpr uint32_t kJarvisGold_ = 0xD4AF37;
+    static constexpr uint32_t kJarvisGoldBright_ = 0xFFD700;
+    static constexpr uint32_t kJarvisGoldShadow_ = 0xB8860B;
+
+    // 状态栏：贴内核环下缘，宽度适配屏幕外环
+    // 内核环 (100,100,160,160) 下缘 y=260；外环半径 178.5，底部区域最大宽约 258px
+    static constexpr int STATUS_BAR_X_ = 51;
+    static constexpr int STATUS_BAR_Y_ = 260;
+    static constexpr int STATUS_BAR_W_ = 258;
+    static constexpr int STATUS_BAR_H_ = 38;
+
     // 成员变量
     lv_obj_t* parent_container_ = nullptr;  // 父容器（attitude_container_）
     lv_obj_t* overlay_screen_ = nullptr;    // 覆盖层独立屏幕
@@ -123,11 +139,7 @@ private:
     // 图片覆盖层
     lv_obj_t* image_overlay_ = nullptr;
     lv_obj_t* image_widget_ = nullptr;
-    std::unique_ptr<LvglImage> image_cache_;
-    LvglGif* gif_controller_ = nullptr;
-    lv_timer_t* image_hide_timer_ = nullptr;
     bool image_visible_ = false;
-
     bool visible_ = false;
 };
 

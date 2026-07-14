@@ -673,7 +673,7 @@ extern "C" bool http_api_display_show(const char* path, int x, int y,
     uint32_t timeout_ms = duration_ms > 0 ? duration_ms : 5000;
     auto* attitude_display = dynamic_cast<AttitudeDisplay*>(display);
     if (attitude_display != nullptr) {
-        attitude_display->ShowImageOnActiveView(std::move(image), timeout_ms);
+        attitude_display->ShowImageOnActiveView(std::move(image), timeout_ms, loop);
     } else {
         display->SetPreviewImage(std::move(image));
     }

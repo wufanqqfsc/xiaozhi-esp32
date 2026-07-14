@@ -1,4 +1,5 @@
 #include "lcd_display.h"
+#include "gif/gif_preview_player.h"
 #include "gif/lvgl_gif.h"
 #include "settings.h"
 #include "lvgl_theme.h"
@@ -1140,6 +1141,7 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     }
 
     DisplayLockGuard lock(this);
+    GifPreviewPlayer::GetInstance().Hide();
     // Stop any running GIF animation in the same lock scope as setting new image
     // to prevent LVGL from accessing freed image data between operations
     if (gif_controller_) {

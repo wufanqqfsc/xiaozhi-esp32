@@ -1,7 +1,7 @@
 #include "fortune_watchface_view.h"
 #include "application.h"
 #include "lvgl_theme.h"
-#include "attitude_display.h"
+#include "gif/gif_preview_player.h"
 #include "assets/lang_config.h"
 #include <esp_lvgl_port.h>
 #include <esp_log.h>
@@ -192,7 +192,7 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     jarvis_label_shadow_a_ = lv_label_create(screen);
     lv_label_set_text(jarvis_label_shadow_a_, "JARVIS");
     lv_obj_set_style_text_font(jarvis_label_shadow_a_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(jarvis_label_shadow_a_, lv_color_hex(0x2ff3ff), 0);
+    lv_obj_set_style_text_color(jarvis_label_shadow_a_, lv_color_hex(kJarvisGoldShadow_), 0);
     lv_obj_set_style_text_letter_space(jarvis_label_shadow_a_, 3, 0);
     lv_obj_align(jarvis_label_shadow_a_, LV_ALIGN_CENTER, 1, -10);
 
@@ -200,7 +200,7 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     jarvis_label_shadow_b_ = lv_label_create(screen);
     lv_label_set_text(jarvis_label_shadow_b_, "JARVIS");
     lv_obj_set_style_text_font(jarvis_label_shadow_b_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(jarvis_label_shadow_b_, lv_color_hex(0x2ff3ff), 0);
+    lv_obj_set_style_text_color(jarvis_label_shadow_b_, lv_color_hex(kJarvisGoldShadow_), 0);
     lv_obj_set_style_text_letter_space(jarvis_label_shadow_b_, 3, 0);
     lv_obj_align(jarvis_label_shadow_b_, LV_ALIGN_CENTER, -1, -10);
 
@@ -208,7 +208,7 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     jarvis_label_ = lv_label_create(screen);
     lv_label_set_text(jarvis_label_, "JARVIS");
     lv_obj_set_style_text_font(jarvis_label_, &BUILTIN_TEXT_FONT, 0);
-    lv_obj_set_style_text_color(jarvis_label_, lv_color_hex(0xe6fbff), 0);
+    lv_obj_set_style_text_color(jarvis_label_, lv_color_hex(kJarvisGold_), 0);
     lv_obj_set_style_text_letter_space(jarvis_label_, 3, 0);
     lv_obj_align(jarvis_label_, LV_ALIGN_CENTER, 0, -10);
 
@@ -219,9 +219,9 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
         lv_obj_set_style_shadow_color(jarvis_bars_[i], lv_color_hex(0x20eaff), 0);
     }
 
-    // 状态栏（向上移动 20px，加宽加高，支持两行显示和滚动）
-    // 位置 y=264（原 284），宽度 290（原 252），高度 56（原 36），容纳两行 14px 文本
-    lv_obj_t* status_bar = AddBox(screen, 35, 264, 290, 56, 0x07182b, LV_RADIUS_CIRCLE);
+    // 状态栏：上缘贴内核环外边框 (y=260)，收窄高度与宽度以落入屏幕外环内
+    lv_obj_t* status_bar = AddBox(screen, STATUS_BAR_X_, STATUS_BAR_Y_, STATUS_BAR_W_, STATUS_BAR_H_,
+                                  0x07182b, LV_RADIUS_CIRCLE);
     lv_obj_set_style_border_width(status_bar, 1, 0);
     lv_obj_set_style_border_color(status_bar, lv_color_hex(0x20eaff), 0);
     lv_obj_set_style_shadow_width(status_bar, 10, 0);
@@ -229,8 +229,8 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     // 状态栏上下左右内边距
     lv_obj_set_style_pad_left(status_bar, 10, 0);
     lv_obj_set_style_pad_right(status_bar, 10, 0);
-    lv_obj_set_style_pad_top(status_bar, 4, 0);
-    lv_obj_set_style_pad_bottom(status_bar, 4, 0);
+    lv_obj_set_style_pad_top(status_bar, 2, 0);
+    lv_obj_set_style_pad_bottom(status_bar, 2, 0);
     // 设置文字行间距，让两行文字更紧凑
     lv_obj_set_style_text_line_space(status_bar, 2, 0);
 
@@ -241,9 +241,9 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     // 字体缩小到 14px 以容纳更多字符（约 14px/中文字符）
     lv_obj_set_style_text_font(status_label_, &font_puhui_14_1, 0);
     lv_obj_set_style_text_color(status_label_, lv_color_hex(0xc8f7ff), 0);
-    // 设置高度支持两行（14px 行高 * 2 + 行间距 = ~30px）
-    lv_obj_set_height(status_label_, 44);
-    lv_obj_set_width(status_label_, 270);
+    // 紧凑两行（14px * 2 + 行间距 2 = 30px）
+    lv_obj_set_height(status_label_, 30);
+    lv_obj_set_width(status_label_, STATUS_BAR_W_ - 20);
     lv_obj_center(status_label_);
 
     // 图片覆盖层 - 居中显示，300x300 圆形
@@ -279,19 +279,7 @@ void FortuneWatchfaceView::CreateUI() {
 }
 
 void FortuneWatchfaceView::DestroyUI() {
-    if (image_hide_timer_ != nullptr) {
-        lv_timer_del(image_hide_timer_);
-        image_hide_timer_ = nullptr;
-    }
-
-    if (gif_controller_ != nullptr) {
-        if (image_widget_ != nullptr) {
-            lv_img_set_src(image_widget_, NULL);
-        }
-        gif_controller_->Stop();
-        delete gif_controller_;
-        gif_controller_ = nullptr;
-    }
+    GifPreviewPlayer::GetInstance().Hide();
 
     image_widget_ = nullptr;
     image_overlay_ = nullptr;
@@ -399,16 +387,16 @@ void FortuneWatchfaceView::UpdateAnimation() {
         lv_arc_set_rotation(seconds_arc_, 210);
     }
 
-    // JARVIS 文字颜色闪烁
+    // JARVIS 金色闪烁
     if (jarvis_label_ != nullptr) {
-        uint32_t jarvis_color = (tick / 400) % 2 ? 0xffffffu : 0x7ff7ffu;
+        uint32_t jarvis_color = (tick / 400) % 2 ? kJarvisGoldBright_ : kJarvisGold_;
         lv_obj_set_style_text_color(jarvis_label_, lv_color_hex(jarvis_color), 0);
     }
     if (jarvis_label_shadow_a_ != nullptr) {
-        lv_obj_set_style_text_color(jarvis_label_shadow_a_, lv_color_hex(0x2ff3ff), 0);
+        lv_obj_set_style_text_color(jarvis_label_shadow_a_, lv_color_hex(kJarvisGoldShadow_), 0);
     }
     if (jarvis_label_shadow_b_ != nullptr) {
-        lv_obj_set_style_text_color(jarvis_label_shadow_b_, lv_color_hex(0x2ff3ff), 0);
+        lv_obj_set_style_text_color(jarvis_label_shadow_b_, lv_color_hex(kJarvisGoldShadow_), 0);
     }
 
     // 轨道点动画 - 使用 canvas 绘制
@@ -476,46 +464,7 @@ void FortuneWatchfaceView::UpdateAnimation() {
     }
 }
 
-void FortuneWatchfaceView::ShowImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {
-    if (!lvgl_port_lock(300)) {
-        ESP_LOGW(TAG, "ShowImage: LVGL lock timeout");
-        return;
-    }
-
-    if (image_hide_timer_ != nullptr) {
-        lv_timer_del(image_hide_timer_);
-        image_hide_timer_ = nullptr;
-    }
-
-    if (gif_controller_ != nullptr) {
-        gif_controller_->Stop();
-        delete gif_controller_;
-        gif_controller_ = nullptr;
-    }
-    image_cache_.reset();
-
-    if (image == nullptr) {
-        lvgl_port_unlock();
-        return;
-    }
-
-    image_cache_ = std::move(image);
-    const lv_img_dsc_t* img_dsc = image_cache_->image_dsc();
-    const bool is_gif = image_cache_->IsGif();
-
-    if (image_widget_ != nullptr && img_dsc != nullptr) {
-        lv_image_set_src(image_widget_, img_dsc);
-    }
-
-    if (is_gif && img_dsc != nullptr) {
-        // gd_open_gif_data 不拷贝原始字节，必须保持 image_cache_ 存活
-        gif_controller_ = new LvglGif(img_dsc);
-        gif_controller_->Start();
-        if (gif_controller_->IsLoaded()) {
-            lv_image_set_src(image_widget_, gif_controller_->image_dsc());
-        }
-    }
-
+void FortuneWatchfaceView::BeginImageOverlay() {
     if (timer_ != nullptr) {
         lv_timer_pause(timer_);
     }
@@ -534,41 +483,10 @@ void FortuneWatchfaceView::ShowImage(std::unique_ptr<LvglImage> image, uint32_t 
         lv_anim_start(&anim);
     }
 
-    if (image_widget_ != nullptr) {
-        lv_obj_remove_flag(image_widget_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    image_hide_timer_ = lv_timer_create([](lv_timer_t* timer) {
-        auto* self = static_cast<FortuneWatchfaceView*>(lv_timer_get_user_data(timer));
-        if (self != nullptr) {
-            self->HideImage();
-        }
-    }, timeout_ms, this);
-
     image_visible_ = true;
-    ESP_LOGI(TAG, "ShowImage: displayed image, timeout=%dms", timeout_ms);
-
-    lvgl_port_unlock();
 }
 
-void FortuneWatchfaceView::HideImage() {
-    if (!lvgl_port_lock(300)) {
-        ESP_LOGW(TAG, "HideImage: LVGL lock timeout");
-        return;
-    }
-
-    if (image_hide_timer_ != nullptr) {
-        lv_timer_del(image_hide_timer_);
-        image_hide_timer_ = nullptr;
-    }
-
-    if (gif_controller_ != nullptr) {
-        gif_controller_->Stop();
-        delete gif_controller_;
-        gif_controller_ = nullptr;
-    }
-    image_cache_.reset();
-
+void FortuneWatchfaceView::EndImageOverlay() {
     if (image_overlay_ != nullptr) {
         lv_anim_t anim;
         lv_anim_init(&anim);
@@ -585,22 +503,27 @@ void FortuneWatchfaceView::HideImage() {
         lv_anim_start(&anim);
     }
 
-    if (image_widget_ != nullptr) {
-        lv_obj_add_flag(image_widget_, LV_OBJ_FLAG_HIDDEN);
-    }
-
     if (timer_ != nullptr && visible_) {
         lv_timer_resume(timer_);
     }
 
     image_visible_ = false;
-    ESP_LOGI(TAG, "HideImage: image hidden");
-
-    lvgl_port_unlock();
 }
 
-bool FortuneWatchfaceView::IsImageVisible() const {
-    return image_visible_;
+void FortuneWatchfaceView::ShowImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {
+    (void)image;
+    (void)timeout_ms;
+    ESP_LOGW(TAG, "ShowImage: deprecated, use AttitudeDisplay::ShowImageOnActiveView");
+}
+
+void FortuneWatchfaceView::HideImage() {
+    if (!lvgl_port_lock(300)) {
+        ESP_LOGW(TAG, "HideImage: LVGL lock timeout");
+        return;
+    }
+
+    GifPreviewPlayer::GetInstance().Hide();
+    lvgl_port_unlock();
 }
 
 void FortuneWatchfaceView::SetStatusText(const char* text) {

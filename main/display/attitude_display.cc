@@ -1,7 +1,8 @@
 #include "attitude_display.h"
 #include "lvgl_theme.h"
 #include "lvgl_image.h"
-#include "gif/lvgl_gif.h"
+#include "gif/gif_image_loader.h"
+#include "gif/gif_preview_player.h"
 #include "application.h"
 #include "assets.h"
 #include "assets/lang_config.h"
@@ -19,8 +20,6 @@
 #include <ctime>
 #include <cmath>
 #include <font_awesome.h>
-
-extern "C" void lv_image_cache_drop(const void * src);
 
 #define TAG "AttitudeDisplay"
 
@@ -417,40 +416,81 @@ void AttitudeDisplay::ClearChatMessages()
 // 功能：在 AttitudeDisplay 上显示一张外部图片（PNG / JPG / GIF / BIN 等）
 //   - 隐藏在 attitude_container_ 之后的太极/鱼眼等 UI
 //   - 在 300x300 的 image_overlay_card_ 圆形浮层（仿 DebugInfoCard 样式）上居中渲染
-//   - 自动按格式分发：GIF → lv_image widget（显示首帧）；其它 → lv_image widget（静态）
-//   - image == nullptr 时隐藏浮层、恢复 attitude_container_
-// 参数：image 已构造好的 LvglImage；析构时由本对象接管（unique_ptr）
-// 线程：内部加 LVGL 互斥锁（lvgl_port_lock 100ms），可以从其他 task 安全调用
+GifPreviewTarget AttitudeDisplay::BuildCompassPreviewTarget(const LvglImage* image) const {
+    GifPreviewTarget target;
+    target.gif_widget = preview_gif_;
+    target.static_widget = preview_image_;
+    if (image != nullptr) {
+        const lv_img_dsc_t* img_dsc = image->image_dsc();
+        if (img_dsc != nullptr && img_dsc->header.w > 0) {
+            target.static_image_scale = 128 * DEBUG_INFO_CARD_W / img_dsc->header.w;
+        }
+    }
+    target.on_before_show = [this]() {
+        if (image_overlay_card_ != nullptr) {
+            lv_obj_remove_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (attitude_container_ != nullptr) {
+            lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+    };
+    target.on_after_hide = [this]() {
+        if (image_overlay_card_ != nullptr) {
+            lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (attitude_container_ != nullptr) {
+            lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
+        }
+    };
+    return target;
+}
+
+GifPreviewTarget AttitudeDisplay::BuildJarvisPreviewTarget(const LvglImage* /*image*/) const {
+    auto& jarvis = FortuneWatchfaceView::GetInstance();
+    GifPreviewTarget target;
+    target.gif_widget = jarvis.GetImageWidget();
+    target.static_widget = jarvis.GetImageWidget();
+    target.on_before_show = [&jarvis]() { jarvis.BeginImageOverlay(); };
+    target.on_after_hide = [&jarvis]() { jarvis.EndImageOverlay(); };
+    return target;
+}
+
+void AttitudeDisplay::ShowImageOnActiveViewUnlocked(std::unique_ptr<LvglImage> image,
+                                                    uint32_t timeout_ms, bool loop) {
+    if (image == nullptr) {
+        GifPreviewPlayer::GetInstance().Hide();
+        return;
+    }
+
+    if (image_overlay_card_ == nullptr && !fortune_watchface_visible_) {
+        ESP_LOGE(TAG, "ShowImageOnActiveViewUnlocked: compass overlay not ready");
+        return;
+    }
+
+    const LvglImage* preview = image.get();
+    GifPreviewTarget target = fortune_watchface_visible_
+        ? BuildJarvisPreviewTarget(preview)
+        : BuildCompassPreviewTarget(preview);
+
+    if (target.gif_widget == nullptr) {
+        ESP_LOGE(TAG, "ShowImageOnActiveViewUnlocked: preview widget not ready");
+        return;
+    }
+
+    if (!GifPreviewPlayer::GetInstance().Show(std::move(image), target, timeout_ms, loop)) {
+        ESP_LOGE(TAG, "ShowImageOnActiveViewUnlocked: GifPreviewPlayer::Show failed");
+    }
+}
+
 void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms)
 {
-    // 锁超时由 100ms 提升到 300ms，与 FortuneWatchfaceView 同次修复：
-    // LVGL tick 在大量 widget reflow 时可能短时 >100ms，
-    // 100ms 短锁会被错误放弃并造成预览图不显示。
     if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "SetPreviewImage: LVGL lock timeout, skipping");
         return;
     }
 
     if (image == nullptr) {
-        if (preview_image_hide_timer_ != nullptr) {
-            lv_timer_del(preview_image_hide_timer_);
-            preview_image_hide_timer_ = nullptr;
-        }
-        if (preview_image_ != nullptr) {
-            lv_image_set_src(preview_image_, NULL);
-            lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (preview_gif_ != nullptr) {
-            lv_image_set_src(preview_gif_, NULL);
-            lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (image_overlay_card_ != nullptr) {
-            lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-        }
-        preview_image_cache_.reset();
-        if (attitude_container_ != nullptr) {
-            lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-        }
+        GifPreviewPlayer::GetInstance().Hide();
         lvgl_port_unlock();
         return;
     }
@@ -461,104 +501,14 @@ void AttitudeDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t
         return;
     }
 
-    preview_image_cache_ = std::move(image);
-    auto img_dsc = preview_image_cache_->image_dsc();
-    bool is_gif = preview_image_cache_->IsGif();
-    const char* file_path = preview_image_cache_->GetFilePath();
-    const char* lvgl_path = preview_image_cache_->GetLvglPath();
-
-    ESP_LOGI(TAG, "SetPreviewImage: %dx%d cf=%d is_gif=%d file=%s",
-             img_dsc->header.w, img_dsc->header.h, (int)img_dsc->header.cf, is_gif ? 1 : 0,
-             file_path ? file_path : "null");
-
-    if (is_gif) {
-        // GIF：改用 lv_image widget 显示第一帧（LVGL 9.x 已移除 lv_gif，暂不支持动画）
-        if (preview_gif_ == nullptr) {
-            ESP_LOGE(TAG, "SetPreviewImage: preview_gif_ not created");
-            preview_image_cache_.reset();
-            lvgl_port_unlock();
-            return;
-        }
-        if (lvgl_path) {
-            lv_image_set_src(preview_gif_, lvgl_path);
-        } else {
-            lv_image_set_src(preview_gif_, img_dsc);
-        }
-        lv_obj_remove_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
-        if (preview_image_ != nullptr) {
-            lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-        }
-    } else {
-        // 静态图（PNG / JPG / BIN）：用 lv_image widget（走 LVGL decoder chain）
-        if (preview_image_ == nullptr) {
-            ESP_LOGE(TAG, "SetPreviewImage: preview_image_ not created");
-            preview_image_cache_.reset();
-            lvgl_port_unlock();
-            return;
-        }
-        if (lvgl_path) {
-            lv_image_set_src(preview_image_, lvgl_path);
-        } else {
-            lv_image_set_src(preview_image_, img_dsc);
-        }
-        if (img_dsc->header.w > 0 && img_dsc->header.h > 0) {
-            lv_image_set_scale(preview_image_, 128 * DEBUG_INFO_CARD_W / img_dsc->header.w);
-        }
-        lv_obj_center(preview_image_);
-        lv_obj_remove_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-        if (preview_gif_ != nullptr) {
-            lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-
-    // 显示浮层、隐藏主界面
-    lv_obj_remove_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-    if (attitude_container_ != nullptr) {
-        lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-    }
-    ESP_LOGI(TAG, "SetPreviewImage: displayed %s %dx%d",
-             is_gif ? "GIF" : "image",
-             img_dsc->header.w, img_dsc->header.h);
-
-    // 图片显示 10s 后自动隐藏并返回罗盘
-    if (preview_image_hide_timer_ != nullptr) {
-        lv_timer_del(preview_image_hide_timer_);
-    }
-    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, timeout_ms, this);
-
+    SetPreviewImageUnlocked(std::move(image), timeout_ms);
     lvgl_port_unlock();
 }
 
-// 不加锁版本，供已持有 DisplayLockGuard 的调用方使用
 void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, uint32_t timeout_ms)
 {
     if (image == nullptr) {
-        if (preview_image_hide_timer_ != nullptr) {
-            lv_timer_del(preview_image_hide_timer_);
-            preview_image_hide_timer_ = nullptr;
-        }
-        StopGifUnlocked();
-        if (preview_image_ != nullptr) {
-            lv_image_set_src(preview_image_, NULL);
-            lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (preview_gif_ != nullptr) {
-            lv_image_set_src(preview_gif_, NULL);
-            lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (preview_image_cache_ != nullptr) {
-            const void* src = preview_image_cache_->image_dsc();
-            if (src != nullptr) {
-                lv_image_cache_drop(src);
-            }
-            preview_image_cache_.reset();
-        }
-        if (image_overlay_card_ != nullptr) {
-            lv_obj_add_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (attitude_container_ != nullptr) {
-            lv_obj_remove_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-        }
+        GifPreviewPlayer::GetInstance().Hide();
         return;
     }
 
@@ -567,170 +517,42 @@ void AttitudeDisplay::SetPreviewImageUnlocked(std::unique_ptr<LvglImage> image, 
         return;
     }
 
-    if (preview_image_cache_ != nullptr) {
-        const void* src = preview_image_cache_->image_dsc();
-        if (src != nullptr) {
-            lv_image_cache_drop(src);
-        }
+    const LvglImage* preview = image.get();
+    GifPreviewTarget target = BuildCompassPreviewTarget(preview);
+    if (target.gif_widget == nullptr) {
+        ESP_LOGE(TAG, "SetPreviewImageUnlocked: preview widget not ready");
+        return;
     }
 
-    preview_image_cache_ = std::move(image);
-    auto img_dsc = preview_image_cache_->image_dsc();
-    bool is_gif = preview_image_cache_->IsGif();
-
-    ESP_LOGI(TAG, "SetPreviewImageUnlocked: %dx%d cf=%d is_gif=%d",
-             img_dsc->header.w, img_dsc->header.h, (int)img_dsc->header.cf, is_gif ? 1 : 0);
-
-    if (is_gif) {
-        if (preview_gif_ == nullptr) {
-            ESP_LOGE(TAG, "SetPreviewImageUnlocked: preview_gif_ not created");
-            preview_image_cache_.reset();
-            return;
-        }
-        lv_image_set_src(preview_gif_, img_dsc);
-        lv_obj_remove_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
-        if (preview_image_ != nullptr) {
-            lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-        }
-    } else {
-        if (preview_image_ == nullptr) {
-            ESP_LOGE(TAG, "SetPreviewImageUnlocked: preview_image_ not created");
-            preview_image_cache_.reset();
-            return;
-        }
-        lv_image_set_src(preview_image_, img_dsc);
-        if (img_dsc->header.w > 0 && img_dsc->header.h > 0) {
-            lv_image_set_scale(preview_image_, 128 * DEBUG_INFO_CARD_W / img_dsc->header.w);
-        }
-        lv_obj_center(preview_image_);
-        lv_obj_remove_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-        if (preview_gif_ != nullptr) {
-            lv_obj_add_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
-        }
+    if (!GifPreviewPlayer::GetInstance().Show(std::move(image), target, timeout_ms, true)) {
+        ESP_LOGE(TAG, "SetPreviewImageUnlocked: GifPreviewPlayer::Show failed");
     }
-
-    lv_obj_remove_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-    if (attitude_container_ != nullptr) {
-        lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-    }
-    ESP_LOGI(TAG, "SetPreviewImageUnlocked: displayed %s %dx%d",
-             is_gif ? "GIF" : "image",
-             img_dsc->header.w, img_dsc->header.h);
-
-    if (preview_image_hide_timer_ != nullptr) {
-        lv_timer_del(preview_image_hide_timer_);
-    }
-    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, timeout_ms, this);
 }
 
 void AttitudeDisplay::SetPreviewGif(const char* file_path, bool loop, uint32_t timeout_ms)
 {
-    if (lvgl_port_lock(portMAX_DELAY)) {
-        SetPreviewGifUnlocked(file_path, loop, timeout_ms);
-        lvgl_port_unlock();
+    auto image = GifImageLoader::LoadFromFile(file_path);
+    if (!lvgl_port_lock(portMAX_DELAY)) {
+        return;
     }
-}
 
-void AttitudeDisplay::SetPreviewGifUnlocked(const char* file_path, bool loop, uint32_t timeout_ms)
-{
-    if (file_path == nullptr || file_path[0] == '\0') {
-        StopGifUnlocked();
+    if (image == nullptr) {
+        GifPreviewPlayer::GetInstance().Hide();
+        lvgl_port_unlock();
         return;
     }
 
     if (image_overlay_card_ == nullptr || preview_gif_ == nullptr) {
-        ESP_LOGE(TAG, "SetPreviewGifUnlocked: UI not ready");
+        ESP_LOGE(TAG, "SetPreviewGif: UI not ready");
+        lvgl_port_unlock();
         return;
     }
 
-    StopGifUnlocked();
-
-    FILE* f = fopen(file_path, "rb");
-    if (!f) {
-        ESP_LOGE(TAG, "SetPreviewGifUnlocked: cannot open %s", file_path);
-        return;
+    GifPreviewTarget target = BuildCompassPreviewTarget(image.get());
+    if (!GifPreviewPlayer::GetInstance().Show(std::move(image), target, timeout_ms, loop)) {
+        ESP_LOGE(TAG, "SetPreviewGif: GifPreviewPlayer::Show failed");
     }
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t* gif_data = (uint8_t*)malloc(fsize);
-    if (!gif_data || fread(gif_data, 1, fsize, f) != (size_t)fsize) {
-        fclose(f);
-        if (gif_data) free(gif_data);
-        ESP_LOGE(TAG, "SetPreviewGifUnlocked: read failed (%ld bytes)", fsize);
-        return;
-    }
-    fclose(f);
-
-    lv_img_dsc_t img_dsc;
-    memset(&img_dsc, 0, sizeof(img_dsc));
-    img_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-    img_dsc.header.cf = LV_COLOR_FORMAT_RAW;
-    img_dsc.data = gif_data;
-    img_dsc.data_size = fsize;
-
-    gif_controller_ = new LvglGif(&img_dsc);
-    if (!gif_controller_ || !gif_controller_->IsLoaded()) {
-        ESP_LOGE(TAG, "SetPreviewGifUnlocked: LvglGif load failed");
-        if (gif_controller_) {
-            delete gif_controller_;
-            gif_controller_ = nullptr;
-        }
-        free(gif_data);
-        gif_raw_data_ = nullptr;
-        gif_raw_size_ = 0;
-        return;
-    }
-    gif_raw_data_ = gif_data;
-    gif_raw_size_ = fsize;
-
-    ESP_LOGI(TAG, "SetPreviewGifUnlocked: %dx%d loop=%d",
-             gif_controller_->width(), gif_controller_->height(), loop ? 1 : 0);
-
-    gif_controller_->SetFrameCallback([this]() {
-        if (gif_controller_ && preview_gif_) {
-            lv_image_set_src(preview_gif_, gif_controller_->image_dsc());
-            lv_obj_invalidate(preview_gif_);
-        }
-    });
-
-    if (loop) {
-        gif_controller_->SetLoopCount(-1);
-    }
-    lv_image_set_src(preview_gif_, gif_controller_->image_dsc());
-    lv_obj_center(preview_gif_);
-    lv_obj_remove_flag(preview_gif_, LV_OBJ_FLAG_HIDDEN);
-    if (preview_image_ != nullptr) {
-        lv_obj_add_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-    }
-    gif_controller_->Start();
-
-    lv_obj_remove_flag(image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-    if (attitude_container_ != nullptr) {
-        lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    if (preview_image_hide_timer_ != nullptr) {
-        lv_timer_del(preview_image_hide_timer_);
-    }
-    preview_image_hide_timer_ = lv_timer_create(OnPreviewImageHideTimer, timeout_ms, this);
-}
-
-void AttitudeDisplay::StopGifUnlocked()
-{
-    if (gif_controller_ != nullptr) {
-        gif_controller_->Stop();
-        delete gif_controller_;
-        gif_controller_ = nullptr;
-    }
-    if (gif_raw_data_ != nullptr) {
-        free(gif_raw_data_);
-        gif_raw_data_ = nullptr;
-        gif_raw_size_ = 0;
-    }
-    if (preview_gif_ != nullptr) {
-        lv_image_set_src(preview_gif_, NULL);
-    }
+    lvgl_port_unlock();
 }
 
 void AttitudeDisplay::SetAttitudeData(float pitch, float roll, float yaw)
@@ -1817,26 +1639,10 @@ void AttitudeDisplay::HideJarvisWatchface()
     view_stack_.pop_if_top(ActiveView::JarvisWatchface);
 }
 
-void AttitudeDisplay::ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {
+void AttitudeDisplay::ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms,
+                                            bool loop) {
     DisplayLockGuard lock(this);
-
-    if (preview_image_hide_timer_ != nullptr) {
-        lv_timer_del(preview_image_hide_timer_);
-        preview_image_hide_timer_ = nullptr;
-    }
-
-    if (image == nullptr) {
-        ESP_LOGW(TAG, "ShowImageOnActiveView: null image");
-        return;
-    }
-
-    if (fortune_watchface_visible_) {
-        FortuneWatchfaceView::GetInstance().ShowImage(std::move(image), timeout_ms);
-        ESP_LOGI(TAG, "ShowImageOnActiveView: displayed on JARVIS view");
-    } else {
-        SetPreviewImageUnlocked(std::move(image), timeout_ms);
-        ESP_LOGI(TAG, "ShowImageOnActiveView: displayed on main screen");
-    }
+    ShowImageOnActiveViewUnlocked(std::move(image), timeout_ms, loop);
 }
 
 void AttitudeDisplay::SwitchToDivination() {
@@ -2092,11 +1898,8 @@ void AttitudeDisplay::DestroyDebugInfoCard()
     }
     debug_info_queue_.clear();
     current_index_ = SIZE_MAX;
-    
-    if (preview_image_hide_timer_ != nullptr) {
-        lv_timer_delete(preview_image_hide_timer_);
-        preview_image_hide_timer_ = nullptr;
-    }
+
+    GifPreviewPlayer::GetInstance().Hide();
     if (function_area_card_ != nullptr) {
         lv_obj_del(function_area_card_);
         function_area_card_ = nullptr;
@@ -2267,27 +2070,6 @@ void AttitudeDisplay::PopAndShowNext()
     } else {
         ClearDebugInfoCard();
         ESP_LOGD(TAG, "PopAndShowNext: queue empty, card cleared");
-    }
-}
-
-void AttitudeDisplay::OnPreviewImageHideTimer(lv_timer_t* timer) {
-    auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
-    if (self == nullptr) {
-        return;
-    }
-    DisplayLockGuard lock(self);
-    if (self->preview_image_ != nullptr) {
-        lv_obj_add_flag(self->preview_image_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (self->preview_gif_ != nullptr) {
-        lv_obj_add_flag(self->preview_gif_, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (self->image_overlay_card_ != nullptr) {
-        lv_obj_add_flag(self->image_overlay_card_, LV_OBJ_FLAG_HIDDEN);
-    }
-    self->preview_image_cache_.reset();
-    if (self->attitude_container_ != nullptr) {
-        lv_obj_remove_flag(self->attitude_container_, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

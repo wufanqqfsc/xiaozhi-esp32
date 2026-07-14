@@ -5,7 +5,7 @@
 #include "display/display.h"
 #include "display/lvgl_display/jpg/image_to_jpeg.h"
 #include "display/lvgl_display/lvgl_image.h"
-#include "display/lvgl_display/gif/gifdec.h"
+#include "display/lvgl_display/gif/gif_image_loader.h"
 #include "display/attitude_display.h"
 #include "application.h"
 #include "board.h"
@@ -2181,86 +2181,10 @@ static bool display_resource_from_file(const char* rel_path, int x, int y,
             if (stat(fullpath, &st) == 0 && S_ISREG(st.st_mode)) {
                 const char* ext = strrchr(effective_path, '.');
                 is_gif = ext && strcasecmp(ext, ".gif") == 0;
-                if (is_gif && loop) {
-                    FILE* gf = fopen(fullpath, "rb");
-                    if (gf) {
-                        fseek(gf, 0, SEEK_END);
-                        long gfsize = ftell(gf);
-                        fseek(gf, 0, SEEK_SET);
-                        if (gfsize > 0 && gfsize <= 512 * 1024) {
-                            uint8_t* gif_data = (uint8_t*)heap_caps_malloc(gfsize, MALLOC_CAP_SPIRAM);
-                            if (gif_data == nullptr) gif_data = (uint8_t*)malloc(gfsize);
-                            if (gif_data && fread(gif_data, 1, gfsize, gf) == (size_t)gfsize) {
-                                fclose(gf);
-                                auto gif_image = std::make_unique<LvglAllocatedImage>(gif_data, (size_t)gfsize);
-                                auto& board = Board::GetInstance();
-                                auto display = board.GetDisplay();
-                                uint32_t timeout = duration_ms > 0 ? duration_ms : 5000;
-                                auto* attitude = dynamic_cast<AttitudeDisplay*>(display);
-                                if (attitude != nullptr) {
-                                    attitude->ShowImageOnActiveView(std::move(gif_image), timeout);
-                                } else if (display != nullptr) {
-                                    display->SetPreviewImage(std::move(gif_image));
-                                }
-                                ESP_LOGI(TAG, "GIF animation started: %s (loop, dur=%u)", fullpath, timeout);
-                                free(fullpath);
-                                return true;
-                            }
-                            if (gif_data) free(gif_data);
-                        }
-                        fclose(gf);
-                    }
-                } else if (is_gif) {
-                    // 读取 GIF 文件到内存，用 gifdec 解码第一帧
-                    FILE* f = fopen(fullpath, "rb");
-                    if (f) {
-                        fseek(f, 0, SEEK_END);
-                        long fsize = ftell(f);
-                        fseek(f, 0, SEEK_SET);
-                        uint8_t* gif_data = (uint8_t*)heap_caps_malloc(fsize, MALLOC_CAP_SPIRAM);
-                        if (gif_data && fread(gif_data, 1, fsize, f) == (size_t)fsize) {
-                            fclose(f);
-                            gd_GIF* gif = gd_open_gif_data(gif_data);
-                            if (gif) {
-                                uint16_t gw = gif->width;
-                                uint16_t gh = gif->height;
-                                // 必须先调用 gd_get_frame() 读取并解码第一帧，
-                                // 它会设置 gif->fx/fy/fw/fh 帧区域并解压 LZW 数据到 gif->frame
-                                int frame_ret = gd_get_frame(gif);
-                                if (frame_ret == 1) {
-                                    gd_render_frame(gif, gif->canvas);
-                                    size_t canvas_size = (size_t)gw * gh * 4;
-                                    uint8_t* canvas = (uint8_t*)heap_caps_malloc(canvas_size, MALLOC_CAP_SPIRAM);
-                                    if (canvas) {
-                                        memcpy(canvas, gif->canvas, canvas_size);
-                                        // gifdec canvas 初始化 alpha=0（透明），强制设为 255 不透明
-                                        for (size_t i = 3; i < canvas_size; i += 4) {
-                                            canvas[i] = 0xFF;
-                                        }
-                                        gd_close_gif(gif);
-                                        heap_caps_free(gif_data);
-                                        image = std::make_unique<LvglAllocatedImage>(
-                                            canvas, canvas_size, gw, gh, gw * 4, LV_COLOR_FORMAT_ARGB8888);
-                                        ESP_LOGI(TAG, "GIF decoded: %dx%d -> ARGB8888 (alpha=255)", gw, gh);
-                                    } else {
-                                        gd_close_gif(gif);
-                                        heap_caps_free(gif_data);
-                                        ESP_LOGE(TAG, "Failed to alloc canvas for GIF");
-                                    }
-                                } else {
-                                    gd_close_gif(gif);
-                                    heap_caps_free(gif_data);
-                                    ESP_LOGE(TAG, "gd_get_frame failed (ret=%d) for %s", frame_ret, fullpath);
-                                }
-                            } else {
-                                heap_caps_free(gif_data);
-                                ESP_LOGE(TAG, "gd_open_gif_data failed for %s", fullpath);
-                            }
-                        } else {
-                            if (gif_data) heap_caps_free(gif_data);
-                            fclose(f);
-                            ESP_LOGE(TAG, "Failed to read GIF file: %s", fullpath);
-                        }
+                if (is_gif) {
+                    image = GifImageLoader::LoadFromFile(fullpath);
+                    if (image != nullptr) {
+                        ESP_LOGI(TAG, "Loaded GIF from SD card: %s", fullpath);
                     }
                 } else {
                     image = std::make_unique<LvglSdCardImage>(fullpath);
@@ -2310,7 +2234,7 @@ static bool display_resource_from_file(const char* rel_path, int x, int y,
     uint32_t timeout = duration_ms > 0 ? duration_ms : 5000;
     auto* attitude_display = dynamic_cast<AttitudeDisplay*>(display);
     if (attitude_display != nullptr) {
-        attitude_display->ShowImageOnActiveView(std::move(image), timeout);
+        attitude_display->ShowImageOnActiveView(std::move(image), timeout, loop);
     } else {
         display->SetPreviewImage(std::move(image));
     }
