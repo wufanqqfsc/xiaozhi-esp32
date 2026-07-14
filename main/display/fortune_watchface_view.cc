@@ -5,7 +5,6 @@
 #include <esp_lvgl_port.h>
 #include <esp_log.h>
 #include <esp_random.h>
-#include <esp_heap_caps.h>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -13,8 +12,6 @@
 static const char* TAG = "FortuneWatchfaceView";
 
 #define WATCH_PI 3.14159265358979323846f
-#define CANVAS_SIZE 32
-#define CANVAS_BUFFER_SIZE (CANVAS_SIZE * CANVAS_SIZE * 4)
 
 // 字体声明（使用项目中已有的字体）
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
@@ -28,21 +25,10 @@ FortuneWatchfaceView& FortuneWatchfaceView::GetInstance() {
 FortuneWatchfaceView::FortuneWatchfaceView() {
     memset(tick_marks_, 0, sizeof(tick_marks_));
     memset(jarvis_bars_, 0, sizeof(jarvis_bars_));
+    memset(orbit_dots_, 0, sizeof(orbit_dots_));
 
-    // 在 PSRAM 分配 canvas buffer
-    canvas_buffer_ = (uint8_t*)heap_caps_malloc(CANVAS_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
-    if (canvas_buffer_ != nullptr) {
-        memset(canvas_buffer_, 0, CANVAS_BUFFER_SIZE);
-    }
-
-    // 创建所有静态 UI 元素
-    CreateUI();
-
-    // 创建定时器
-    timer_ = lv_timer_create(OnTimer, 33, this);
-    lv_timer_pause(timer_);
-
-    ESP_LOGI(TAG, "FortuneWatchfaceView initialized");
+    // UI 与定时器延迟到 Show() 创建，避免无锁构造时破坏 LVGL 对象树
+    ESP_LOGI(TAG, "FortuneWatchfaceView initialized (lazy UI)");
 }
 
 FortuneWatchfaceView::~FortuneWatchfaceView() {
@@ -51,10 +37,6 @@ FortuneWatchfaceView::~FortuneWatchfaceView() {
         timer_ = nullptr;
     }
     DestroyUI();
-    if (canvas_buffer_ != nullptr) {
-        heap_caps_free(canvas_buffer_);
-        canvas_buffer_ = nullptr;
-    }
 }
 
 void FortuneWatchfaceView::SetParentContainer(lv_obj_t* container) {
@@ -143,6 +125,20 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
 
     CreateTickMarks(screen);
 
+    // 轨道点：用轻量 lv_obj 圆点替代全屏 canvas（避免每帧 memset 518KB 卡死 LVGL 任务）
+    for (int i = 0; i < ORBIT_COUNT_; ++i) {
+        orbit_dots_[i] = lv_obj_create(screen);
+        lv_obj_set_size(orbit_dots_[i], 6, 6);
+        lv_obj_set_style_radius(orbit_dots_[i], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(orbit_dots_[i],
+                                  lv_color_hex((i % 3 == 0) ? 0xffd447 : 0x20eaff), 0);
+        lv_obj_set_style_bg_opa(orbit_dots_[i],
+                                static_cast<lv_opa_t>((i % 3 == 0) ? LV_OPA_COVER : LV_OPA_70), 0);
+        lv_obj_set_style_border_width(orbit_dots_[i], 0, 0);
+        lv_obj_clear_flag(orbit_dots_[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(orbit_dots_[i], LV_OBJ_FLAG_CLICKABLE);
+    }
+
     // 扫描弧
     scan_arc_ = AddArc(screen, 296, 8, 0x0b1d32, 0x20eaff);
     lv_arc_set_angles(scan_arc_, 0, 72);
@@ -171,15 +167,6 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     lv_obj_set_style_arc_opa(outer_ring_, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_opa(outer_ring_, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_clear_flag(outer_ring_, LV_OBJ_FLAG_CLICKABLE);
-
-    // 轨道点 - 使用单个 canvas 替代多个对象
-    if (canvas_buffer_ != nullptr) {
-        orbit_canvas_ = lv_canvas_create(screen);
-        lv_canvas_set_buffer(orbit_canvas_, canvas_buffer_, CANVAS_SIZE, CANVAS_SIZE, LV_COLOR_FORMAT_ARGB8888);
-        lv_obj_set_pos(orbit_canvas_, CX_ - CANVAS_SIZE / 2, CY_ - CANVAS_SIZE / 2);
-        lv_obj_remove_style(orbit_canvas_, NULL, 0);
-        lv_obj_set_style_border_width(orbit_canvas_, 0, 0);
-    }
 
     // 内部光晕
     lv_obj_t* inner = AddBox(screen, 100, 100, 160, 160, 0x04101f, LV_RADIUS_CIRCLE);
@@ -258,8 +245,24 @@ void FortuneWatchfaceView::CreateUI() {
     ESP_LOGI(TAG, "FortuneWatchfaceView UI created");
 }
 
+void FortuneWatchfaceView::EnsureTimer() {
+    if (timer_ == nullptr) {
+        timer_ = lv_timer_create(OnTimer, 50, this);
+        lv_timer_pause(timer_);
+    }
+}
+
 void FortuneWatchfaceView::DestroyUI() {
+    if (timer_ != nullptr) {
+        lv_timer_pause(timer_);
+        lv_timer_delete(timer_);
+        timer_ = nullptr;
+    }
+
     if (overlay_screen_ != nullptr) {
+        if (lv_screen_active() == overlay_screen_ && prev_screen_ != nullptr) {
+            lv_screen_load(prev_screen_);
+        }
         lv_obj_del(overlay_screen_);
         overlay_screen_ = nullptr;
     }
@@ -267,12 +270,15 @@ void FortuneWatchfaceView::DestroyUI() {
     scan_arc_ = nullptr;
     pulse_arc_ = nullptr;
     seconds_arc_ = nullptr;
+    outer_ring_ = nullptr;
     jarvis_label_ = nullptr;
     jarvis_label_shadow_a_ = nullptr;
     jarvis_label_shadow_b_ = nullptr;
     status_label_ = nullptr;
 
-    orbit_canvas_ = nullptr;
+    for (int i = 0; i < ORBIT_COUNT_; ++i) {
+        orbit_dots_[i] = nullptr;
+    }
     for (int i = 0; i < 60; ++i) {
         tick_marks_[i] = nullptr;
     }
@@ -281,38 +287,62 @@ void FortuneWatchfaceView::DestroyUI() {
     }
 }
 
+void FortuneWatchfaceView::EnsureAnimatingUnlocked() {
+    if (overlay_screen_ == nullptr) {
+        CreateUI();
+    }
+    EnsureTimer();
+
+    if (overlay_screen_ == nullptr) {
+        return;
+    }
+
+    if (lv_screen_active() != overlay_screen_) {
+        if (prev_screen_ == nullptr) {
+            prev_screen_ = lv_screen_active();
+        }
+        lv_obj_clear_flag(overlay_screen_, LV_OBJ_FLAG_HIDDEN);
+        lv_screen_load(overlay_screen_);
+    }
+
+    visible_ = true;
+    if (timer_ != nullptr) {
+        lv_timer_resume(timer_);
+    }
+}
+
+bool FortuneWatchfaceView::ShowUnlocked() {
+    if (overlay_screen_ == nullptr) {
+        CreateUI();
+    }
+    EnsureTimer();
+
+    if (overlay_screen_ == nullptr) {
+        ESP_LOGE(TAG, "ShowUnlocked: overlay_screen_ is nullptr");
+        return false;
+    }
+
+    prev_screen_ = lv_screen_active();
+    lv_obj_clear_flag(overlay_screen_, LV_OBJ_FLAG_HIDDEN);
+    lv_screen_load(overlay_screen_);
+    visible_ = true;
+    if (timer_ != nullptr) {
+        lv_timer_resume(timer_);
+    }
+    ESP_LOGI(TAG, "FortuneWatchfaceView shown, prev_screen=%p", prev_screen_);
+    return true;
+}
+
 void FortuneWatchfaceView::Show() {
     if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "Show: LVGL lock timeout");
         return;
     }
-
-    if (overlay_screen_ == nullptr) {
-        CreateUI();
-    }
-
-    // 保存当前活动屏幕，用于 Hide 时恢复
-    prev_screen_ = lv_screen_active();
-
-    if (overlay_screen_ != nullptr) {
-        lv_obj_clear_flag(overlay_screen_, LV_OBJ_FLAG_HIDDEN);
-        lv_screen_load(overlay_screen_);
-        visible_ = true;
-        if (timer_ != nullptr) {
-            lv_timer_resume(timer_);
-        }
-        ESP_LOGI(TAG, "FortuneWatchfaceView shown, prev_screen=%p", prev_screen_);
-    }
-
+    ShowUnlocked();
     lvgl_port_unlock();
 }
 
-void FortuneWatchfaceView::Hide() {
-    if (!lvgl_port_lock(300)) {
-        ESP_LOGW(TAG, "Hide: LVGL lock timeout");
-        return;
-    }
-
+void FortuneWatchfaceView::HideUnlocked() {
     visible_ = false;
     if (timer_ != nullptr) {
         lv_timer_pause(timer_);
@@ -322,15 +352,35 @@ void FortuneWatchfaceView::Hide() {
         lv_obj_add_flag(overlay_screen_, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 恢复到显示前的原始屏幕，解决白屏问题
     if (prev_screen_ != nullptr) {
         lv_screen_load(prev_screen_);
         ESP_LOGI(TAG, "FortuneWatchfaceView hidden, restored to prev_screen=%p", prev_screen_);
-    } else {
-        ESP_LOGW(TAG, "Hide: prev_screen_ is nullptr, cannot restore");
+    } else if (overlay_screen_ != nullptr && lv_screen_active() == overlay_screen_) {
+        ESP_LOGW(TAG, "HideUnlocked: prev_screen_ is nullptr, cannot restore");
+    }
+}
+
+void FortuneWatchfaceView::Hide() {
+    if (!lvgl_port_lock(300)) {
+        ESP_LOGW(TAG, "Hide: LVGL lock timeout");
+        return;
+    }
+    HideUnlocked();
+    lvgl_port_unlock();
+}
+
+void FortuneWatchfaceView::ReleaseIdleResourcesUnlocked() {
+    if (overlay_screen_ == nullptr) {
+        return;
     }
 
-    lvgl_port_unlock();
+    HideUnlocked();
+    prev_screen_ = nullptr;
+    status_mode_ = kModeDefault;
+    voice_status_text_.clear();
+
+    DestroyUI();
+    ESP_LOGI(TAG, "ReleaseIdleResources: JARVIS UI destroyed");
 }
 
 void FortuneWatchfaceView::ReleaseIdleResources() {
@@ -338,25 +388,7 @@ void FortuneWatchfaceView::ReleaseIdleResources() {
         ESP_LOGW(TAG, "ReleaseIdleResources: LVGL lock timeout");
         return;
     }
-
-    if (visible_) {
-        visible_ = false;
-        if (timer_ != nullptr) {
-            lv_timer_pause(timer_);
-        }
-        if (prev_screen_ != nullptr) {
-            lv_screen_load(prev_screen_);
-        }
-    }
-    prev_screen_ = nullptr;
-    status_mode_ = kModeDefault;
-    voice_status_text_.clear();
-
-    if (overlay_screen_ != nullptr) {
-        DestroyUI();
-        ESP_LOGI(TAG, "ReleaseIdleResources: JARVIS UI destroyed");
-    }
-
+    ReleaseIdleResourcesUnlocked();
     lvgl_port_unlock();
 }
 
@@ -404,41 +436,20 @@ void FortuneWatchfaceView::UpdateAnimation() {
         lv_obj_set_style_text_color(jarvis_label_shadow_b_, lv_color_hex(kJarvisGoldShadow_), 0);
     }
 
-    // 轨道点动画 - 使用 canvas 绘制
-    if (orbit_canvas_ != nullptr && canvas_buffer_ != nullptr) {
-        memset(canvas_buffer_, 0, CANVAS_BUFFER_SIZE);
-
-        for (int i = 0; i < ORBIT_COUNT_; ++i) {
-            float angle = tick / (780.0f + i * 29.0f) + i * (2.0f * WATCH_PI / ORBIT_COUNT_);
-            float radius = 122.0f + sinf(tick / 500.0f + i) * 10.0f;
-            int sz = (i % 3 == 0) ? 8 : 5;
-            int32_t center_x = OrbitX(angle, radius);
-            int32_t center_y = OrbitY(angle, radius);
-
-            // 将全局坐标转换为 canvas 局部坐标
-            int32_t local_x = center_x - (CX_ - CANVAS_SIZE / 2);
-            int32_t local_y = center_y - (CY_ - CANVAS_SIZE / 2);
-
-            // 绘制圆形点
-            for (int dy = -sz/2; dy <= sz/2; dy++) {
-                for (int dx = -sz/2; dx <= sz/2; dx++) {
-                    if (dx*dx + dy*dy <= (sz/2)*(sz/2)) {
-                        int px = local_x + dx;
-                        int py = local_y + dy;
-                        if (px >= 0 && px < CANVAS_SIZE && py >= 0 && py < CANVAS_SIZE) {
-                            uint32_t idx = (py * CANVAS_SIZE + px) * 4;
-                            uint8_t alpha = (i % 3 == 0) ? 0xff : 0xb4;
-                            canvas_buffer_[idx + 0] = alpha;     // A
-                            canvas_buffer_[idx + 1] = 0xff;     // R
-                            canvas_buffer_[idx + 2] = (i % 3 == 0) ? 0xd4 : 0xea;  // G
-                            canvas_buffer_[idx + 3] = (i % 3 == 0) ? 0x47 : 0xff;   // B
-                        }
-                    }
-                }
-            }
+    // 轨道点动画
+    for (int i = 0; i < ORBIT_COUNT_; ++i) {
+        if (orbit_dots_[i] == nullptr) {
+            continue;
         }
-
-        lv_canvas_set_buffer(orbit_canvas_, canvas_buffer_, CANVAS_SIZE, CANVAS_SIZE, LV_COLOR_FORMAT_ARGB8888);
+        float angle = tick / (780.0f + i * 29.0f) + i * (2.0f * WATCH_PI / ORBIT_COUNT_);
+        float radius = 122.0f + sinf(tick / 500.0f + i) * 10.0f;
+        int sz = (i % 3 == 0) ? 8 : 5;
+        int32_t center_x = OrbitX(angle, radius);
+        int32_t center_y = OrbitY(angle, radius);
+        lv_obj_set_size(orbit_dots_[i], sz, sz);
+        lv_obj_set_pos(orbit_dots_[i], center_x - sz / 2, center_y - sz / 2);
+        lv_obj_set_style_opa(orbit_dots_[i],
+                              static_cast<lv_opa_t>(150 + static_cast<int>(sinf(tick / 180.0f + i) * 80.0f)), 0);
     }
 
     // 刻度闪烁
@@ -504,16 +515,18 @@ void FortuneWatchfaceView::ClearStatusText() {
     // UpdateAnimation() 会在下次定时器回调中恢复扫描进度显示
 }
 
+void FortuneWatchfaceView::UpdateOuterRingColorUnlocked(lv_color_t color) {
+    if (outer_ring_ != nullptr) {
+        lv_obj_set_style_arc_color(outer_ring_, color, LV_PART_INDICATOR);
+    }
+}
+
 void FortuneWatchfaceView::UpdateOuterRingColor(lv_color_t color) {
     if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "UpdateOuterRingColor: LVGL lock timeout");
         return;
     }
-
-    if (outer_ring_ != nullptr) {
-        lv_obj_set_style_arc_color(outer_ring_, color, LV_PART_INDICATOR);
-    }
-
+    UpdateOuterRingColorUnlocked(color);
     lvgl_port_unlock();
 }
 

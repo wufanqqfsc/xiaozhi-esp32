@@ -113,7 +113,7 @@ static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of 
 #define FORTUNE_DIVINATION_RELEASE_FINISH_MS 5000
 #define FORTUNE_DIVINATION_TICK_MS           25
 #define FORTUNE_DIVINATION_SOUND_INTERVAL_MS 8745
-#define FORTUNE_DIVINATION_HIGHLIGHT_COUNT   3
+#define FORTUNE_DIVINATION_HIGHLIGHT_COUNT   5
 
 enum class FortuneMenuType : int {
     Today = 0,      // fortune.today
@@ -269,6 +269,10 @@ public:
     void HideImagePreview();
 
     // 从 JARVIS 视图切换到占卜视图（隐藏 JARVIS，显示罗盘并开始占卜）
+    void SetDivinationWaitingForTts(bool waiting);
+    void SetDivinationFromShake(bool from_shake);
+    void StopMarqueeForTts();
+    void ReturnToCompassAfterTts();
     void SwitchToDivination();
 
     // 占卜结束后切换回 JARVIS 视图
@@ -317,10 +321,13 @@ private:
     uint32_t fortune_divination_finish_deadline_ms_ = 0;
     bool taiji_pressed_during_anim_ = false;
     bool fortune_divination_from_taiji_ = false;
+    bool divination_from_shake_ = false;
+    bool divination_waiting_for_tts_ = false;
     int fortune_divination_last_tick_index_ = -1;
     int fortune_divination_highlight_ = -1;
     int fortune_divination_result_ = -1;
-    lv_color_t fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
+    int fortune_divination_active_indices_[FORTUNE_DIVINATION_HIGHLIGHT_COUNT] = {};
+    lv_color_t fortune_divination_active_colors_[FORTUNE_DIVINATION_HIGHLIGHT_COUNT] = {};
     bool taiji_hold_pending_ = false;
     bool fortune_divination_sound_playing_ = false;
     uint32_t fortune_divination_sound_next_play_ms_ = 0;
@@ -372,6 +379,7 @@ private:
     void StartFortuneDivinationUnlocked();
     void StopFortuneDivinationUnlocked();
     void FinishFortuneDivinationUnlocked(int result_index);
+    void RandomizeFortuneDivinationMarqueeUnlocked();
     void UpdateFortuneDivinationMarqueeVisual(int active_index);
     void ResetFortuneMenuIconStyle(int index);
     void CancelTaijiHoldTimerUnlocked();

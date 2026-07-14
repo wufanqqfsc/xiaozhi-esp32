@@ -22,9 +22,12 @@ class FortuneWatchfaceView {
 public:
     static FortuneWatchfaceView& GetInstance();
 
-    // 显示/隐藏
+    // 显示/隐藏（调用方已持有 LVGL 锁时使用 Unlocked 版本）
     void Show();
     void Hide();
+    bool ShowUnlocked();
+    void HideUnlocked();
+    void EnsureAnimatingUnlocked();
     bool IsVisible() const { return visible_; }
 
     // 生命周期绑定到 attitude_display
@@ -32,6 +35,8 @@ public:
 
     // 空闲时释放 JARVIS LVGL 屏幕树与语音状态文本，下次 Show 时重建
     void ReleaseIdleResources();
+    // 调用方已持有 LVGL 锁（DisplayLockGuard）时使用，避免重复加锁
+    void ReleaseIdleResourcesUnlocked();
 
     // 语音交互状态文本（覆盖默认扫描进度显示）
     void SetStatusText(const char* text);
@@ -43,6 +48,7 @@ public:
 
     // 更新外环颜色（与罗盘主界面保持一致）
     void UpdateOuterRingColor(lv_color_t color);
+    void UpdateOuterRingColorUnlocked(lv_color_t color);
 
     // 获取覆盖层独立屏幕（供 AttitudeDisplay 做视图切换淡入淡出使用）
     lv_obj_t* GetOverlayScreen() { return overlay_screen_; }
@@ -64,6 +70,7 @@ private:
     // UI 创建
     void CreateUI();
     void DestroyUI();
+    void EnsureTimer();
 
     // 定时器回调
     static void OnTimer(lv_timer_t* timer);
@@ -116,8 +123,7 @@ private:
     lv_obj_t* jarvis_label_shadow_a_ = nullptr;
     lv_obj_t* jarvis_label_shadow_b_ = nullptr;
     lv_obj_t* status_label_ = nullptr;
-    lv_obj_t* orbit_canvas_ = nullptr;
-    uint8_t* canvas_buffer_ = nullptr;
+    lv_obj_t* orbit_dots_[ORBIT_COUNT_];
     lv_obj_t* tick_marks_[60];
     lv_obj_t* jarvis_bars_[5];
 

@@ -938,6 +938,7 @@ void Application::InitializeProtocol() {
                 aborted_ = false;
                 if (auto* attitude = GetAttitudeDisplay()) {
                     attitude->RefreshDebugInfoTimer(30000);
+                    attitude->StopMarqueeForTts();
                 }
                 // TTS 响应到达，清除 listening 超时监控
                 listening_started_ticks_ = 0;
@@ -965,6 +966,7 @@ void Application::InitializeProtocol() {
                     // （这是用户要求的：回复完毕之后才消失）
                     if (auto* attitude = GetAttitudeDisplay()) {
                         attitude->HideDebugInfo();
+                        attitude->ReturnToCompassAfterTts();
                     }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
@@ -985,8 +987,12 @@ void Application::InitializeProtocol() {
                             static uint32_t s_llm_seq = 0;
                             uint32_t seq = ++s_llm_seq;
                             Schedule([attitude, cleaned, seq]() {
-                                char title[24];
-                                snprintf(title, sizeof(title), "AI 回复 #%u", (unsigned)seq);
+                                char title[32];
+                                if (attitude->IsFortuneDivinationBusy() || attitude->GetFortuneDivinationState() == 2 /* Result */) {
+                                    snprintf(title, sizeof(title), "占卜结果 #%u", (unsigned)seq);
+                                } else {
+                                    snprintf(title, sizeof(title), "AI 回复 #%u", (unsigned)seq);
+                                }
                                 // hold_ms 较长以覆盖整段朗读
                                 attitude->ShowDebugInfo(title, cleaned, 8000);
                             });
@@ -1317,6 +1323,48 @@ void Application::HandleStopListeningEvent() {
         }
         SetDeviceState(kDeviceStateIdle);
     }
+}
+
+void Application::OnShakeDetected() {
+    Schedule([this]() {
+        auto state = GetDeviceState();
+        if (state != kDeviceStateIdle) {
+            ESP_LOGI(TAG, "OnShakeDetected: ignored, state is %d", (int)state);
+            return;
+        }
+
+        auto* attitude = GetAttitudeDisplay();
+        if (attitude == nullptr) {
+            return;
+        }
+
+        if (attitude->IsJarvisWatchfaceVisible() || attitude->IsFortuneDivinationBusy()) {
+            ESP_LOGI(TAG, "OnShakeDetected: ignored, Jarvis visible or divination busy");
+            return;
+        }
+
+        ESP_LOGI(TAG, "OnShakeDetected: triggering divination");
+        audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+        attitude->StartFortuneDivination();
+
+        if (!protocol_) {
+            ESP_LOGE(TAG, "OnShakeDetected: protocol not initialized");
+            return;
+        }
+
+        if (!protocol_->IsAudioChannelOpened()) {
+            if (!protocol_->OpenAudioChannel()) {
+                ESP_LOGE(TAG, "OnShakeDetected: failed to open audio channel");
+                return;
+            }
+        }
+
+        protocol_->SendStartListening(kListeningModeManualStop);
+        protocol_->SendUserPrompt("用户摇了摇设备，请为我占卜今日运势");
+        
+        attitude->SetDivinationWaitingForTts(true);
+        attitude->SetDivinationFromShake(true);
+    });
 }
 
 void Application::HandleWakeWordDetectedEvent() {

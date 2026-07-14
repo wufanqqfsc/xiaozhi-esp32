@@ -1,0 +1,9 @@
+feat(imu): add QMI8658 driver and shake-to-divination feature
+
+- Add QMI8658 I2C driver for IMU
+- Implement shake detection in esp32-s3-touch-lcd-1.85b board
+- Add OnShakeDetected in Application to trigger divination
+- Update fortune divination marquee to highlight 5 random icons with random colors
+- Add divination_waiting_for_tts_ to keep marquee running until TTS arrives
+- Add StopMarqueeForTts and ReturnToCompassAfterTts for TTS sync
+- Optimize FortuneWatchfaceView orbit dots to use lv_obj instead of canvas to save PSRAM

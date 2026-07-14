@@ -266,7 +266,8 @@ void AttitudeDisplay::UpdateStatusBar(bool update_all)
 
 bool AttitudeDisplay::IsJarvisWatchfaceVisible() const
 {
-    return fortune_watchface_visible_ || FortuneWatchfaceView::GetInstance().IsVisible();
+    // 仅依赖显式标志，避免 IsJarvisHudActive() 在无锁路径触发 GetInstance 构造 UI
+    return fortune_watchface_visible_;
 }
 
 bool AttitudeDisplay::IsJarvisHudActive() const
@@ -824,6 +825,23 @@ void AttitudeDisplay::ResetFortuneMenuIconStyle(int index)
     lv_obj_set_pos(label, cx - w / 2, cy - h / 2);
 }
 
+void AttitudeDisplay::RandomizeFortuneDivinationMarqueeUnlocked()
+{
+    bool used[FORTUNE_MENU_COUNT] = {};
+    for (int k = 0; k < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++k) {
+        int idx = 0;
+        do {
+            idx = static_cast<int>(esp_random() % FORTUNE_MENU_COUNT);
+        } while (used[idx]);
+        used[idx] = true;
+        fortune_divination_active_indices_[k] = idx;
+        const uint16_t h = static_cast<uint16_t>(esp_random() % 360);
+        const uint8_t s = static_cast<uint8_t>(80 + (esp_random() % 21));
+        const uint8_t v = static_cast<uint8_t>(90 + (esp_random() % 11));
+        fortune_divination_active_colors_[k] = lv_color_hsv_to_rgb(h, s, v);
+    }
+}
+
 void AttitudeDisplay::UpdateFortuneDivinationMarqueeVisual(int active_index)
 {
     fortune_divination_highlight_ = active_index;
@@ -852,15 +870,21 @@ void AttitudeDisplay::UpdateFortuneDivinationMarqueeVisual(int active_index)
             }
             lv_obj_set_style_text_color(label, COLOR_TEXT_MAIN, 0);
         } else {
-            // Animating state: highlight a trail of icons
-            int distance = (active_index - i + FORTUNE_MENU_COUNT) % FORTUNE_MENU_COUNT;
-            if (distance < FORTUNE_DIVINATION_HIGHLIGHT_COUNT) {
+            // Animating state: 5 random icons lit with individual random colors
+            int color_slot = -1;
+            for (int k = 0; k < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++k) {
+                if (fortune_divination_active_indices_[k] == i) {
+                    color_slot = k;
+                    break;
+                }
+            }
+            if (color_slot >= 0) {
                 if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE_SELECTED) {
                     lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE_SELECTED, 0);
                     fortune_menu_applied_scale_[i] = FORTUNE_MENU_ICON_SCALE_SELECTED;
                     lv_obj_update_layout(label);
                 }
-                lv_obj_set_style_text_color(label, fortune_divination_current_color_, 0);
+                lv_obj_set_style_text_color(label, fortune_divination_active_colors_[color_slot], 0);
             } else {
                 if (fortune_menu_applied_scale_[i] != FORTUNE_MENU_ICON_SCALE) {
                     lv_obj_set_style_transform_scale(label, FORTUNE_MENU_ICON_SCALE, 0);
@@ -885,6 +909,32 @@ void AttitudeDisplay::CancelTaijiHoldTimerUnlocked()
     }
 }
 
+void AttitudeDisplay::SetDivinationWaitingForTts(bool waiting) {
+    DisplayLockGuard lock(this);
+    divination_waiting_for_tts_ = waiting;
+}
+
+void AttitudeDisplay::SetDivinationFromShake(bool from_shake) {
+    DisplayLockGuard lock(this);
+    divination_from_shake_ = from_shake;
+}
+
+void AttitudeDisplay::StopMarqueeForTts() {
+    DisplayLockGuard lock(this);
+    if (fortune_divination_state_ == FortuneDivinationState::Animating) {
+        FinishFortuneDivinationUnlocked(fortune_divination_result_);
+    }
+}
+
+void AttitudeDisplay::ReturnToCompassAfterTts() {
+    DisplayLockGuard lock(this);
+    if (divination_from_shake_ || divination_from_jarvis_) {
+        StopFortuneDivinationUnlocked();
+        divination_from_shake_ = false;
+        divination_waiting_for_tts_ = false;
+    }
+}
+
 void AttitudeDisplay::StopFortuneDivinationUnlocked()
 {
     CancelTaijiHoldTimerUnlocked();
@@ -898,7 +948,9 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     fortune_divination_last_tick_index_ = -1;
     fortune_divination_highlight_ = -1;
     fortune_divination_result_ = -1;
-    fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
+    for (int k = 0; k < FORTUNE_DIVINATION_HIGHLIGHT_COUNT; ++k) {
+        fortune_divination_active_indices_[k] = -1;
+    }
     taiji_pressed_during_anim_ = false;
     fortune_divination_sound_playing_ = false;
     Application::GetInstance().StopUiSound();
@@ -941,7 +993,6 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
     fortune_divination_result_ = static_cast<int>(esp_random() % FORTUNE_MENU_COUNT);
     fortune_divination_highlight_ = 0;
     fortune_divination_last_tick_index_ = -1;
-    fortune_divination_current_color_ = lv_color_hex(0x00C8C8);
 
     fortune_divination_start_ms_ = lv_tick_get();
     fortune_divination_finish_deadline_ms_ = fortune_divination_start_ms_ + FORTUNE_DIVINATION_DURATION_MS;
@@ -949,7 +1000,8 @@ void AttitudeDisplay::StartFortuneDivinationUnlocked()
 
     HideDivinationHintUnlocked(); // Hide the hold hint during marquee if you want, or show "正在感应..."
     // According to plan, we can just hide it during marquee to not block Taiji
-    
+
+    RandomizeFortuneDivinationMarqueeUnlocked();
     UpdateFortuneDivinationMarqueeVisual(0);
     PlayFortuneDivinationMarqueeSound();
     fortune_divination_sound_next_play_ms_ = lv_tick_get() + FORTUNE_DIVINATION_SOUND_INTERVAL_MS;
@@ -1029,29 +1081,24 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
         self->fortune_divination_finish_deadline_ms_ = (hold_deadline > min_deadline) ? hold_deadline : min_deadline;
     }
 
-    if (self->fortune_divination_finish_deadline_ms_ != 0 && now >= self->fortune_divination_finish_deadline_ms_) {
-        self->FinishFortuneDivinationUnlocked(self->fortune_divination_result_);
-        return;
+    if (self->divination_waiting_for_tts_) {
+        // 摇一摇触发的占卜，等待后端 TTS 响应。超时 35s 兜底。
+        if (now - self->fortune_divination_start_ms_ > 35000) {
+            ESP_LOGW(TAG, "Fortune divination timeout waiting for TTS");
+            self->divination_waiting_for_tts_ = false;
+            self->FinishFortuneDivinationUnlocked(self->fortune_divination_result_);
+            self->ShowDebugInfo("占卜超时", "后端未响应", 5000);
+            return;
+        }
+    } else {
+        if (self->fortune_divination_finish_deadline_ms_ != 0 && now >= self->fortune_divination_finish_deadline_ms_) {
+            self->FinishFortuneDivinationUnlocked(self->fortune_divination_result_);
+            return;
+        }
     }
 
-    uint32_t elapsed = now - self->fortune_divination_start_ms_;
-    int step = elapsed / FORTUNE_DIVINATION_TICK_MS;
-    int highlight = step % FORTUNE_MENU_COUNT;
-    
-    // In the last cycle (if we know when it ends), we might want to align it, but since it's time-based,
-    // we can just let it loop and suddenly stop at the result when deadline hits.
-    // However, to make it look nicer, let's just make the step highlight move continuously.
-    
-    if (highlight != self->fortune_divination_last_tick_index_) {
-        // 生成随机高饱和、高明度颜色
-        uint16_t h = esp_random() % 360;
-        uint8_t s = 80 + (esp_random() % 21); // 80-100
-        uint8_t v = 90 + (esp_random() % 11); // 90-100
-        self->fortune_divination_current_color_ = lv_color_hsv_to_rgb(h, s, v);
-        self->fortune_divination_last_tick_index_ = highlight;
-    }
-
-    self->UpdateFortuneDivinationMarqueeVisual(highlight);
+    self->RandomizeFortuneDivinationMarqueeUnlocked();
+    self->UpdateFortuneDivinationMarqueeVisual(-1);
 }
 
 void AttitudeDisplay::OnTaijiHoldTimer(lv_timer_t* timer)
@@ -1198,7 +1245,7 @@ void AttitudeDisplay::DeselectFortuneMenuItemUnlocked()
 
     // 取消选中时隐藏 JARVIS 特效，恢复罗盘主界面
     if (fortune_watchface_visible_) {
-        FortuneWatchfaceView::GetInstance().Hide();
+        FortuneWatchfaceView::GetInstance().HideUnlocked();
         fortune_watchface_visible_ = false;
     }
     // 恢复罗盘主界面
@@ -1303,13 +1350,13 @@ void AttitudeDisplay::ShowFortuneFeatureCategoryUnlocked(int index)
         if (attitude_container_ != nullptr) {
             lv_obj_add_flag(attitude_container_, LV_OBJ_FLAG_HIDDEN);
         }
-        FortuneWatchfaceView::GetInstance().Show();
+        FortuneWatchfaceView::GetInstance().ShowUnlocked();
         fortune_watchface_visible_ = true;
         return;
     }
 
     if (fortune_watchface_visible_) {
-        FortuneWatchfaceView::GetInstance().Hide();
+        FortuneWatchfaceView::GetInstance().HideUnlocked();
         fortune_watchface_visible_ = false;
     }
     if (attitude_container_ != nullptr) {
@@ -1572,27 +1619,32 @@ void AttitudeDisplay::UpdateTaijiGoldRingColor(lv_color_t color)
 void AttitudeDisplay::ShowJarvisWatchface()
 {
     DisplayLockGuard lock(this);
-    // 已在显示中（运势菜单触发的 JARVIS 或唤醒触发），不重复加载
+    auto& jarvis = FortuneWatchfaceView::GetInstance();
+
+    // 已在显示中：确保动画定时器恢复（Hide/状态切换后 timer 可能仍处于 pause）
     if (fortune_watchface_visible_) {
+        jarvis.EnsureAnimatingUnlocked();
         return;
     }
+
     ESP_LOGI(TAG, "ShowJarvisWatchface: voice wake-up triggered");
-    // 进入 JARVIS 前清理罗盘 InfoCard 队列，避免定时器在后台弹出功能卡
     SuppressDebugInfoCardForJarvisUnlocked();
     if (!view_stack_.contains(ActiveView::JarvisWatchface)) {
         view_stack_.push(ActiveView::JarvisWatchface);
     }
-    FortuneWatchfaceView::GetInstance().Show();
+    if (!jarvis.ShowUnlocked()) {
+        ESP_LOGW(TAG, "ShowJarvisWatchface: ShowUnlocked failed");
+        return;
+    }
     fortune_watchface_visible_ = true;
 
-    // 初始化 JARVIS 视图的外环颜色（与当前网络状态一致）
     lv_color_t color = COLOR_TEXT_MAIN;
     if (wifi_status_ == WifiStatus::CONNECTED) {
         color = COLOR_WIFI_GREEN;
     } else if (ble_status_ == BleStatus::CONNECTED) {
         color = COLOR_BT_BLUE;
     }
-    FortuneWatchfaceView::GetInstance().UpdateOuterRingColor(color);
+    jarvis.UpdateOuterRingColorUnlocked(color);
 }
 
 // 语音交互结束时隐藏 JARVIS 视图：切换回罗盘主屏幕
@@ -1607,10 +1659,10 @@ void AttitudeDisplay::HideJarvisWatchface()
     FortuneWatchfaceView::GetInstance().ClearVoiceMessage();
     GifPreviewPlayer::GetInstance().Hide();
 
-    FortuneWatchfaceView::GetInstance().Hide();
+    FortuneWatchfaceView::GetInstance().HideUnlocked();
     fortune_watchface_visible_ = false;
     view_stack_.pop_if_top(ActiveView::JarvisWatchface);
-    FortuneWatchfaceView::GetInstance().ReleaseIdleResources();
+    FortuneWatchfaceView::GetInstance().ReleaseIdleResourcesUnlocked();
 }
 
 void AttitudeDisplay::ReturnToCompassIdleView()
@@ -1650,10 +1702,10 @@ void AttitudeDisplay::ReturnToCompassIdleViewUnlocked()
     // 5. 隐藏 JARVIS 并销毁其 LVGL 屏幕树
     if (fortune_watchface_visible_) {
         FortuneWatchfaceView::GetInstance().ClearVoiceMessage();
-        FortuneWatchfaceView::GetInstance().Hide();
+        FortuneWatchfaceView::GetInstance().HideUnlocked();
         fortune_watchface_visible_ = false;
     }
-    FortuneWatchfaceView::GetInstance().ReleaseIdleResources();
+    FortuneWatchfaceView::GetInstance().ReleaseIdleResourcesUnlocked();
 
     // 6. 确保罗盘主容器可见
     if (attitude_container_ != nullptr) {

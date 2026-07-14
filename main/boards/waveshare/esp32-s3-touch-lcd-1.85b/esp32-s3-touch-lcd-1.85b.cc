@@ -24,6 +24,9 @@
 #include <sdmmc_cmd.h>
 #include <driver/sdmmc_host.h>
 
+#include "qmi8658_imu.h"
+#include "application.h"
+
 #define TAG "waveshare_lcd_1_85"
 
 #define LCD_OPCODE_WRITE_CMD        (0x02ULL)
@@ -603,9 +606,56 @@ private:
         }, this);
     }
 
+    static void imu_event_task(void* arg) {
+        auto* self = static_cast<CustomBoard*>(arg);
+        if (self == nullptr) {
+            vTaskDelete(NULL);
+            return;
+        }
+
+        qmi8658_sens_data prev = {};
+        qmi8658_sens_data cur = {};
+        bool has_prev = false;
+        int64_t last_shake_ms = 0;
+        constexpr int kShakeDeltaThreshold = 15000;
+        constexpr int64_t kShakeCooldownMs = 2000;
+
+        while (true) {
+            if (Qmi8658Imu::ReadAccelRaw(cur)) {
+                if (has_prev) {
+                    int dx = abs(static_cast<int>(cur.acc.x) - static_cast<int>(prev.acc.x));
+                    int dy = abs(static_cast<int>(cur.acc.y) - static_cast<int>(prev.acc.y));
+                    int dz = abs(static_cast<int>(cur.acc.z) - static_cast<int>(prev.acc.z));
+                    int shake_score = dx + dy + dz;
+
+                    int64_t now_ms = esp_timer_get_time() / 1000;
+                    if (shake_score > kShakeDeltaThreshold && (now_ms - last_shake_ms) > kShakeCooldownMs) {
+                        last_shake_ms = now_ms;
+                        ESP_LOGI(TAG, "Shake detected! score=%d", shake_score);
+                        Application::GetInstance().OnShakeDetected();
+                    }
+                }
+                prev = cur;
+                has_prev = true;
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+    }
+
+    void InitializeImu() {
+        esp_err_t ret = Qmi8658Imu::Initialize(i2c_bus_);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "QMI8658 initialized successfully");
+            xTaskCreatePinnedToCore(imu_event_task, "imu_task", 4096, this, 4, nullptr, 1);
+        } else {
+            ESP_LOGW(TAG, "Failed to initialize QMI8658");
+        }
+    }
+
 public:
     CustomBoard() {
         InitializeI2c();
+        InitializeImu();
         InitializeTca9554();
         InitializeSpi();
         Initializest77916Display();
