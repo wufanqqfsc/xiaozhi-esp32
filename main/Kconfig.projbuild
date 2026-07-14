@@ -911,13 +911,13 @@ menu "Factory Default WiFi"
 
     config XIAOZHI_WIFI_DEFAULT_SSID
         string "Factory default WiFi SSID"
-        default "HUAWEI-9YQAVW"
+        default "Zikkoy"
         help
             Default WiFi SSID compiled into firmware.
 
     config XIAOZHI_WIFI_DEFAULT_PASSWORD
         string "Factory default WiFi password"
-        default "kekaodehuiyuan"
+        default "Z123456z"
         help
             Default WiFi password compiled into firmware.
 

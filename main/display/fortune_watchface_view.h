@@ -33,8 +33,8 @@ public:
     // 生命周期绑定到 attitude_display
     void SetParentContainer(lv_obj_t* container);
 
-    // 图片显示（在 JARVIS 视图之上覆盖显示）
-    void ShowImage(const lv_img_dsc_t* img_dsc, bool is_gif = false, uint32_t timeout_ms = 5000);
+    // 图片显示（在 JARVIS 视图之上覆盖显示；接管 image 所有权直至 HideImage）
+    void ShowImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms = 5000);
     void HideImage();
     bool IsImageVisible() const;
 
@@ -123,6 +123,7 @@ private:
     // 图片覆盖层
     lv_obj_t* image_overlay_ = nullptr;
     lv_obj_t* image_widget_ = nullptr;
+    std::unique_ptr<LvglImage> image_cache_;
     LvglGif* gif_controller_ = nullptr;
     lv_timer_t* image_hide_timer_ = nullptr;
     bool image_visible_ = false;

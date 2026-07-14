@@ -117,21 +117,22 @@ void WifiBoard::EnsureDefaultWifiCredentials() {
         return;
     }
     auto& ssid_manager = SsidManager::GetInstance();
-    
-    // Check if the default SSID is already in the list
-    auto list = ssid_manager.GetSsidList();
-    bool found = false;
-    for (const auto& item : list) {
-        if (item.ssid == CONFIG_XIAOZHI_WIFI_DEFAULT_SSID) {
-            found = true;
+    const std::string default_ssid = CONFIG_XIAOZHI_WIFI_DEFAULT_SSID;
+    const std::string default_password = CONFIG_XIAOZHI_WIFI_DEFAULT_PASSWORD;
+
+    // 添加或更新出厂默认 WiFi，并确保其位于列表首位（优先连接）
+    ssid_manager.AddSsid(default_ssid, default_password);
+    const auto& list = ssid_manager.GetSsidList();
+    for (size_t i = 0; i < list.size(); ++i) {
+        if (list[i].ssid == default_ssid) {
+            if (i != 0) {
+                ESP_LOGI(TAG, "Promoting factory default WiFi to first: %s", default_ssid.c_str());
+                ssid_manager.SetDefaultSsid(static_cast<int>(i));
+            }
             break;
         }
     }
-    
-    if (!found) {
-        ESP_LOGI(TAG, "Seeding factory default WiFi: %s", CONFIG_XIAOZHI_WIFI_DEFAULT_SSID);
-        ssid_manager.AddSsid(CONFIG_XIAOZHI_WIFI_DEFAULT_SSID, CONFIG_XIAOZHI_WIFI_DEFAULT_PASSWORD);
-    }
+    ESP_LOGI(TAG, "Factory default WiFi ready: %s", default_ssid.c_str());
 #else
     ESP_LOGW(TAG, "No factory default WiFi SSID configured");
 #endif

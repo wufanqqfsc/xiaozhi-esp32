@@ -317,6 +317,14 @@ void AttitudeDisplay::ShowNotification(const char* notification, int duration_ms
         return;
     }
     ESP_LOGD(TAG, "ShowNotification: %s (duration=%dms)", notification, duration_ms);
+
+    // JARVIS 视图可见时，通知走状态栏，避免 function_area_card_ 在后台屏幕弹出
+    if (fortune_watchface_visible_) {
+        std::string prefixed = std::string("通知:") + notification;
+        FortuneWatchfaceView::GetInstance().SetVoiceMessage(prefixed.c_str());
+        return;
+    }
+
     // 将时长限制在合理区间，避免动画任务异常
     uint32_t hold_ms = (duration_ms > 0) ? static_cast<uint32_t>(duration_ms) : DEBUG_INFO_SHOW_MS;
     if (hold_ms < 500) hold_ms = 500;
@@ -1801,13 +1809,12 @@ void AttitudeDisplay::HideJarvisWatchface()
 
     // 清除语音交互消息文本，恢复默认扫描进度
     FortuneWatchfaceView::GetInstance().ClearVoiceMessage();
+    FortuneWatchfaceView::GetInstance().HideImage();
 
     // 直接切换回主屏幕（attitude_container_ 始终可见，无需恢复）
     FortuneWatchfaceView::GetInstance().Hide();
     fortune_watchface_visible_ = false;
-    if (view_stack_.contains(ActiveView::JarvisWatchface)) {
-        view_stack_.pop();
-    }
+    view_stack_.pop_if_top(ActiveView::JarvisWatchface);
 }
 
 void AttitudeDisplay::ShowImageOnActiveView(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {
@@ -1824,10 +1831,7 @@ void AttitudeDisplay::ShowImageOnActiveView(std::unique_ptr<LvglImage> image, ui
     }
 
     if (fortune_watchface_visible_) {
-        auto img_dsc = image->image_dsc();
-        bool is_gif = image->IsGif();
-
-        FortuneWatchfaceView::GetInstance().ShowImage(img_dsc, is_gif, timeout_ms);
+        FortuneWatchfaceView::GetInstance().ShowImage(std::move(image), timeout_ms);
         ESP_LOGI(TAG, "ShowImageOnActiveView: displayed on JARVIS view");
     } else {
         SetPreviewImageUnlocked(std::move(image), timeout_ms);
@@ -1841,9 +1845,7 @@ void AttitudeDisplay::SwitchToDivination() {
     if (fortune_watchface_visible_) {
         divination_from_jarvis_ = true;
         HideJarvisWatchface();
-        if (view_stack_.contains(ActiveView::JarvisWatchface)) {
-            view_stack_.push(ActiveView::Divination);
-        }
+        view_stack_.push(ActiveView::Divination);
         ESP_LOGI(TAG, "SwitchToDivination: JARVIS hidden");
     } else {
         divination_from_jarvis_ = false;
@@ -1864,11 +1866,9 @@ void AttitudeDisplay::SwitchBackFromDivination() {
     ESP_LOGI(TAG, "SwitchBackFromDivination: divination stopped");
 
     if (divination_from_jarvis_) {
+        view_stack_.pop_if_top(ActiveView::Divination);
         ShowJarvisWatchface();
         divination_from_jarvis_ = false;
-        if (view_stack_.contains(ActiveView::Divination)) {
-            view_stack_.pop();
-        }
         ESP_LOGI(TAG, "SwitchBackFromDivination: JARVIS shown, current=%d",
                  static_cast<int>(view_stack_.current()));
     }

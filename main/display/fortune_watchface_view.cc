@@ -476,7 +476,7 @@ void FortuneWatchfaceView::UpdateAnimation() {
     }
 }
 
-void FortuneWatchfaceView::ShowImage(const lv_img_dsc_t* img_dsc, bool is_gif, uint32_t timeout_ms) {
+void FortuneWatchfaceView::ShowImage(std::unique_ptr<LvglImage> image, uint32_t timeout_ms) {
     if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "ShowImage: LVGL lock timeout");
         return;
@@ -492,12 +492,23 @@ void FortuneWatchfaceView::ShowImage(const lv_img_dsc_t* img_dsc, bool is_gif, u
         delete gif_controller_;
         gif_controller_ = nullptr;
     }
+    image_cache_.reset();
+
+    if (image == nullptr) {
+        lvgl_port_unlock();
+        return;
+    }
+
+    image_cache_ = std::move(image);
+    const lv_img_dsc_t* img_dsc = image_cache_->image_dsc();
+    const bool is_gif = image_cache_->IsGif();
 
     if (image_widget_ != nullptr && img_dsc != nullptr) {
         lv_image_set_src(image_widget_, img_dsc);
     }
 
     if (is_gif && img_dsc != nullptr) {
+        // gd_open_gif_data 不拷贝原始字节，必须保持 image_cache_ 存活
         gif_controller_ = new LvglGif(img_dsc);
         gif_controller_->Start();
         if (gif_controller_->IsLoaded()) {
@@ -556,6 +567,7 @@ void FortuneWatchfaceView::HideImage() {
         delete gif_controller_;
         gif_controller_ = nullptr;
     }
+    image_cache_.reset();
 
     if (image_overlay_ != nullptr) {
         lv_anim_t anim;

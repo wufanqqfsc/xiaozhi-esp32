@@ -52,6 +52,14 @@ struct ViewStack {
             stack.pop_back();
         }
     }
+    // 仅当 view 在栈顶时才弹出，避免 contains()+pop() 误删其它元素
+    bool pop_if_top(ActiveView view) {
+        if (!stack.empty() && stack.back() == view) {
+            stack.pop_back();
+            return true;
+        }
+        return false;
+    }
     void clear() { stack.clear(); }
     bool contains(ActiveView view) const {
         for (auto v : stack) {
