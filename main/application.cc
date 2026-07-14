@@ -526,8 +526,7 @@ void Application::HandleNetworkConnectedEvent() {
     }
 
     ESP_LOGI(TAG, "Creating activation task...");
-    // const size_t stack_size = 4096 * 4; // Ensure enough stack
-    const size_t stack_size = 4096 * 6; // Try an even larger stack size
+    const size_t stack_size = 4096 * 3;
     BaseType_t ret = xTaskCreatePinnedToCore([](void* arg) {
         Application* app = static_cast<Application*>(arg);
         ESP_LOGI(TAG, "Activation task started");

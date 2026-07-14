@@ -1116,6 +1116,7 @@ static esp_err_t handle_device_logs_flush(httpd_req_t* req);
 static esp_err_t handle_device_ota_url(httpd_req_t* req);
 static esp_err_t handle_device_clear_nvs(httpd_req_t* req);
 static esp_err_t handle_device_server_config(httpd_req_t* req);
+static esp_err_t handle_device_volume(httpd_req_t* req);
 
 static esp_err_t handle_wifi_clear_nvs(httpd_req_t* req);
 static esp_err_t handle_wifi_status(httpd_req_t* req);
@@ -1356,6 +1357,25 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
         .user_ctx = nullptr,
     };
     httpd_register_uri_handler(g_server, &uri_device_server_config);
+    handler_count++;
+
+    // 音量控制 API: GET /api/device/volume (查询) / POST /api/device/volume (设置)
+    httpd_uri_t uri_device_volume_get = {
+        .uri = "/api/device/volume",
+        .method = HTTP_GET,
+        .handler = handle_device_volume,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_device_volume_get);
+    handler_count++;
+
+    httpd_uri_t uri_device_volume_post = {
+        .uri = "/api/device/volume",
+        .method = HTTP_POST,
+        .handler = handle_device_volume,
+        .user_ctx = nullptr,
+    };
+    httpd_register_uri_handler(g_server, &uri_device_volume_post);
     handler_count++;
 
     // WiFi 备份管理 API
@@ -2050,6 +2070,81 @@ static esp_err_t handle_device_clear_nvs(httpd_req_t* req) {
     char* json_str = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    if (json_str) free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// HTTP GET/POST /api/device/volume - 查询或设置输出音量
+// GET  /api/device/volume           → {"volume": 20}
+// POST /api/device/volume?volume=20 → {"ok": true, "volume": 20}
+// POST /api/device/volume  body {"volume":20}
+static esp_err_t handle_device_volume(httpd_req_t* req) {
+    auto codec = Board::GetInstance().GetAudioCodec();
+    if (!codec) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"audio codec unavailable\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    // GET: 返回当前音量
+    if (req->method == HTTP_GET) {
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "volume", codec->output_volume());
+        char* json_str = cJSON_PrintUnformatted(root);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+        if (json_str) free(json_str);
+        cJSON_Delete(root);
+        return ESP_OK;
+    }
+
+    // POST: 解析 volume 参数
+    int volume = -1;
+
+    // 尝试 query 参数 ?volume=20（手动解析，和 handle_device_clear_nvs 一致）
+    const char* q = strchr(req->uri, '?');
+    if (q) {
+        q++;
+        if (strncmp(q, "volume=", 7) == 0) {
+            volume = atoi(q + 7);
+        }
+    }
+
+    // 尝试 JSON body {"volume":20}
+    if (volume < 0 && req->content_len > 0 && req->content_len < 128) {
+        char buf[128] = {0};
+        int recv_len = httpd_req_recv(req, buf, req->content_len);
+        if (recv_len > 0) {
+            buf[recv_len] = '\0';
+            cJSON* root = cJSON_Parse(buf);
+            if (root) {
+                const cJSON* jvol = cJSON_GetObjectItem(root, "volume");
+                if (cJSON_IsNumber(jvol)) {
+                    volume = jvol->valueint;
+                }
+                cJSON_Delete(root);
+            }
+        }
+    }
+
+    if (volume < 0 || volume > 100) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"volume must be 0-100 (use ?volume=20 or JSON {\\\"volume\\\":20})\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    codec->SetOutputVolume(volume);
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", true);
+    cJSON_AddNumberToObject(root, "volume", volume);
+    char* json_str = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_str ? json_str : "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
     if (json_str) free(json_str);
     cJSON_Delete(root);
     return ESP_OK;

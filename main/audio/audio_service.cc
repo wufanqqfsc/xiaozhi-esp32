@@ -235,26 +235,38 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         if (input_resampler_ != nullptr) {
             std::lock_guard<std::mutex> lock(input_resampler_mutex_);
             uint32_t in_sample_num = data.size() / codec_->input_channels();
-            uint32_t output_samples = 0;
-            int max_out_ret = esp_ae_rate_cvt_get_max_out_sample_num(input_resampler_, in_sample_num, &output_samples);
-            if (max_out_ret != 0 || output_samples == 0 || output_samples > kMaxResamplerSamples) {
-                ESP_LOGW(TAG, "Skip input resample: ret=%d in=%lu out=%lu",
-                         max_out_ret, (unsigned long)in_sample_num, (unsigned long)output_samples);
+            if (in_sample_num == 0) {
+                ESP_LOGW(TAG, "Skip input resample: empty input");
             } else {
-                const uint32_t safe_capacity = std::min<uint32_t>(
-                    kMaxResamplerSamples,
-                    std::max<uint32_t>(output_samples * 3, output_samples + 1024));
-                auto resampled = std::vector<int16_t>(safe_capacity * codec_->input_channels());
-                uint32_t actual_output = safe_capacity;
-                int process_ret = esp_ae_rate_cvt_process(input_resampler_, (esp_ae_sample_t)data.data(), in_sample_num,
-                                                          (esp_ae_sample_t)resampled.data(), &actual_output);
-                if (process_ret == 0 && actual_output <= safe_capacity) {
-                    resampled.resize(actual_output * codec_->input_channels());
-                    data = std::move(resampled);
+                uint32_t output_samples = 0;
+                int max_out_ret = esp_ae_rate_cvt_get_max_out_sample_num(input_resampler_, in_sample_num, &output_samples);
+                const uint32_t expected_max = static_cast<uint32_t>(
+                    in_sample_num * static_cast<uint64_t>(16000) / codec_->input_sample_rate() + 1024);
+                if (output_samples < expected_max) {
+                    ESP_LOGW(TAG, "Input resample output_samples (%lu) < expected_max (%u), correcting",
+                             (unsigned long)output_samples, expected_max);
+                    output_samples = expected_max;
+                }
+                if (max_out_ret != 0 || output_samples == 0 || output_samples > kMaxResamplerSamples) {
+                    ESP_LOGW(TAG, "Skip input resample: ret=%d in=%lu out=%lu",
+                             max_out_ret, (unsigned long)in_sample_num, (unsigned long)output_samples);
                 } else {
-                    ESP_LOGW(TAG, "Input resample overflow/failed: ret=%d actual=%lu cap=%lu max=%lu",
-                             process_ret, (unsigned long)actual_output,
-                             (unsigned long)safe_capacity, (unsigned long)output_samples);
+                    const uint32_t safe_capacity = std::min<uint32_t>(
+                        kMaxResamplerSamples,
+                        std::max<uint32_t>(output_samples * 4, output_samples + 2048));
+                    auto resampled = std::vector<int16_t>(safe_capacity * codec_->input_channels());
+                    uint32_t actual_output = safe_capacity;
+                    int process_ret = esp_ae_rate_cvt_process(input_resampler_, (esp_ae_sample_t)data.data(), in_sample_num,
+                                                              (esp_ae_sample_t)resampled.data(), &actual_output);
+                    if (process_ret == 0 && actual_output <= safe_capacity && actual_output > 0) {
+                        resampled.resize(actual_output * codec_->input_channels());
+                        data = std::move(resampled);
+                    } else {
+                        ESP_LOGW(TAG, "Input resample overflow/failed: ret=%d actual=%lu cap=%lu max=%lu in=%lu",
+                                 process_ret, (unsigned long)actual_output,
+                                 (unsigned long)safe_capacity, (unsigned long)output_samples,
+                                 (unsigned long)in_sample_num);
+                    }
                 }
             }
         }
@@ -446,28 +458,40 @@ void AudioService::OpusCodecTask() {
                 if (ret == ESP_AUDIO_ERR_OK) {
                     task->pcm.resize(out_frame.decoded_size / sizeof(int16_t));
                     if (decoder_sample_rate_ != codec_->output_sample_rate() && output_resampler_ != nullptr) {
-                        uint32_t target_size = 0;
-                        int max_out_ret = esp_ae_rate_cvt_get_max_out_sample_num(output_resampler_, task->pcm.size(), &target_size);
-                        if (max_out_ret == 0 && target_size > 0 && target_size <= kMaxResamplerSamples) {
-                            const uint32_t safe_capacity = std::min<uint32_t>(
-                                kMaxResamplerSamples,
-                                std::max<uint32_t>(target_size * 3, target_size + 1024));
-                            std::vector<int16_t> resampled(safe_capacity);
-                            uint32_t actual_output = safe_capacity;
-                            int process_ret = esp_ae_rate_cvt_process(output_resampler_, (esp_ae_sample_t)task->pcm.data(),
-                                                                      task->pcm.size(), (esp_ae_sample_t)resampled.data(),
-                                                                      &actual_output);
-                            if (process_ret == 0 && actual_output <= safe_capacity) {
-                                resampled.resize(actual_output);
-                                task->pcm = std::move(resampled);
-                            } else {
-                                ESP_LOGW(TAG, "Output resample overflow/failed: ret=%d actual=%lu cap=%lu max=%lu",
-                                         process_ret, (unsigned long)actual_output,
-                                         (unsigned long)safe_capacity, (unsigned long)target_size);
-                            }
+                        if (task->pcm.size() == 0) {
+                            ESP_LOGW(TAG, "Skip output resample: empty input");
                         } else {
-                            ESP_LOGW(TAG, "Skip output resample: ret=%d in=%u out=%lu",
-                                     max_out_ret, (unsigned int)task->pcm.size(), (unsigned long)target_size);
+                            uint32_t target_size = 0;
+                            int max_out_ret = esp_ae_rate_cvt_get_max_out_sample_num(output_resampler_, task->pcm.size(), &target_size);
+                            const uint32_t expected_max = static_cast<uint32_t>(
+                                task->pcm.size() * static_cast<uint64_t>(codec_->output_sample_rate()) / decoder_sample_rate_ + 1024);
+                            if (target_size < expected_max) {
+                                ESP_LOGW(TAG, "Resample target_size (%lu) < expected_max (%u), correcting",
+                                         (unsigned long)target_size, expected_max);
+                                target_size = expected_max;
+                            }
+                            if (max_out_ret == 0 && target_size > 0 && target_size <= kMaxResamplerSamples) {
+                                const uint32_t safe_capacity = std::min<uint32_t>(
+                                    kMaxResamplerSamples,
+                                    std::max<uint32_t>(target_size * 4, target_size + 2048));
+                                std::vector<int16_t> resampled(safe_capacity);
+                                uint32_t actual_output = safe_capacity;
+                                int process_ret = esp_ae_rate_cvt_process(output_resampler_, (esp_ae_sample_t)task->pcm.data(),
+                                                                          task->pcm.size(), (esp_ae_sample_t)resampled.data(),
+                                                                          &actual_output);
+                                if (process_ret == 0 && actual_output <= safe_capacity && actual_output > 0) {
+                                    resampled.resize(actual_output);
+                                    task->pcm = std::move(resampled);
+                                } else {
+                                    ESP_LOGW(TAG, "Output resample overflow/failed: ret=%d actual=%lu cap=%lu max=%lu in=%u",
+                                             process_ret, (unsigned long)actual_output,
+                                             (unsigned long)safe_capacity, (unsigned long)target_size,
+                                             (unsigned int)task->pcm.size());
+                                }
+                            } else {
+                                ESP_LOGW(TAG, "Skip output resample: ret=%d in=%u out=%lu",
+                                         max_out_ret, (unsigned int)task->pcm.size(), (unsigned long)target_size);
+                            }
                         }
                     }
                     lock.lock();

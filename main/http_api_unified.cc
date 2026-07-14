@@ -220,6 +220,13 @@ extern "C" cJSON* http_api_device_status(void) {
         cJSON_AddStringToObject(root, "idf_version", app->idf_ver);
     }
     cJSON_AddStringToObject(root, "board_type", Board::GetInstance().GetBoardType().c_str());
+
+    // 输出音量（0-100）
+    auto codec = Board::GetInstance().GetAudioCodec();
+    if (codec) {
+        cJSON_AddNumberToObject(root, "output_volume", codec->output_volume());
+    }
+
     return root;
 }
 
