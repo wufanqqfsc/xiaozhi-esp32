@@ -103,7 +103,7 @@ void Protocol::SendUserPrompt(const std::string& text) {
                 }
         }
     }
-    std::string message = "{\"session_id\":\"" + session_id_ + "\",\"type\":\"user_prompt\",\"text\":\"" + escaped + "\"}";
+    std::string message = "{\"session_id\":\"" + session_id_ + "\",\"type\":\"listen\",\"state\":\"text\",\"text\":\"" + escaped + "\"}";
     SendText(message);
     ESP_LOGI(TAG, "SendUserPrompt: %s", text.c_str());
 }
