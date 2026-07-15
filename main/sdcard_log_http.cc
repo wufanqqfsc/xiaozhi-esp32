@@ -1551,6 +1551,12 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     httpd_register_uri_handler(g_server, &uri_audio_status);
     handler_count++;
 
+    // 注：/api/audio/volume 已废弃；音量查询/设置统一使用
+    //   GET  /api/device/volume
+    //   POST /api/device/volume (body {"volume":N} 或 ?volume=N)
+    // 该接口在 handle_device_volume 中通过 Application::Schedule() 在主任务
+    // 中调用 SetOutputVolume()，避免在 HTTP 任务栈（PSRAM）上直接触发 NVS 写崩溃。
+
     // GET /api/audio/list?path=&recursive= - 列出 SD 卡上的音乐文件
     httpd_uri_t uri_audio_list = {
         .uri = "/api/audio/list",
@@ -1958,9 +1964,14 @@ static esp_err_t handle_device_server_config(httpd_req_t* req) {
     std::string ip;
 
     char query_ip[64] = {0};
-    if (httpd_query_key_value(req->uri, "ip", query_ip, sizeof(query_ip)) == ESP_OK &&
-        query_ip[0] != '\0') {
-        ip = query_ip;
+    if (httpd_req_get_url_query_len(req) > 0) {
+        char query[128] = {0};
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+            if (httpd_query_key_value(query, "ip", query_ip, sizeof(query_ip)) == ESP_OK &&
+                query_ip[0] != '\0') {
+                ip = query_ip;
+            }
+        }
     }
 
     if (ip.empty() && req->content_len > 0) {
@@ -2032,9 +2043,9 @@ static esp_err_t handle_device_clear_nvs(httpd_req_t* req) {
         }
     }
 
-    // 安全检查: 只允许清除 ota_url 和 websocket_url
+    // 安全检查: 只允许清除 ota_url、websocket_url 和 server_ip
     auto is_allowed_key = [](const std::string& key) -> bool {
-        return key == "ota_url" || key == "websocket_url";
+        return key == "ota_url" || key == "websocket_url" || key == "server_ip";
     };
 
     cJSON* root = cJSON_CreateObject();
@@ -2061,20 +2072,23 @@ static esp_err_t handle_device_clear_nvs(httpd_req_t* req) {
             settings.EraseKey("ota_url");
         } else if (requested_key == "websocket_url") {
             settings.EraseKey("websocket_url");
+        } else if (requested_key == "server_ip") {
+            settings.EraseKey("server_ip");
         }
         cJSON_AddStringToObject(root, "cleared", requested_key.c_str());
-        ESP_LOGW(TAG, "NVS key '%s' erased via HTTP API (next reboot will use CONFIG_xxx_URL)", requested_key.c_str());
+        ESP_LOGW(TAG, "NVS key '%s' erased via HTTP API (next reboot will use default or CONFIG_xxx_URL)", requested_key.c_str());
     } else {
         // 清除所有 URL keys
-        // 注意：ota_url 存在 Settings("wifi") namespace，websocket 的 url/token/version 存在 Settings("websocket") namespace
+        // 注意：ota_url/server_ip 存在 Settings("wifi") namespace，websocket 的 url/token/version 存在 Settings("websocket") namespace
         Settings wifi_settings("wifi", true);
         wifi_settings.EraseKey("ota_url");
         wifi_settings.EraseKey("websocket_url");
+        wifi_settings.EraseKey("server_ip");
         Settings ws_settings("websocket", true);
         ws_settings.EraseKey("url");
         ws_settings.EraseKey("token");
         ws_settings.EraseKey("version");
-        cJSON_AddStringToObject(root, "cleared", "ota_url,websocket_url,ws:url,ws:token,ws:version");
+        cJSON_AddStringToObject(root, "cleared", "ota_url,websocket_url,server_ip,ws:url,ws:token,ws:version");
         ESP_LOGW(TAG, "All NVS URL keys erased via HTTP API (wifi + websocket namespaces)");
     }
 

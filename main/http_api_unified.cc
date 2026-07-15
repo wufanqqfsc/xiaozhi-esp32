@@ -865,6 +865,11 @@ extern "C" cJSON* http_api_audio_status(void) {
     return root;
 }
 
+// 注：扬声器输出音量设置/查询已由 sdcard_log_http.cc 的
+// /api/device/volume 直接提供，且通过 Application::Schedule() 在主任务
+// 中执行 SetOutputVolume()，避免了 HTTP 任务直接调用可能引发的崩溃。
+// 因此这里不重复封装 http_api_audio_set_volume / http_api_audio_get_volume。
+
 // 扫描目录中的音乐文件
 //   - path: 绝对路径
 //   - out: cJSON 数组（追加文件对象）

@@ -47,6 +47,7 @@ http://<设备IP>:8080
 | `/api/audio/play` | POST | **播放音乐**（JSON body：`path` 或 `url` 或 `playlist` + `loop`；MP3/OGG/WAV/AAC/FLAC 全支持） |
 | `/api/audio/control` | POST | 控制播放（JSON body：`action` = `pause`/`resume`/`stop`） |
 | `/api/audio/status` | GET | 查询当前播放状态（state/progress/file/error） |
+| `/api/device/volume` | GET/POST | **查询/设置扬声器输出音量**（GET 返回当前值；POST body `{"volume":N}` 或 `?volume=N`，N=0..100 超出返回 400；POST 通过 Application::Schedule() 在主任务执行 NVS 写） |
 | `/` | GET | Web 管理界面 |
 
 ---
@@ -632,6 +633,162 @@ DELETE /api/sdcard/files/<path>
 # 删除子目录文件
 curl -X DELETE http://192.168.3.22:8080/api/sdcard/files/images/old.gif
 ```
+
+---
+
+## 扬声器音量控制 API
+
+支持 **GET 查询** 和 **POST 设置** 扬声器输出音量（0-100）。音量设置后会自动持久化到 NVS，重启后保留。
+
+### 19.1 查询当前扬声器音量
+
+**请求**
+```
+GET /api/audio/volume
+```
+
+**响应示例**
+```json
+{
+  "ok": true,
+  "volume": 50
+}
+```
+
+**使用示例**
+```bash
+curl http://192.168.3.22:8080/api/audio/volume
+```
+
+### 19.2 设置扬声器音量
+
+**请求**
+
+两种写法等价：
+
+```
+POST /api/audio/volume
+Content-Type: application/json
+
+{"volume": 50}
+```
+
+或
+
+```
+POST /api/audio/volume?volume=50
+```
+
+**字段说明**
+
+| 字段 | 类型 | 必填 | 范围 | 说明 |
+|------|------|------|------|------|
+| `volume` | int | ✅ | 0-100 | 目标音量；超出范围自动 clamp（<0 视为 0，>100 视为 100） |
+
+**响应示例（成功）**
+```json
+{
+  "ok": true,
+  "volume": 50
+}
+```
+
+**响应示例（失败）**
+```json
+{"ok": false, "error": "volume required"}
+{"ok": false, "error": "audio codec unavailable"}
+```
+
+**使用示例**
+```bash
+# 推荐：JSON body（更明确）
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"volume":50}' \
+  http://192.168.3.22:8080/api/audio/volume
+
+# 快捷方式：query string
+curl -X POST "http://192.168.3.22:8080/api/audio/volume?volume=50"
+```
+
+**说明**
+- 音量值由 `AudioCodec::SetOutputVolume()` 立即生效，影响所有扬声器输出（语音 TTS、音乐播放、提示音等）
+- 设置后自动写入 NVS (`settings:audio:output_volume`)，重启后保留
+- 与 `GET /api/device/status` 中的 `output_volume` 字段、以及 MCP `self.audio_speaker.set_volume` 完全共享同一份业务逻辑
+
+---
+
+## 扬声器音量控制 API
+
+支持 **GET 查询** 和 **POST 设置** 扬声器输出音量（0-100）。音量设置后会自动持久化到 NVS，重启后保留。
+
+### 19.1 查询当前扬声器音量
+
+**请求**
+```
+GET /api/device/volume
+```
+
+**响应示例**
+```json
+{"volume": 50}
+```
+
+**使用示例**
+```bash
+curl http://192.168.3.22:8080/api/device/volume
+```
+
+### 19.2 设置扬声器音量
+
+**请求**
+
+两种写法等价：
+
+```
+POST /api/device/volume
+Content-Type: application/json
+
+{"volume": 50}
+```
+
+或
+
+```
+POST /api/device/volume?volume=50
+```
+
+**字段说明**
+
+| 字段 | 类型 | 必填 | 范围 | 说明 |
+|------|------|------|------|------|
+| `volume` | int | ✅ | 0-100 | 目标音量；超出范围返回 400 错误（不允许自动 clamp，避免误操作） |
+
+**响应示例（成功）**
+```json
+{"ok": true, "volume": 50}
+```
+
+**响应示例（失败）**
+```json
+{"ok": false, "error": "volume must be 0-100 (use ?volume=20 or JSON {\"volume\":20})"}
+{"ok": false, "error": "audio codec unavailable"}
+```
+
+**使用示例**
+```bash
+# 推荐：JSON body（更明确）
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"volume":50}' \
+  http://192.168.3.22:8080/api/device/volume
+
+# 快捷方式：query string
+curl -X POST "http://192.168.3.22:8080/api/device/volume?volume=50"
+```
+
+**实现说明**
+- `GET` 路径直接读取 `AudioCodec::output_volume()` 返回当前值
+- `POST` 路径通过 `Application::Schedule()` 把 `SetOutputVolume()` 派发到主任务执行，**不在 HTTP 任务（PSRAM）上直接调用**，避免 NVS 写入时崩溃
+- 与 `GET /api/device/status` 中的 `output_volume` 字段共享同一份音频 codec 状态
 
 ---
 

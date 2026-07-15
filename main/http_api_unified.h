@@ -123,6 +123,12 @@ bool http_api_audio_control(const char* action, char* err_buf, size_t err_size);
 // 获取当前播放状态（cJSON 包含 state/progress/file/error 字段）
 cJSON* http_api_audio_status(void);
 
+// 注：扬声器输出音量的查询/设置由 sdcard_log_http.cc 中的
+// `GET/POST /api/device/volume` 直接提供（见 handle_device_volume）。
+// 该实现通过 Application::Schedule() 在主任务中执行 SetOutputVolume()，
+// 避免 HTTP 任务（PSRAM）直接调用触发 NVS 写入崩溃，因此不再提供
+// http_api_audio_set_volume / http_api_audio_get_volume 封装。
+
 // 列出 SD 卡上的音乐文件
 //   - path: 要扫描的目录（如 /sdcard、/sdcard/music）
 //   - recursive: 是否递归子目录（默认 false）

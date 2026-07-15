@@ -192,6 +192,7 @@ bool SetServerIp(const std::string& ip, std::string* ota_url, std::string* ws_ur
 
     Settings wifi_settings("wifi", true);
     wifi_settings.SetString("ota_url", new_ota);
+    wifi_settings.SetString("server_ip", normalized);
 
     Settings ws_settings("websocket", true);
     ws_settings.SetString("url", new_ws);
