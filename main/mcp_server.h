@@ -326,6 +326,9 @@ public:
     void ParseMessage(const cJSON* json);
     void ParseMessage(const std::string& message);
 
+    // 发送延迟的 MCP 工具调用结果（用于异步工具响应，如占卜结果等待动画结束）
+    void ReplyResultDeferred(int id, const std::string& result);
+
 private:
     McpServer();
     ~McpServer();

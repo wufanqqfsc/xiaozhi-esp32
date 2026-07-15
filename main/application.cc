@@ -12,6 +12,7 @@
 #include "assets.h"
 #include "settings.h"
 #include "sdcard_log_http.h"
+#include "ssid_manager.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -325,6 +326,43 @@ void Application::Initialize() {
 
     // Start network asynchronously
     board.StartNetwork();
+
+    // 同步 NVS 中的 server_ip / oat_ip 到 ServerConfig
+    // 配网页面会写入这两个字段，运行时拼装为 OTA/WS URL
+    {
+        // 烧录默认值：若 NVS 中没有保存任何 WiFi，则写入默认 WiFi 与默认服务器 IP
+        // 这样首次启动即可连接上指定热点 + 后端
+        auto& ssid_manager = SsidManager::GetInstance();
+        if (ssid_manager.GetSsidList().empty()) {
+            ESP_LOGW(TAG, "No saved WiFi, writing default SSID");
+            ssid_manager.AddSsid("HUAWEI-9YQAVW_5G", "kekaodehuiyuan");
+        }
+
+        Settings wifi_settings("wifi", true);
+        std::string nvs_server_ip = wifi_settings.GetString("server_ip", "");
+        std::string nvs_oat_ip = wifi_settings.GetString("oat_ip", "");
+        if (nvs_server_ip.empty()) {
+            ESP_LOGW(TAG, "No server_ip in NVS, writing default 192.168.3.32");
+            wifi_settings.SetString("server_ip", "192.168.3.32");
+            nvs_server_ip = "192.168.3.32";
+        }
+        if (nvs_oat_ip.empty()) {
+            wifi_settings.SetString("oat_ip", "192.168.3.32");
+            nvs_oat_ip = "192.168.3.32";
+        }
+        if (!nvs_server_ip.empty()) {
+            std::string ota_url, ws_url, err;
+            if (ServerConfig::SetServerIp(nvs_server_ip, &ota_url, &ws_url, &err)) {
+                ESP_LOGI(TAG, "Synced server_ip from NVS: %s -> OTA=%s WS=%s",
+                         nvs_server_ip.c_str(), ota_url.c_str(), ws_url.c_str());
+            } else {
+                ESP_LOGW(TAG, "Failed to sync server_ip: %s", err.c_str());
+            }
+        }
+        if (!nvs_oat_ip.empty() && nvs_oat_ip != nvs_server_ip) {
+            ESP_LOGI(TAG, "OAT IP (HTTP %d) configured: %s", ServerConfig::kOtaPort, nvs_oat_ip.c_str());
+        }
+    }
 
     // 启动时根据当前 WiFi 状态初始化鱼眼
     Schedule([]() {
@@ -987,13 +1025,16 @@ void Application::InitializeProtocol() {
                             static uint32_t s_llm_seq = 0;
                             uint32_t seq = ++s_llm_seq;
                             Schedule([attitude, cleaned, seq]() {
-                                char title[32];
-                                if (attitude->IsFortuneDivinationBusy() || attitude->GetFortuneDivinationState() == 2 /* Result */) {
-                                    snprintf(title, sizeof(title), "占卜结果 #%u", (unsigned)seq);
-                                } else {
-                                    snprintf(title, sizeof(title), "AI 回复 #%u", (unsigned)seq);
+                                // T09: 链路 B 跑马灯期间不显示调试卡（避免挡住 JARVIS 视图 / GIF）
+                                // 链路 B 期间：fortune_divination_state_ == Animating (1) 或 Result (2)
+                                // 且 divination_from_jarvis_ == true
+                                int fds = attitude->GetFortuneDivinationState();
+                                if (fds == 1 /*Animating*/ || fds == 2 /*Result*/) {
+                                    // 已经在跑马灯中 — 不显示调试卡，避免挡住画面
+                                    return;
                                 }
-                                // hold_ms 较长以覆盖整段朗读
+                                char title[32];
+                                snprintf(title, sizeof(title), "AI 回复 #%u", (unsigned)seq);
                                 attitude->ShowDebugInfo(title, cleaned, 8000);
                             });
                         }
@@ -1360,8 +1401,14 @@ void Application::OnShakeDetected() {
         }
 
         protocol_->SendStartListening(kListeningModeManualStop);
-        protocol_->SendUserPrompt("用户摇了摇设备，请为我占卜今日运势");
-        
+        ESP_LOGI(TAG, "OnShakeDetected: sending user_prompt with tool-call-marker instructions");
+        protocol_->SendUserPrompt(
+            "[设备摇一摇事件] 设备刚刚检测到摇晃并启动了本地占卜跑马灯。\n"
+            "【关键规则】你必须在回复文本中嵌入工具调用标记，格式如下：\n"
+            "第一步（必须）：在回复中输出「好的，先生，罗盘已收到您的摇晃指令，正在为您占卜。【调用工具】self.attitude.get_divination_result【/调用工具】」\n"
+            "第二步（必须）：收到占卜类别后输出「【调用工具】self.attitude.search_and_display_gif{\"query\":\"类别关键词\",\"gif_only\":true}【/调用工具】」\n"
+            "第三步：收到两个工具返回结果后，再输出完整运势解读（综合运势→财运→桃花运→爱情感情四大板块）。绝对不要在未输出【调用工具】标记前输出任何运势文案。");
+
         attitude->SetDivinationWaitingForTts(true);
         attitude->SetDivinationFromShake(true);
     });
@@ -1499,8 +1546,12 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
             display->SetStatus(Lang::Strings::STANDBY);
-            display->ClearChatMessages();  // Clear messages first
-            display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
+            // T11: 链路 A 跑马灯期间 (fortune_divination_state_ != Idle) 不清空 chat
+            // 避免 TTS 文本消失。当链路 A 完成 (tts:stop → Idle) 时，应等视图完全切到罗盘后再清空。
+            if (attitude != nullptr && !attitude->IsFortuneDivinationBusy()) {
+                display->ClearChatMessages();
+            }
+            display->SetEmotion("neutral");
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
             audio_service_.ResetDecoder();

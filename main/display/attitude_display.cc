@@ -266,12 +266,13 @@ void AttitudeDisplay::UpdateStatusBar(bool update_all)
 
 bool AttitudeDisplay::IsJarvisWatchfaceVisible() const
 {
-    // 仅依赖显式标志，避免 IsJarvisHudActive() 在无锁路径触发 GetInstance 构造 UI
+    // T10: 与 IsJarvisHudActive 共享一个底层标志
     return fortune_watchface_visible_;
 }
 
 bool AttitudeDisplay::IsJarvisHudActive() const
 {
+    // T10: 与 IsJarvisWatchfaceVisible 等价 — 统一入口
     return IsJarvisWatchfaceVisible();
 }
 
@@ -279,6 +280,14 @@ void AttitudeDisplay::RouteToJarvisStatusBar(const std::string& text)
 {
     if (text.empty()) {
         return;
+    }
+    // T03: 黄金原则兜底 — 链路 A 摇一摇期间 JARVIS 视图不在场时，
+    // 任何 AI 返回内容都必须强制确保 JARVIS 视图在场，再写语音气泡，
+    // 避免「文字无显示 + 用户看不到 AI 回应」的问题。
+    if (!IsJarvisHudActive()) {
+        ESP_LOGW(TAG, "RouteToJarvisStatusBar: JARVIS not active, force showing it for text=%.40s%s",
+                 text.c_str(), (text.size() > 40 ? "..." : ""));
+        ShowJarvisWatchface();
     }
     FortuneWatchfaceView::GetInstance().SetVoiceMessage(text.c_str());
 }
@@ -381,10 +390,13 @@ void AttitudeDisplay::SetChatMessage(const char* role, const char* content)
     // JARVIS 视图可见时，所有消息都路由到状态栏显示（支持滚动）
     if (IsJarvisHudActive()) {
         std::string prefixed;
+        // T06: role 扩展 — 支持 "tool" 角色（来自 MCP tool_call 返回）
         if (strcmp(role, "assistant") == 0) {
             prefixed = std::string("#AI:") + content;
         } else if (strcmp(role, "user") == 0) {
             prefixed = std::string("#你:") + content;
+        } else if (strcmp(role, "tool") == 0 || strcmp(role, "system") == 0) {
+            prefixed = std::string("#系统:") + content;
         } else {
             prefixed = std::string("#系统:") + content;
         }
@@ -928,11 +940,24 @@ void AttitudeDisplay::StopMarqueeForTts() {
 
 void AttitudeDisplay::ReturnToCompassAfterTts() {
     DisplayLockGuard lock(this);
-    if (divination_from_shake_ || divination_from_jarvis_) {
-        StopFortuneDivinationUnlocked();
-        divination_from_shake_ = false;
-        divination_waiting_for_tts_ = false;
+    if (!divination_from_shake_ && !divination_from_jarvis_) {
+        return;
     }
+
+    // T05: 链路 B 必须切回 JARVIS 视图，保持 TTS 后续多轮对话
+    // 链路 A 必须回到罗盘主界面
+    if (divination_from_jarvis_) {
+        // 注意：SwitchBackFromDivination 内部会调 StopFortuneDivination
+        // 并重置 divination_from_jarvis_，无需在外部再清
+        SwitchBackFromDivination();
+        ESP_LOGI(TAG, "ReturnToCompassAfterTts: routed to SwitchBackFromDivination (JARVIS)");
+        return;
+    }
+
+    // 链路 A: 摇一摇 → 罗盘
+    StopFortuneDivinationUnlocked();
+    divination_from_shake_ = false;
+    divination_waiting_for_tts_ = false;
 }
 
 void AttitudeDisplay::StopFortuneDivinationUnlocked()
@@ -1042,6 +1067,12 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
     ESP_LOGI(TAG, "Fortune divination finished -> %d (%s)",
              result_index, kFortuneMenuDefs[result_index].func_label);
 
+    // T02: 单一职责明确化
+    // 链路 B（divination_from_jarvis_=true）：2s 后由 timer 切回 JARVIS。
+    //   callback 由 SwitchBackFromDivination 统一触发（mcp_server 端已清空），
+    //   此处不再直接调 callback，避免链路 B callback 双触发。
+    // 链路 A（divination_from_jarvis_=false）：在跑马灯 finish 时立即调 callback，
+    //   因为链路 A 没有 view_stack 切换逻辑。
     if (divination_from_jarvis_) {
         lv_timer_create([](lv_timer_t* timer) {
             auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
@@ -1050,10 +1081,13 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
             }
             lv_timer_del(timer);
         }, 2000, this);
-    } else {
-        if (divination_callback_ != nullptr) {
-            divination_callback_(result_index);
-        }
+        // 链路 B 不在此处调 callback，由 SwitchBackFromDivination 内部决定
+        return;
+    }
+
+    // 链路 A：直接调 callback
+    if (divination_callback_ != nullptr) {
+        divination_callback_(result_index);
     }
 }
 
@@ -1084,12 +1118,19 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
     }
 
     if (self->divination_waiting_for_tts_) {
-        // 摇一摇触发的占卜，等待后端 TTS 响应。超时 35s 兜底。
-        if (now - self->fortune_divination_start_ms_ > 35000) {
+        // 摇一摇触发的占卜，等待后端 TTS 响应。超时兜底。
+        // 常量化参见 attitude_display.h: FORTUNE_DIVINATION_DEFERRED_TIMEOUT_MS
+        if (now - self->fortune_divination_start_ms_ > FORTUNE_DIVINATION_DEFERRED_TIMEOUT_MS) {
             ESP_LOGW(TAG, "Fortune divination timeout waiting for TTS");
             self->divination_waiting_for_tts_ = false;
             self->StopFortuneDivinationUnlocked();
             self->ShowDebugInfo("占卜超时", "后端未响应", 5000);
+            return;
+        }
+        // 即使在等待 TTS，跑马灯到达 deadline 也应正常结束动画，
+        // 以便 get_divination_result 的延迟回调能获取结果
+        if (self->fortune_divination_finish_deadline_ms_ != 0 && now >= self->fortune_divination_finish_deadline_ms_) {
+            self->FinishFortuneDivinationUnlocked(self->fortune_divination_result_);
             return;
         }
     } else {
@@ -1758,12 +1799,16 @@ void AttitudeDisplay::SwitchBackFromDivination() {
     StopFortuneDivination();
     ESP_LOGI(TAG, "SwitchBackFromDivination: divination stopped");
 
+    // T04: 先重置标志位，再 ShowJarvisWatchface()
+    // 避免 ShowJarvisWatchface 抛异常时 divination_from_jarvis_ 永远卡 true，
+    // 导致后续摇晃被 IsJarvisHudActive() 错误拦截。
     if (divination_from_jarvis_) {
+        bool was_from_jarvis = divination_from_jarvis_;
+        divination_from_jarvis_ = false;
         view_stack_.pop_if_top(ActiveView::Divination);
         ShowJarvisWatchface();
-        divination_from_jarvis_ = false;
-        ESP_LOGI(TAG, "SwitchBackFromDivination: JARVIS shown, current=%d",
-                 static_cast<int>(view_stack_.current()));
+        ESP_LOGI(TAG, "SwitchBackFromDivination: JARVIS shown, current=%d (was_from_jarvis=%d)",
+                 static_cast<int>(view_stack_.current()), was_from_jarvis);
     }
 
     int result = GetFortuneDivinationResult();

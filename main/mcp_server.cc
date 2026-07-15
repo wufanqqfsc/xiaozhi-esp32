@@ -130,14 +130,16 @@ void McpServer::AddCommonTools() {
             });
 
         AddTool("self.attitude.get_divination_result",
-            "Get the result of the fortune divination. Returns the selected fortune category index and name. Call this after start_divination when the animation has completed.",
+            "Get the result of the fortune divination. Returns the selected fortune category index and name. If the animation is still in progress, this call will block until the animation completes and then return the result automatically.",
             PropertyList(),
             [attitude_display](const PropertyList& properties) -> ReturnValue {
                 int state = attitude_display->GetFortuneDivinationState();
                 if (state == 0) {
                     return "占卜状态：待机中，请先调用 start_divination 开始占卜。";
                 } else if (state == 1) {
-                    return "占卜状态：跑马灯动画进行中，请稍候...";
+                    // 动画进行中，返回特殊标记让 DoToolCall 延迟响应
+                    // 跑马灯结束后会通过 divination_callback_ 自动发送结果
+                    return std::string("__DEFERRED_DIVINATION__");
                 } else {
                     int result = attitude_display->GetFortuneDivinationResult();
                     if (result < 0 || result >= 12) {
@@ -638,6 +640,15 @@ void McpServer::ReplyError(int id, const std::string& message) {
     Application::GetInstance().SendMcpMessage(payload);
 }
 
+void McpServer::ReplyResultDeferred(int id, const std::string& result) {
+    ESP_LOGI(TAG, "[MCP_DEFERRED_REPLY] id=%d result_len=%zu", id, result.size());
+    auto& app = Application::GetInstance();
+    app.Schedule([this, id, result]() {
+        ReplyResult(id, result);
+        ESP_LOGI(TAG, "[MCP_DEFERRED_REPLY] id=%d sent to backend", id);
+    });
+}
+
 void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_only_tools) {
     const int max_payload_size = 10000;
     std::string json = "{\"tools\":[";
@@ -695,6 +706,7 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
 }
 
 void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* tool_arguments) {
+    ESP_LOGI(TAG, "[MCP_TOOL_CALL] id=%d tool=%s", id, tool_name.c_str());
     auto tool_iter = std::find_if(tools_.begin(), tools_.end(), 
                                  [&tool_name](const McpTool* tool) { 
                                      return tool->name() == tool_name; 
@@ -740,7 +752,54 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
     auto& app = Application::GetInstance();
     app.Schedule([this, id, tool_iter, arguments = std::move(arguments)]() {
         try {
-            ReplyResult(id, (*tool_iter)->Call(arguments));
+            auto call_result = (*tool_iter)->Call(arguments);
+
+            // 检查是否为延迟响应的占卜结果标记
+            // 当 get_divination_result 在动画进行中被调用时，
+            // 不立即回复，而是注册回调等跑马灯结束后自动发送结果
+            if (call_result.find("__DEFERRED_DIVINATION__") != std::string::npos) {
+                ESP_LOGI(TAG, "Divination result deferred, waiting for animation to complete (id=%d)", id);
+                auto attitude_display = dynamic_cast<AttitudeDisplay*>(Board::GetInstance().GetDisplay());
+                if (attitude_display != nullptr) {
+                    attitude_display->SetDivinationCallback([this, id, attitude_display](int result) {
+                        static const char* fortune_names[] = {
+                            "今日运势", "财运", "事业运势", "感情运势", "心情卦",
+                            "黄历宜忌", "节气提示", "系统设置", "健康运势",
+                            "学业运势", "出行吉日", "贵人运势"
+                        };
+                        std::string result_text;
+                        if (result >= 0 && result < 12) {
+                            char buf[128];
+                            snprintf(buf, sizeof(buf), "占卜结果：%d - %s", result, fortune_names[result]);
+                            result_text = buf;
+                        } else {
+                            result_text = "占卜结果无效。";
+                        }
+                        ESP_LOGI(TAG, "Deferred divination result ready: %s (id=%d)", result_text.c_str(), id);
+
+                        // 构建 MCP 工具调用结果 JSON
+                        cJSON* result_json = cJSON_CreateObject();
+                        cJSON* content = cJSON_CreateArray();
+                        cJSON* text = cJSON_CreateObject();
+                        cJSON_AddStringToObject(text, "type", "text");
+                        cJSON_AddStringToObject(text, "text", result_text.c_str());
+                        cJSON_AddItemToArray(content, text);
+                        cJSON_AddItemToObject(result_json, "content", content);
+                        cJSON_AddBoolToObject(result_json, "isError", false);
+                        char* json_str = cJSON_PrintUnformatted(result_json);
+                        std::string result_str(json_str);
+                        cJSON_free(json_str);
+                        cJSON_Delete(result_json);
+
+                        ReplyResultDeferred(id, result_str);
+                        // 回调已使用完毕，清空避免重复触发
+                        attitude_display->SetDivinationCallback(nullptr);
+                    });
+                }
+                return;  // 不调用 ReplyResult，等回调触发
+            }
+
+            ReplyResult(id, call_result);
         } catch (const std::exception& e) {
             ESP_LOGE(TAG, "tools/call: %s", e.what());
             ReplyError(id, e.what());

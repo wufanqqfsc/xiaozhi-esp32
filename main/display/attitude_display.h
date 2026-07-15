@@ -108,12 +108,17 @@ static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of 
 #define FORTUNE_MENU_TOUCH_OUTER_R   LAYER4_BOUNDARY_RADIUS
 
 // 今日占卜：太极中心 / Boot 长按 3s 触发，15s 时间轴驱动跑马灯，按住可延长
-#define FORTUNE_DIVINATION_HOLD_MS           3000
-#define FORTUNE_DIVINATION_DURATION_MS       30000
-#define FORTUNE_DIVINATION_RELEASE_FINISH_MS 5000
-#define FORTUNE_DIVINATION_TICK_MS           25
-#define FORTUNE_DIVINATION_SOUND_INTERVAL_MS 8745
-#define FORTUNE_DIVINATION_HIGHLIGHT_COUNT   5
+#define FORTUNE_DIVINATION_HOLD_MS              3000
+#define FORTUNE_DIVINATION_DURATION_MS          30000
+#define FORTUNE_DIVINATION_RELEASE_FINISH_MS    5000
+#define FORTUNE_DIVINATION_TICK_MS              25
+#define FORTUNE_DIVINATION_SOUND_INTERVAL_MS    8745
+#define FORTUNE_DIVINATION_HIGHLIGHT_COUNT      5
+
+// T01: 摇一摇 / __DEFERRED_DIVINATION__ 后端兜底超时（35s）
+// 链路 A/B 跑马灯启动后，无论是否到达 deadline，只要超过该时长仍未收到 TTS
+// 响应，则强制停止并弹出"占卜超时"调试卡。
+#define FORTUNE_DIVINATION_DEFERRED_TIMEOUT_MS 35000
 
 enum class FortuneMenuType : int {
     Today = 0,      // fortune.today
