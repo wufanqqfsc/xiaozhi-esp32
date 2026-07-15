@@ -51,6 +51,7 @@ void Protocol::SendAbortSpeaking(AbortReason reason) {
 void Protocol::SendWakeWordDetected(const std::string& wake_word) {
     std::string json = "{\"session_id\":\"" + session_id_ + 
                       "\",\"type\":\"listen\",\"state\":\"detect\",\"text\":\"" + wake_word + "\"}";
+    ESP_LOGI(TAG, "SendWakeWordDetected: %s", wake_word.c_str());
     SendText(json);
 }
 

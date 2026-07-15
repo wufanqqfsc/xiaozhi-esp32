@@ -15,6 +15,35 @@ namespace ServerConfig {
 
 namespace {
 
+std::string g_cached_ota_url;
+std::string g_cached_ws_url;
+
+std::string ReadOtaUrlFromNvs() {
+    Settings wifi_settings("wifi", false);
+    std::string nvs_url = wifi_settings.GetString("ota_url", "");
+    if (!nvs_url.empty()) {
+        return nvs_url;
+    }
+#ifdef CONFIG_OTA_URL
+    return CONFIG_OTA_URL;
+#else
+    return "";
+#endif
+}
+
+std::string ReadWebsocketUrlFromNvs() {
+    Settings ws_settings("websocket", false);
+    std::string nvs_url = ws_settings.GetString("url", "");
+    if (!nvs_url.empty()) {
+        return nvs_url;
+    }
+#ifdef CONFIG_LOCAL_WEBSOCKET_URL
+    return CONFIG_LOCAL_WEBSOCKET_URL;
+#else
+    return "";
+#endif
+}
+
 bool IsDigit(char c) {
     return std::isdigit(static_cast<unsigned char>(c)) != 0;
 }
@@ -115,11 +144,14 @@ std::string BuildWebsocketUrl(const std::string& ip) {
     return "ws://" + ip + ":" + std::to_string(kWebsocketPort) + "/ws/xiaozhi/v1/";
 }
 
-std::string GetEffectiveOtaUrl() {
-    Settings wifi_settings("wifi", false);
-    std::string nvs_url = wifi_settings.GetString("ota_url", "");
-    if (!nvs_url.empty()) {
-        return nvs_url;
+void RefreshUrlCache() {
+    g_cached_ota_url = ReadOtaUrlFromNvs();
+    g_cached_ws_url = ReadWebsocketUrlFromNvs();
+}
+
+std::string GetCachedOtaUrl() {
+    if (!g_cached_ota_url.empty()) {
+        return g_cached_ota_url;
     }
 #ifdef CONFIG_OTA_URL
     return CONFIG_OTA_URL;
@@ -128,17 +160,25 @@ std::string GetEffectiveOtaUrl() {
 #endif
 }
 
-std::string GetEffectiveWebsocketUrl() {
-    Settings ws_settings("websocket", false);
-    std::string nvs_url = ws_settings.GetString("url", "");
-    if (!nvs_url.empty()) {
-        return nvs_url;
+std::string GetCachedWebsocketUrl() {
+    if (!g_cached_ws_url.empty()) {
+        return g_cached_ws_url;
     }
 #ifdef CONFIG_LOCAL_WEBSOCKET_URL
     return CONFIG_LOCAL_WEBSOCKET_URL;
 #else
     return "";
 #endif
+}
+
+std::string GetEffectiveOtaUrl() {
+    RefreshUrlCache();
+    return g_cached_ota_url;
+}
+
+std::string GetEffectiveWebsocketUrl() {
+    RefreshUrlCache();
+    return g_cached_ws_url;
 }
 
 bool SetServerIp(const std::string& ip, std::string* ota_url, std::string* ws_url, std::string* err) {
@@ -159,6 +199,9 @@ bool SetServerIp(const std::string& ip, std::string* ota_url, std::string* ws_ur
     ESP_LOGI(TAG, "Server IP updated: %s", normalized.c_str());
     ESP_LOGI(TAG, "  OTA URL: %s", new_ota.c_str());
     ESP_LOGI(TAG, "  WS  URL: %s", new_ws.c_str());
+
+    g_cached_ota_url = new_ota;
+    g_cached_ws_url = new_ws;
 
     if (ota_url) {
         *ota_url = new_ota;

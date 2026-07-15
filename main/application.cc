@@ -377,6 +377,7 @@ void Application::Initialize() {
         ESP_LOGI(TAG, "Starting HTTP server delayed...");
         vTaskDelay(pdMS_TO_TICKS(5000));
         ESP_LOGI(TAG, "HTTP server delay finished, starting server...");
+        ServerConfig::RefreshUrlCache();
         struct stat st;
         if (stat("/sdcard", &st) == 0 && S_ISDIR(st.st_mode)) {
             SdCardLogHttpStart("/sdcard", 8080);
@@ -535,6 +536,10 @@ void Application::Run() {
 
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
+    // 主任务刷新 URL 缓存，供 HTTP 任务只读（避免 PSRAM 栈读 NVS 崩溃）
+    Schedule([]() {
+        ServerConfig::RefreshUrlCache();
+    });
     auto state = GetDeviceState();
 
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
@@ -1429,8 +1434,8 @@ void Application::HandleWakeWordDetectedEvent() {
     if (auto* attitude = GetAttitudeDisplay()) {
         std::string detail = wake_word.empty() ? std::string("(无)") : wake_word;
         Schedule([this, attitude, detail]() {
-            // 先切 JARVIS 视图，再写状态栏，避免 ShowDebugInfo 在罗盘 InfoCard 上弹出
-            attitude->ShowJarvisWatchface();
+            // listening 状态机会调 EnsureJarvisWatchfaceForWakeSession，此处统一走安全入口
+            attitude->EnsureJarvisWatchfaceForWakeSession();
             attitude->ShowDebugInfo("唤醒成功", detail, 30000);
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
         });
@@ -1451,16 +1456,10 @@ void Application::HandleWakeWordDetectedEvent() {
             });
             return;
         }
-        // 二次/连续唤醒：channel 仍处于打开状态（典型场景是 listening 超时后回到 idle，
-        // 此时 ContinueWakeWordInvoke 内部会因为 state != kDeviceStateConnecting 而提前 return，
-        // 导致 ESP32 检测到唤醒词后什么也不做）。这里直接走协议层的 SendWakeWordDetected，
-        // 让服务端 handleWakeWord 路径生成问候 + TTS，再切到 listening 继续接收用户后续话语。
+        // channel 已打开（本地模式启动时预连 WS）：走完整唤醒协议
+        // （发送唤醒词音频 + listen/detect + listen/start），避免仅发 detect 导致服务端无 TTS
         audio_service_.EncodeWakeWord();
-        const std::string& wake_word_text = audio_service_.GetLastWakeWord();
-        if (!wake_word_text.empty()) {
-            protocol_->SendWakeWordDetected(wake_word_text);
-        }
-        SetListeningMode(GetDefaultListeningMode());
+        FinishWakeWordInvoke(audio_service_.GetLastWakeWord());
         play_popup_on_listening_ = true;
         audio_service_.EnableWakeWordDetection(true);
         return;
@@ -1504,6 +1503,14 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
         return;
     }
 
+    FinishWakeWordInvoke(wake_word);
+}
+
+void Application::FinishWakeWordInvoke(const std::string& wake_word) {
+    if (!protocol_) {
+        return;
+    }
+
     // Switch to performance mode before connecting to reduce latency
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
@@ -1515,7 +1522,7 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
         }
     }
 
-    ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
+    ESP_LOGI(TAG, "FinishWakeWordInvoke: %s", wake_word.c_str());
 #if CONFIG_SEND_WAKE_WORD_DATA
     // Encode and send the wake word data to the server
     while (auto packet = audio_service_.PopWakeWordPacket()) {
@@ -1565,14 +1572,14 @@ void Application::HandleStateChangedEvent() {
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
             if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
-                attitude->ShowJarvisWatchface();
+                attitude->EnsureJarvisWatchfaceForWakeSession();
             }
             break;
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
             if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
-                attitude->ShowJarvisWatchface();
+                attitude->EnsureJarvisWatchfaceForWakeSession();
             }
 
             // 重置 listening 超时计时：本次 state 变化是 listening 入口（含 TTS stop 后从 speaking 转入）
@@ -1615,7 +1622,7 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
             if (attitude != nullptr && jarvis_watchface_active_by_wake_) {
-                attitude->ShowJarvisWatchface();
+                attitude->EnsureJarvisWatchfaceForWakeSession();
             }
 
             if (!audio_service_.IsRunning()) {
@@ -1778,7 +1785,7 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
             return;
         }
         // Channel already opened, continue directly
-        ContinueWakeWordInvoke(wake_word);
+        FinishWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking) {
         Schedule([this]() {
             AbortSpeaking(kAbortReasonNone);

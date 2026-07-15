@@ -112,7 +112,7 @@ static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of 
 #define FORTUNE_DIVINATION_DURATION_MS          30000
 #define FORTUNE_DIVINATION_RELEASE_FINISH_MS    5000
 #define FORTUNE_DIVINATION_TICK_MS              25
-#define FORTUNE_DIVINATION_SOUND_INTERVAL_MS    8745
+#define FORTUNE_DIVINATION_SOUND_INTERVAL_MS    8109
 #define FORTUNE_DIVINATION_HIGHLIGHT_COUNT      5
 
 // T01: 摇一摇 / __DEFERRED_DIVINATION__ 后端兜底超时（35s）
@@ -235,6 +235,8 @@ public:
 
     // 语音唤醒时显示 JARVIS 启动视图（隐藏罗盘主界面）
     void ShowJarvisWatchface();
+    /** 唤醒会话中安全恢复 JARVIS（已显示则只恢复动画，占卜期间不抢屏） */
+    void EnsureJarvisWatchfaceForWakeSession();
     // 语音交互结束时隐藏 JARVIS 视图，恢复罗盘主界面
     void HideJarvisWatchface();
     // 无新交互回到罗盘待机：释放叠加视图、图片/GIF、占卜与调试队列占用的内存
@@ -397,7 +399,7 @@ private:
     void PlayFortuneMenuSelectSound();
     void PlayFortuneDivinationMarqueeSound();
     void StartFortuneDivinationUnlocked();
-    void StopFortuneDivinationUnlocked();
+    void StopFortuneDivinationUnlocked(bool skip_abort_speaking = false);
     void FireDivinationCallbacksUnlocked(int result_index);
     void FinishFortuneDivinationUnlocked(int result_index);
     void RandomizeFortuneDivinationMarqueeUnlocked();
@@ -425,6 +427,9 @@ private:
     GifPreviewTarget BuildImagePreviewTarget(const LvglImage* image);
     void ClearDebugInfoQueueUnlocked();
     void ReturnToCompassIdleViewUnlocked();
+    bool ShowJarvisWatchfaceUnlocked();
+    void EnsureJarvisWatchfaceForWakeSessionUnlocked();
+    void HideJarvisWatchfaceUnlocked();
 
     void SetTaijiCoreVisible(bool visible);
 
@@ -458,6 +463,7 @@ private:
     void PopAndShowNext();
     bool IsJarvisHudActive() const;
     void RouteToJarvisStatusBar(const std::string& text);
+    void RouteToJarvisStatusBarUnlocked(const std::string& text);
     void SuppressDebugInfoCardForJarvisUnlocked();
 
 

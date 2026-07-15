@@ -44,7 +44,9 @@ public:
 
     // 设置语音交互消息（专用接口，自动启用滚动模式）
     void SetVoiceMessage(const char* text);
+    void SetVoiceMessageUnlocked(const char* text);
     void ClearVoiceMessage();
+    void ClearVoiceMessageUnlocked();
 
     // 更新外环颜色（与罗盘主界面保持一致）
     void UpdateOuterRingColor(lv_color_t color);
@@ -71,6 +73,8 @@ private:
     void CreateUI();
     void DestroyUI();
     void EnsureTimer();
+    void InvalidateStaleOverlayUnlocked();
+    void ClearOverlayChildPointersUnlocked();
 
     // 定时器回调
     static void OnTimer(lv_timer_t* timer);

@@ -283,18 +283,30 @@ bool AttitudeDisplay::IsDivinationFromJarvis() const
 
 void AttitudeDisplay::RouteToJarvisStatusBar(const std::string& text)
 {
+    DisplayLockGuard lock(this);
+    RouteToJarvisStatusBarUnlocked(text);
+}
+
+void AttitudeDisplay::RouteToJarvisStatusBarUnlocked(const std::string& text)
+{
     if (text.empty()) {
         return;
     }
-    // T03: 黄金原则兜底 — 链路 A 摇一摇期间 JARVIS 视图不在场时，
-    // 任何 AI 返回内容都必须强制确保 JARVIS 视图在场，再写语音气泡，
-    // 避免「文字无显示 + 用户看不到 AI 回应」的问题。
+    // 占卜期间 JARVIS 已隐藏：只缓存状态栏文案，禁止 lv_screen_load 切回 JARVIS
+    const bool divination_blocks_jarvis_show =
+        fortune_divination_state_ == FortuneDivinationState::Animating ||
+        fortune_divination_state_ == FortuneDivinationState::Result ||
+        (divination_from_jarvis_ && !fortune_watchface_visible_);
+    if (divination_blocks_jarvis_show) {
+        FortuneWatchfaceView::GetInstance().SetVoiceMessageUnlocked(text.c_str());
+        return;
+    }
     if (!IsJarvisHudActive()) {
         ESP_LOGW(TAG, "RouteToJarvisStatusBar: JARVIS not active, force showing it for text=%.40s%s",
                  text.c_str(), (text.size() > 40 ? "..." : ""));
-        ShowJarvisWatchface();
+        ShowJarvisWatchfaceUnlocked();
     }
-    FortuneWatchfaceView::GetInstance().SetVoiceMessage(text.c_str());
+    FortuneWatchfaceView::GetInstance().SetVoiceMessageUnlocked(text.c_str());
 }
 
 void AttitudeDisplay::SuppressDebugInfoCardForJarvisUnlocked()
@@ -1013,7 +1025,7 @@ void AttitudeDisplay::ReturnToCompassAfterTts() {
     divination_waiting_for_tts_ = false;
 }
 
-void AttitudeDisplay::StopFortuneDivinationUnlocked()
+void AttitudeDisplay::StopFortuneDivinationUnlocked(bool skip_abort_speaking)
 {
     CancelTaijiHoldTimerUnlocked();
     CancelDivinationSwitchBackTimerUnlocked();
@@ -1056,7 +1068,9 @@ void AttitudeDisplay::StopFortuneDivinationUnlocked()
     taiji_pressed_during_anim_ = false;
     fortune_divination_sound_playing_ = false;
     Application::GetInstance().StopUiSound();
-    Application::GetInstance().AbortSpeaking(kAbortReasonWakeWordDetected);
+    if (!skip_abort_speaking) {
+        Application::GetInstance().AbortSpeaking(kAbortReasonWakeWordDetected);
+    }
     for (int i = 0; i < FORTUNE_MENU_COUNT; ++i) {
         ResetFortuneMenuIconStyle(i);
     }
@@ -1155,10 +1169,11 @@ void AttitudeDisplay::FinishFortuneDivinationUnlocked(int result_index)
         divination_switch_back_timer_ = lv_timer_create([](lv_timer_t* timer) {
             auto* self = static_cast<AttitudeDisplay*>(lv_timer_get_user_data(timer));
             if (self != nullptr) {
-                self->SwitchBackFromDivination();
-            }
-            if (self != nullptr) {
                 self->divination_switch_back_timer_ = nullptr;
+                // 勿在 LVGL timer 任务内直接切屏；投递主任务避免与 TTS/UI 竞态
+                Application::GetInstance().Schedule([self]() {
+                    self->SwitchBackFromDivination();
+                });
             }
             lv_timer_del(timer);
         }, 2000, this);
@@ -1214,7 +1229,7 @@ void AttitudeDisplay::OnFortuneDivinationTick(lv_timer_t* timer)
             self->divination_waiting_for_tts_ = false;
             self->StopFortuneDivinationUnlocked();
             self->ShowDebugInfo("占卜超时", "后端未响应", 5000);
-            self->RouteToJarvisStatusBar("#系统: 占卜超时，请稍后再试");
+            self->RouteToJarvisStatusBarUnlocked("#系统: 占卜超时，请稍后再试");
             Application::GetInstance().PlayUiSound(Lang::Sounds::OGG_NOTIFICATION);
             if (from_shake) {
                 self->ReturnToCompassIdleViewUnlocked();
@@ -1373,6 +1388,7 @@ void AttitudeDisplay::SelectFortuneMenuItem(int index)
 void AttitudeDisplay::DeselectFortuneMenuItemUnlocked()
 {
     const int prev = fortune_menu_selected_index_;
+    const bool had_menu_selection = fortune_menu_selection_active_;
     fortune_menu_selection_active_ = false;
     if (prev >= 0 && prev < FORTUNE_MENU_COUNT) {
         UpdateFortuneMenuItemVisual(prev, false);
@@ -1380,8 +1396,8 @@ void AttitudeDisplay::DeselectFortuneMenuItemUnlocked()
     ClearDebugInfoQueueUnlocked();
     SetPreviewImageUnlocked(nullptr);
 
-    // 取消选中时隐藏 JARVIS 特效，恢复罗盘主界面
-    if (fortune_watchface_visible_) {
+    // 仅当 JARVIS 由运势菜单 index 0 打开时才隐藏；语音唤醒的 JARVIS 不受菜单取消影响
+    if (had_menu_selection && prev == 0 && fortune_watchface_visible_) {
         FortuneWatchfaceView::GetInstance().HideUnlocked();
         fortune_watchface_visible_ = false;
     }
@@ -1756,12 +1772,18 @@ void AttitudeDisplay::UpdateTaijiGoldRingColor(lv_color_t color)
 void AttitudeDisplay::ShowJarvisWatchface()
 {
     DisplayLockGuard lock(this);
+    ShowJarvisWatchfaceUnlocked();
+}
+
+bool AttitudeDisplay::ShowJarvisWatchfaceUnlocked()
+{
     auto& jarvis = FortuneWatchfaceView::GetInstance();
 
-    // 已在显示中：确保动画定时器恢复（Hide/状态切换后 timer 可能仍处于 pause）
-    if (fortune_watchface_visible_) {
+    // 已在显示中（含 flag 与 LVGL visible_ 不同步时）：确保动画定时器恢复
+    if (fortune_watchface_visible_ || jarvis.IsVisible()) {
+        fortune_watchface_visible_ = true;
         jarvis.EnsureAnimatingUnlocked();
-        return;
+        return true;
     }
 
     ESP_LOGI(TAG, "ShowJarvisWatchface: voice wake-up triggered");
@@ -1771,7 +1793,7 @@ void AttitudeDisplay::ShowJarvisWatchface()
     }
     if (!jarvis.ShowUnlocked()) {
         ESP_LOGW(TAG, "ShowJarvisWatchface: ShowUnlocked failed");
-        return;
+        return false;
     }
     fortune_watchface_visible_ = true;
 
@@ -1782,24 +1804,52 @@ void AttitudeDisplay::ShowJarvisWatchface()
         color = COLOR_BT_BLUE;
     }
     jarvis.UpdateOuterRingColorUnlocked(color);
+    return true;
 }
 
-// 语音交互结束时隐藏 JARVIS 视图：切换回罗盘主屏幕
+void AttitudeDisplay::EnsureJarvisWatchfaceForWakeSession()
+{
+    DisplayLockGuard lock(this);
+    EnsureJarvisWatchfaceForWakeSessionUnlocked();
+}
+
+void AttitudeDisplay::EnsureJarvisWatchfaceForWakeSessionUnlocked()
+{
+    if (IsFortuneDivinationBusy()) {
+        return;
+    }
+    if (divination_from_jarvis_ && !fortune_watchface_visible_) {
+        return;
+    }
+    auto& jarvis = FortuneWatchfaceView::GetInstance();
+    if (fortune_watchface_visible_ || jarvis.IsVisible()) {
+        fortune_watchface_visible_ = true;
+        jarvis.EnsureAnimatingUnlocked();
+        return;
+    }
+    ShowJarvisWatchfaceUnlocked();
+}
+
+// 语音交互结束时隐藏 JARVIS 视图：切换回罗盘主屏幕（保留 UI，下次唤醒复用）
 void AttitudeDisplay::HideJarvisWatchface()
 {
     DisplayLockGuard lock(this);
+    HideJarvisWatchfaceUnlocked();
+}
+
+void AttitudeDisplay::HideJarvisWatchfaceUnlocked()
+{
     if (!fortune_watchface_visible_) {
         return;
     }
     ESP_LOGI(TAG, "HideJarvisWatchface: voice interaction ended");
 
-    FortuneWatchfaceView::GetInstance().ClearVoiceMessage();
+    FortuneWatchfaceView::GetInstance().ClearVoiceMessageUnlocked();
     GifPreviewPlayer::GetInstance().Hide();
 
     FortuneWatchfaceView::GetInstance().HideUnlocked();
     fortune_watchface_visible_ = false;
     view_stack_.pop_if_top(ActiveView::JarvisWatchface);
-    FortuneWatchfaceView::GetInstance().ReleaseIdleResourcesUnlocked();
 }
 
 void AttitudeDisplay::ReturnToCompassIdleView()
@@ -1836,13 +1886,8 @@ void AttitudeDisplay::ReturnToCompassIdleViewUnlocked()
         }
     }
 
-    // 5. 隐藏 JARVIS 并销毁其 LVGL 屏幕树
-    if (fortune_watchface_visible_) {
-        FortuneWatchfaceView::GetInstance().ClearVoiceMessage();
-        FortuneWatchfaceView::GetInstance().HideUnlocked();
-        fortune_watchface_visible_ = false;
-    }
-    FortuneWatchfaceView::GetInstance().ReleaseIdleResourcesUnlocked();
+    // 5. 隐藏 JARVIS（保留 LVGL 树，下次唤醒复用，避免同步 DestroyUI 阻塞主线程）
+    HideJarvisWatchfaceUnlocked();
 
     // 6. 确保罗盘主容器可见
     if (attitude_container_ != nullptr) {
@@ -1872,7 +1917,7 @@ void AttitudeDisplay::SwitchToDivination() {
 
     if (fortune_watchface_visible_) {
         divination_from_jarvis_ = true;
-        HideJarvisWatchface();
+        HideJarvisWatchfaceUnlocked();
         view_stack_.push(ActiveView::Divination);
         ESP_LOGI(TAG, "SwitchToDivination: JARVIS hidden");
     } else {
@@ -1908,13 +1953,22 @@ void AttitudeDisplay::SwitchBackFromDivination() {
         ESP_LOGI(TAG, "SwitchBackFromDivination: callbacks fired, result=%d", result);
     }
 
-    StopFortuneDivinationUnlocked();
-    ESP_LOGI(TAG, "SwitchBackFromDivination: divination stopped");
-
+    // 链路 B：先切回 JARVIS 再 Stop，避免 Stop 中 AbortSpeaking/清 UI 与 lv_screen_load 竞态
     if (was_from_jarvis) {
         divination_from_jarvis_ = false;
         view_stack_.pop_if_top(ActiveView::Divination);
-        ShowJarvisWatchface();
+        if (!ShowJarvisWatchfaceUnlocked()) {
+            ESP_LOGW(TAG, "SwitchBackFromDivination: first ShowJarvis failed, will retry after stop");
+        }
+    }
+
+    StopFortuneDivinationUnlocked(was_from_jarvis);
+    ESP_LOGI(TAG, "SwitchBackFromDivination: divination stopped");
+
+    if (was_from_jarvis) {
+        if (!fortune_watchface_visible_) {
+            ShowJarvisWatchfaceUnlocked();
+        }
         divination_switch_back_done_ = true;
         ESP_LOGI(TAG, "SwitchBackFromDivination: JARVIS shown, current=%d (was_from_jarvis=%d)",
                  static_cast<int>(view_stack_.current()), was_from_jarvis);
@@ -2158,7 +2212,7 @@ void AttitudeDisplay::PresentDebugInfoCardUnlocked(const std::string& title,
 {
     // JARVIS HUD 可见时：路由到 status_label_，避免在语音交互过程中弹出功能卡
     if (IsJarvisHudActive()) {
-        RouteToJarvisStatusBar(title + "\n" + detail);
+        RouteToJarvisStatusBarUnlocked(title + "\n" + detail);
         return;
     }
 

@@ -235,7 +235,41 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     overlay_screen_ = screen;
 }
 
+void FortuneWatchfaceView::ClearOverlayChildPointersUnlocked() {
+    scan_arc_ = nullptr;
+    pulse_arc_ = nullptr;
+    seconds_arc_ = nullptr;
+    outer_ring_ = nullptr;
+    jarvis_label_ = nullptr;
+    jarvis_label_shadow_a_ = nullptr;
+    jarvis_label_shadow_b_ = nullptr;
+    status_label_ = nullptr;
+    for (int i = 0; i < ORBIT_COUNT_; ++i) {
+        orbit_dots_[i] = nullptr;
+    }
+    for (int i = 0; i < 60; ++i) {
+        tick_marks_[i] = nullptr;
+    }
+    for (int i = 0; i < 5; ++i) {
+        jarvis_bars_[i] = nullptr;
+    }
+    visible_ = false;
+}
+
+void FortuneWatchfaceView::InvalidateStaleOverlayUnlocked() {
+    if (overlay_screen_ == nullptr) {
+        return;
+    }
+    if (lv_obj_is_valid(overlay_screen_)) {
+        return;
+    }
+    ESP_LOGW(TAG, "InvalidateStaleOverlay: overlay was deleted, resetting pointers");
+    overlay_screen_ = nullptr;
+    ClearOverlayChildPointersUnlocked();
+}
+
 void FortuneWatchfaceView::CreateUI() {
+    InvalidateStaleOverlayUnlocked();
     if (overlay_screen_ != nullptr) {
         return;
     }
@@ -267,27 +301,11 @@ void FortuneWatchfaceView::DestroyUI() {
         overlay_screen_ = nullptr;
     }
 
-    scan_arc_ = nullptr;
-    pulse_arc_ = nullptr;
-    seconds_arc_ = nullptr;
-    outer_ring_ = nullptr;
-    jarvis_label_ = nullptr;
-    jarvis_label_shadow_a_ = nullptr;
-    jarvis_label_shadow_b_ = nullptr;
-    status_label_ = nullptr;
-
-    for (int i = 0; i < ORBIT_COUNT_; ++i) {
-        orbit_dots_[i] = nullptr;
-    }
-    for (int i = 0; i < 60; ++i) {
-        tick_marks_[i] = nullptr;
-    }
-    for (int i = 0; i < 5; ++i) {
-        jarvis_bars_[i] = nullptr;
-    }
+    ClearOverlayChildPointersUnlocked();
 }
 
 void FortuneWatchfaceView::EnsureAnimatingUnlocked() {
+    InvalidateStaleOverlayUnlocked();
     if (overlay_screen_ == nullptr) {
         CreateUI();
     }
@@ -295,6 +313,14 @@ void FortuneWatchfaceView::EnsureAnimatingUnlocked() {
 
     if (overlay_screen_ == nullptr) {
         return;
+    }
+    if (!lv_obj_is_valid(overlay_screen_)) {
+        ESP_LOGW(TAG, "EnsureAnimatingUnlocked: stale overlay, recreating");
+        overlay_screen_ = nullptr;
+        CreateUI();
+        if (overlay_screen_ == nullptr || !lv_obj_is_valid(overlay_screen_)) {
+            return;
+        }
     }
 
     if (lv_screen_active() != overlay_screen_) {
@@ -312,13 +338,27 @@ void FortuneWatchfaceView::EnsureAnimatingUnlocked() {
 }
 
 bool FortuneWatchfaceView::ShowUnlocked() {
+    InvalidateStaleOverlayUnlocked();
+
+    // idle Hide 后保留的隐藏 overlay 二次唤醒时易失效，销毁后重建
+    if (overlay_screen_ != nullptr && !visible_) {
+        if (lv_screen_active() != overlay_screen_) {
+            ESP_LOGI(TAG, "ShowUnlocked: recreating hidden overlay");
+            if (lv_obj_is_valid(overlay_screen_)) {
+                lv_obj_del(overlay_screen_);
+            }
+            overlay_screen_ = nullptr;
+            ClearOverlayChildPointersUnlocked();
+        }
+    }
+
     if (overlay_screen_ == nullptr) {
         CreateUI();
     }
     EnsureTimer();
 
-    if (overlay_screen_ == nullptr) {
-        ESP_LOGE(TAG, "ShowUnlocked: overlay_screen_ is nullptr");
+    if (overlay_screen_ == nullptr || !lv_obj_is_valid(overlay_screen_)) {
+        ESP_LOGE(TAG, "ShowUnlocked: overlay_screen_ invalid after CreateUI");
         return false;
     }
 
@@ -348,7 +388,8 @@ void FortuneWatchfaceView::HideUnlocked() {
         lv_timer_pause(timer_);
     }
 
-    if (overlay_screen_ != nullptr) {
+    InvalidateStaleOverlayUnlocked();
+    if (overlay_screen_ != nullptr && lv_obj_is_valid(overlay_screen_)) {
         lv_obj_add_flag(overlay_screen_, LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -532,23 +573,23 @@ void FortuneWatchfaceView::UpdateOuterRingColor(lv_color_t color) {
 
 void FortuneWatchfaceView::SetVoiceMessage(const char* text) {
     if (!lvgl_port_lock(300)) {
-        // listening 中 WS 回调与 AttitudeDisplay::SetStatus 同时调用
-        // 100ms 短锁会直接放弃并丢失消息；提升到 300ms 大概率能取得锁。
         ESP_LOGW(TAG, "SetVoiceMessage: LVGL lock timeout");
         return;
     }
+    SetVoiceMessageUnlocked(text);
+    lvgl_port_unlock();
+}
 
+void FortuneWatchfaceView::SetVoiceMessageUnlocked(const char* text) {
     status_mode_ = kModeVoiceActive;
     voice_status_text_ = text ? text : "";
 
     if (status_label_ != nullptr) {
-        // 使用长文本滚动模式，自动循环滚动超出部分
         lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_label_set_text(status_label_, voice_status_text_.c_str());
     }
 
     ESP_LOGD(TAG, "SetVoiceMessage: %s", voice_status_text_.c_str());
-    lvgl_port_unlock();
 }
 
 void FortuneWatchfaceView::ClearVoiceMessage() {
@@ -556,18 +597,20 @@ void FortuneWatchfaceView::ClearVoiceMessage() {
         ESP_LOGW(TAG, "ClearVoiceMessage: LVGL lock timeout");
         return;
     }
+    ClearVoiceMessageUnlocked();
+    lvgl_port_unlock();
+}
 
+void FortuneWatchfaceView::ClearVoiceMessageUnlocked() {
     status_mode_ = kModeDefault;
     voice_status_text_.clear();
 
     if (status_label_ != nullptr) {
-        // 恢复默认文本模式，由 UpdateAnimation() 接管扫描进度显示
         lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_label_set_text(status_label_, "ESP32-S3  JARVIS HUD  SCAN 00%");
     }
 
     ESP_LOGD(TAG, "ClearVoiceMessage: restored to default mode");
-    lvgl_port_unlock();
 }
 
 

@@ -202,8 +202,8 @@ extern "C" cJSON* http_api_device_status(void) {
     }
 
     cJSON* server = cJSON_CreateObject();
-    cJSON_AddStringToObject(server, "ota_url", ServerConfig::GetEffectiveOtaUrl().c_str());
-    cJSON_AddStringToObject(server, "websocket_url", ServerConfig::GetEffectiveWebsocketUrl().c_str());
+    cJSON_AddStringToObject(server, "ota_url", ServerConfig::GetCachedOtaUrl().c_str());
+    cJSON_AddStringToObject(server, "websocket_url", ServerConfig::GetCachedWebsocketUrl().c_str());
     cJSON_AddItemToObject(root, "server", server);
 
     cJSON* mem = cJSON_CreateObject();
@@ -290,8 +290,8 @@ extern "C" cJSON* http_api_device_ota_url(void) {
 #ifdef CONFIG_LOCAL_WEBSOCKET_URL
     cJSON_AddStringToObject(root, "build_websocket_url", CONFIG_LOCAL_WEBSOCKET_URL);
 #endif
-    cJSON_AddStringToObject(root, "effective_ota_url", ServerConfig::GetEffectiveOtaUrl().c_str());
-    cJSON_AddStringToObject(root, "effective_websocket_url", ServerConfig::GetEffectiveWebsocketUrl().c_str());
+    cJSON_AddStringToObject(root, "effective_ota_url", ServerConfig::GetCachedOtaUrl().c_str());
+    cJSON_AddStringToObject(root, "effective_websocket_url", ServerConfig::GetCachedWebsocketUrl().c_str());
     cJSON_AddBoolToObject(root, "nvs_ota_overridden", !nvs_ota_url.empty());
     cJSON_AddBoolToObject(root, "nvs_ws_overridden", !nvs_ws_url.empty());
     return root;
