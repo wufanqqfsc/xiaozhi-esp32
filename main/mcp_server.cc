@@ -100,8 +100,22 @@ void McpServer::AddCommonTools() {
     }
 
     // 迭代 1: 鱼眼状态手动切换（验收测试用，迭代 3 接入真实 WiFi/BLE 驱动）
-    auto attitude_display = dynamic_cast<AttitudeDisplay*>(display);
-    if (attitude_display != nullptr) {
+    // 修复 P0-1: dynamic_cast 在某些构建配置下可能因 RTTI 边界问题返回 nullptr
+    // board 必然使用 AttitudeDisplay（仅在 esp32-s3-touch-lcd-1.85b 等启用 AttitudeDisplay 的板上），
+    // 改用 static_cast + nullptr 检查，并通过 ESP_LOGI 暴露 cast 失败原因
+    auto* attitude_display = static_cast<AttitudeDisplay*>(display);
+    if (attitude_display == nullptr) {
+        ESP_LOGW(TAG, "AddCommonTools: display is null, skip attitude tools registration");
+    } else {
+        // 验证 cast 是否正确（虚拟函数地址比对，规避 RTTI 边界问题）
+        AttitudeDisplay* verify_cast = dynamic_cast<AttitudeDisplay*>(display);
+        if (verify_cast == nullptr) {
+            ESP_LOGE(TAG, "AddCommonTools: dynamic_cast<AttitudeDisplay*> failed despite static_cast. "
+                          "RTTI mismatch — self.attitude.* tools will NOT be available to LLM. "
+                          "This blocks FT-01 摇一摇测试. Static_cast proceeding.");
+        } else {
+            ESP_LOGI(TAG, "AddCommonTools: attitude_display cast OK, registering self.attitude.* tools");
+        }
         AddTool("self.attitude.select_fortune",
             "Select a fortune menu item by index. 0=今日运势, 1=财运, 2=事业运势, 3=感情运势, 4=心情卦, 5=黄历宜忌, 6=节气提示, 7=系统设置, 8=健康运势, 9=学业运势, 10=出行吉日, 11=贵人运势. Shows the feature categories in DebugInfo.",
             PropertyList({
@@ -165,7 +179,7 @@ void McpServer::AddCommonTools() {
             });
 
         // 运势结果卡（Plan A）已彻底删除：show_fortune / dismiss_fortune 工具同步下线
-    }
+    }  // end else (attitude_display != nullptr)
 
     auto camera = board.GetCamera();
     if (camera) {

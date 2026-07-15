@@ -1168,8 +1168,13 @@ bool SdCardLogHttpStart(const char* mount_point, uint16_t port) {
     config.task_caps = MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM;
     // 启用 wildcard URI 匹配（支持 * 通配符）
     config.uri_match_fn = httpd_uri_match_wildcard;
-    ESP_LOGI(TAG, "  OK: Config ready (max_uri_handlers=%d, stack_size=%d, timeout=%ds)",
-             config.max_uri_handlers, config.stack_size, config.recv_wait_timeout);
+    // 修复 P0-2: send_wait_timeout 从 10s 扩到 30s，避免 /api/device/* 端点
+    // 在状态查询时(client 慢查询/网络抖动)被 RST
+    //  - http_api_device_status() 调 wifi/codec 实时状态，潜在 lvgl_port_lock 阻塞
+    //  - 大文件下载 send 路径需更长超时
+    config.send_wait_timeout = 30;
+    ESP_LOGI(TAG, "  OK: Config ready (max_uri_handlers=%d, stack_size=%d, recv_timeout=%ds, send_timeout=%ds)",
+             config.max_uri_handlers, config.stack_size, config.recv_wait_timeout, config.send_wait_timeout);
 
     // 初始化异步显示请求队列（在 httpd_start 之前，否则 handler 投递会失败）
     //   - LVGL timer 创建需要 lvgl_port_init 已完成（httpd_start 在 lvgl 之后调用，本调用点安全）
@@ -1768,10 +1773,16 @@ bool SdCardLogHttpTriggerSnapshot(void) {
 
 // HTTP GET /api/device/status - 获取设备状态
 static esp_err_t handle_device_status(httpd_req_t* req) {
+    ESP_LOGI(TAG, "[P0-2 DEBUG] handle_device_status: enter");
     cJSON* root = http_api_device_status();
+    ESP_LOGI(TAG, "[P0-2 DEBUG] handle_device_status: http_api_device_status() returned");
     char* json_str = cJSON_PrintUnformatted(root);
+    ESP_LOGI(TAG, "[P0-2 DEBUG] handle_device_status: cJSON_PrintUnformatted returned, len=%d",
+             json_str ? (int)strlen(json_str) : -1);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    esp_err_t err = httpd_resp_send(req, json_str ? json_str : "{}", HTTPD_RESP_USE_STRLEN);
+    ESP_LOGI(TAG, "[P0-2 DEBUG] handle_device_status: httpd_resp_send err=%d (%s)",
+             err, esp_err_to_name(err));
     if (json_str) free(json_str);
     cJSON_Delete(root);
     return ESP_OK;
