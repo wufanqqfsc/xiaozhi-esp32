@@ -120,6 +120,9 @@ static_assert(FISHEYE_ICON_SIZE == 32, "FISHEYE_ICON_SIZE must be 32px (~37% of 
 // 响应，则强制停止并弹出"占卜超时"调试卡。
 #define FORTUNE_DIVINATION_DEFERRED_TIMEOUT_MS 35000
 
+// T19: 链路 A 收到 tts:start 后，跑马灯定格前短暂停留，给用户视觉反应时间
+#define FORTUNE_DIVINATION_TTS_SETTLE_MS          1500
+
 enum class FortuneMenuType : int {
     Today = 0,      // fortune.today
     Wealth = 1,     // fortune.wealth
@@ -278,6 +281,10 @@ public:
     void SetDivinationFromShake(bool from_shake);
     void StopMarqueeForTts();
     void ReturnToCompassAfterTts();
+    /** 占卜流程中收到 tts:start 后标记，用于忽略 abort 触发的空 tts:stop */
+    void MarkDivinationTtsStarted();
+    /** 仅当本轮占卜已收到 tts:start 时，tts:stop 才应结束占卜视图 */
+    bool ShouldFinalizeDivinationOnTtsStop() const;
     void SwitchToDivination();
 
     // 占卜结束后切换回 JARVIS 视图
@@ -285,9 +292,13 @@ public:
 
     // 获取当前是否显示 JARVIS 视图（含 FortuneWatchfaceView 实际可见状态）
     bool IsJarvisWatchfaceVisible() const;
+    /** 链路 B：是否从 JARVIS 菜单进入占卜 */
+    bool IsDivinationFromJarvis() const;
 
-    // 设置占卜结束回调
+    // 设置占卜结束回调（常驻，application 注册）
     void SetDivinationCallback(std::function<void(int)> callback);
+    // MCP __DEFERRED_DIVINATION__ 一次性延迟回调（不覆盖常驻回调）
+    void SetDivinationDeferredCallback(std::function<void(int)> callback);
 
     // 获取当前视图栈（spec 6.2 ViewStack）
     const ViewStack& GetViewStack() const { return view_stack_; }
@@ -321,6 +332,7 @@ private:
 
     FortuneDivinationState fortune_divination_state_ = FortuneDivinationState::Idle;
     lv_timer_t* fortune_divination_timer_ = nullptr;
+    lv_timer_t* divination_switch_back_timer_ = nullptr;
     lv_timer_t* taiji_hold_timer_ = nullptr;
     uint32_t fortune_divination_start_ms_ = 0;
     uint32_t fortune_divination_finish_deadline_ms_ = 0;
@@ -343,7 +355,10 @@ private:
     bool fortune_watchface_visible_ = false;  // 追踪 FortuneWatchfaceView 显示状态
     bool image_preview_active_ = false;       // 独立图片预览视图是否在前台
     bool divination_from_jarvis_ = false;     // 记录是否从 JARVIS 进入占卜
-    std::function<void(int)> divination_callback_ = nullptr;  // 占卜结束回调
+    bool divination_switch_back_done_ = false; // 链路 B SwitchBack 幂等守卫
+    bool divination_tts_started_ = false;     // 本轮占卜是否已收到 tts:start
+    std::function<void(int)> divination_callback_ = nullptr;  // 占卜结束常驻回调
+    std::function<void(int)> divination_deferred_callback_ = nullptr;  // MCP 延迟一次性回调
     ViewStack view_stack_;                     // 视图栈：spec 6.2 定义
 
     float current_pitch_ = 0.0f;
@@ -383,11 +398,13 @@ private:
     void PlayFortuneDivinationMarqueeSound();
     void StartFortuneDivinationUnlocked();
     void StopFortuneDivinationUnlocked();
+    void FireDivinationCallbacksUnlocked(int result_index);
     void FinishFortuneDivinationUnlocked(int result_index);
     void RandomizeFortuneDivinationMarqueeUnlocked();
     void UpdateFortuneDivinationMarqueeVisual(int active_index);
     void ResetFortuneMenuIconStyle(int index);
     void CancelTaijiHoldTimerUnlocked();
+    void CancelDivinationSwitchBackTimerUnlocked();
     static void OnFortuneDivinationTick(lv_timer_t* timer);
     static void OnTaijiHoldTimer(lv_timer_t* timer);
     static void OnTaijiDivinationPressed(lv_event_t* e);

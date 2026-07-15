@@ -102,12 +102,16 @@ private:
     static constexpr uint32_t kJarvisGoldBright_ = 0xFFD700;
     static constexpr uint32_t kJarvisGoldShadow_ = 0xB8860B;
 
-    // 状态栏：贴内核环下缘，宽度适配屏幕外环
-    // 内核环 (100,100,160,160) 下缘 y=260；外环半径 178.5，底部区域最大宽约 258px
+    // 状态栏：上缘贴内核环下缘 (y=260)，底边中心贴外环内缘（圆屏两侧自然裁切）
+    // 外环 r=179、线宽 3 → 内缘半径 178，底边中心 y = CY + 178 = 358
+    static constexpr int GOLD_RING_ARC_WIDTH_ = 3;
+    static constexpr int OUTER_RING_INNER_R_ =
+        (W_ / 2 - GOLD_RING_ARC_WIDTH_ / 2) - (GOLD_RING_ARC_WIDTH_ / 2);
     static constexpr int STATUS_BAR_X_ = 51;
     static constexpr int STATUS_BAR_Y_ = 260;
     static constexpr int STATUS_BAR_W_ = 258;
-    static constexpr int STATUS_BAR_H_ = 38;
+    static constexpr int STATUS_BAR_BOTTOM_Y_ = CY_ + OUTER_RING_INNER_R_;
+    static constexpr int STATUS_BAR_H_ = STATUS_BAR_BOTTOM_Y_ - STATUS_BAR_Y_;
 
     // 成员变量
     lv_obj_t* parent_container_ = nullptr;  // 父容器（attitude_container_）

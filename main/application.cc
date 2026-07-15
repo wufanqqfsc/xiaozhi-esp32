@@ -976,6 +976,7 @@ void Application::InitializeProtocol() {
                 aborted_ = false;
                 if (auto* attitude = GetAttitudeDisplay()) {
                     attitude->RefreshDebugInfoTimer(30000);
+                    attitude->MarkDivinationTtsStarted();
                     attitude->StopMarqueeForTts();
                 }
                 // TTS 响应到达，清除 listening 超时监控
@@ -1001,10 +1002,12 @@ void Application::InitializeProtocol() {
                         }
                     }
                     // TTS 完整播放结束：隐藏"识别到"/"AI 回复"调试卡
-                    // （这是用户要求的：回复完毕之后才消失）
                     if (auto* attitude = GetAttitudeDisplay()) {
                         attitude->HideDebugInfo();
-                        attitude->ReturnToCompassAfterTts();
+                        // 忽略 abort 触发的空 tts:stop（摇一摇 SendUserPrompt 会先发 stop）
+                        if (attitude->ShouldFinalizeDivinationOnTtsStop()) {
+                            attitude->ReturnToCompassAfterTts();
+                        }
                     }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
@@ -1025,12 +1028,9 @@ void Application::InitializeProtocol() {
                             static uint32_t s_llm_seq = 0;
                             uint32_t seq = ++s_llm_seq;
                             Schedule([attitude, cleaned, seq]() {
-                                // T09: 链路 B 跑马灯期间不显示调试卡（避免挡住 JARVIS 视图 / GIF）
-                                // 链路 B 期间：fortune_divination_state_ == Animating (1) 或 Result (2)
-                                // 且 divination_from_jarvis_ == true
+                                // R-03: 链路 A/B 占卜 Animating/Result 期间均隐藏调试卡
                                 int fds = attitude->GetFortuneDivinationState();
                                 if (fds == 1 /*Animating*/ || fds == 2 /*Result*/) {
-                                    // 已经在跑马灯中 — 不显示调试卡，避免挡住画面
                                     return;
                                 }
                                 char title[32];

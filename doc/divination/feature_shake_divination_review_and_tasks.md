@@ -108,8 +108,18 @@
 
 ## 4. 端到端任务拆分（可跟踪 + 可验收）
 
-> 📅 **进度更新时间**: 2026-07-15
-> 📊 **总体完成度**: 阶段 1 完成 6/7 | 阶段 2 完成 4/7 | 阶段 3-4 待启动
+> 📅 **进度更新时间**: 2026-07-15（E2E 复核）
+> 📊 **总体完成度**: 代码实现约 **75%** | 部署验证约 **0%** | QA **未启动**
+
+### 4.2 E2E 复核结论（2026-07-15）
+
+| 维度 | 结论 |
+|------|------|
+| 设备端 P0/P1 任务 | T01–T05、T08–T11、T19 **代码已落地**，与 review 中 BUG-01~07/10/11 **基本对齐** |
+| 服务端任务 | T06/T07/T12–T14/T17/T18 **代码已落地**，**待他机编译部署 + 真机验证** |
+| 文档任务 | T15/T16 已写入 `implementation_supplement.md` |
+| 仍开放风险 | 见下文 **§8 E2E 复核遗留项**（3 项设备、3 项服务端、2 项文档） |
+| QA | T20–T24 / FT-01~03 **全部未验收** |
 
 ### 阶段 1：P0 缺陷修复（必须先做）
 
@@ -131,19 +141,19 @@
 | **T09** | 链路 B 跑马灯期间隐藏调试卡 | 设备 | 1h | T05 | 链路 B 跑马灯 + TTS 期间不显示"占卜结果 #N"调试卡 | ✅ 完成 |
 | **T10** | `IsJarvisHudActive` 与 `IsJarvisWatchfaceVisible` 合并 | 设备 | 0.5h | — | 仅保留一个公共 API，另一个标记 deprecated | ✅ 完成 |
 | **T11** | `ClearChatMessages` 在链路 A 跑马灯期间禁用 | 设备 | 1h | — | 跑马灯 → tts:stop 期间不调用 ClearChatMessages | ✅ 完成 |
-| **T12** | 服务端 Persona 链路 B 提示注入 | 服务端 | 2h | T07 | 唤醒后选菜单时 Persona 注入占卜启动提示 | ⏳ 待验证 |
-| **T13** | `WebSocketHandler` Session 模式标记 | 服务端 | 2h | — | SessionId 携带 `mode` 标识 | ⏳ 待验证 |
-| **T14** | `FileSynthesizer` 链路 B TTS 强制结束语 | 服务端 | 1h | T07 | 链路 B 最后一个句子含"祝先生今日顺遂" | ⏳ 待验证 |
+| **T12** | 服务端 Persona 链路 B 提示注入 | 服务端 | 2h | T07 | 唤醒后选菜单时 Persona 注入占卜启动提示 | ✅ 代码完成，待部署验证 |
+| **T13** | `WebSocketHandler` Session 模式标记 | 服务端 | 2h | — | SessionId 携带 `mode` 标识 | ✅ 代码完成，待部署验证 |
+| **T14** | `FileSynthesizer` 链路 B TTS 强制结束语 | 服务端 | 1h | T07 | 链路 B 最后一个句子含"祝先生今日顺遂" | ✅ 代码完成，待部署验证 |
 
 ### 阶段 3：P2 缺陷与体验优化
 
 | Task ID | 标题 | 端 | 工作量 | 依赖 | 验收标准 | 状态 |
 |---------|------|-----|--------|------|---------|------|
-| **T15** | 文档补完：异常 cleanup 序列章节 | 文档 | 1h | — | 文档新增"异常 cleanup 序列"章节，覆盖 callback 清理、状态机归一化、视图栈重置 | ⏳ 待启动 |
-| **T16** | 文档补完：后端 ServiceMessage 协议约定 | 文档 | 1h | — | 文档列出所有发往设备的消息类型及预期设备响应 | ⏳ 待启动 |
-| **T17** | 链路 B 用户在跑马灯期间继续说话的 LLM 兜底 | 服务端 | 2h | T12 | Persona 注入"占卜进行中"提示 | ⏳ 待启动 |
-| **T18** | 增加 `__DEFERRED_DIVINATION__` 在 LLM 直接用 hint 的兜底 | 服务端 | 1h | — | 当 LLM 输出文本包含"[占卜结果" 时，服务端强制注入 `get_divination_result` 调用 | ⏳ 待启动 |
-| **T19** | 二阶段播放延迟校验（链路 A 跑马灯 5s 后再播 TTS） | 设备 | 2h | T05 | 链路 A 跑马灯结束后延迟 1-2s 再切到 TTS 播放，给用户反应时间 | ⏳ 待启动 |
+| **T15** | 文档补完：异常 cleanup 序列章节 | 文档 | 1h | — | 文档新增"异常 cleanup 序列"章节，覆盖 callback 清理、状态机归一化、视图栈重置 | ✅ 完成（[implementation_supplement.md](./implementation_supplement.md) §一） |
+| **T16** | 文档补完：后端 ServiceMessage 协议约定 | 文档 | 1h | — | 文档列出所有发往设备的消息类型及预期设备响应 | ✅ 完成（[implementation_supplement.md](./implementation_supplement.md) §二） |
+| **T17** | 链路 B 用户在跑马灯期间继续说话的 LLM 兜底 | 服务端 | 2h | T12 | Persona 注入"占卜进行中"提示 | ✅ 代码完成，待部署验证 |
+| **T18** | 增加 `__DEFERRED_DIVINATION__` 在 LLM 直接用 hint 的兜底 | 服务端 | 1h | — | 当 LLM 输出文本含占卜结果特征词时，服务端强制调用 `get_divination_result` | ✅ 代码完成，待部署验证 |
+| **T19** | 二阶段播放延迟校验（链路 A 跑马灯 5s 后再播 TTS） | 设备 | 2h | T05 | 链路 A `tts:start` 后延迟 1.5s 再定格跑马灯 | ✅ 完成 |
 | **T20** | 大屏截图自动化（链路 A vs 链路 B 录像对比） | QA | 4h | T01-T14 | 自动跑测脚本 + 截图回归 | ⏳ 待启动 |
 
 ### 阶段 4：闭环验证
@@ -163,9 +173,9 @@
 |------|---------|--------|--------|--------|--------|
 | 阶段 1 (P0) | 7 | 5 | 0 | 2 | 0 |
 | 阶段 2 (P1) | 7 | 4 | 0 | 3 | 0 |
-| 阶段 3 (P2) | 6 | 0 | 0 | 0 | 6 |
+| 阶段 3 (P2) | 6 | 5 | 0 | 0 | 1 |
 | 阶段 4 (QA) | 4 | 0 | 1 | 0 | 3 |
-| **总计** | **24** | **9** | **1** | **5** | **9** |
+| **总计** | **24** | **14** | **1** | **5** | **4** |
 
 ### 4.2 设备端代码修复位置索引
 
@@ -184,10 +194,17 @@
 
 ### 4.3 服务端代码修复位置索引
 
-| Task ID | 修复文件 | 代码行号 | 修复内容 |
-|---------|---------|---------|---------|
-| T15 (后端) | `ConfigServiceImpl.java` | L147-152 | `isDefault` CHAR(1) 排序 bug 修复注释 |
-| T15 (后端) | `TtsTestController.java` | L59-68 | Edge TTS 默认配置筛选逻辑（绕过 SQL 排序） |
+| Task ID | 修复文件 | 修复内容 |
+|---------|---------|---------|
+| T06/T07 | `BaiduImageSearchFunction.java`, `JARVIS.md` | GIF 超时常量、`[GIF_FALLBACK]`、Prompt 补强 |
+| T12 | `DialogueService.java` | 菜单 1–8 注入 `start_divination` 系统提示 |
+| T13 | `SessionInteractionMode.java`, `ChatSession.java` | 会话交互模式字段 |
+| T14 | `FileSynthesizer.java`, `StreamSynthesizer.java` | `maybeAppendDivinationClosing` 补播结束语 |
+| T17 | `DialogueService.java` | `DIVINATION_ACTIVE` 时注入跑马灯等待提示 |
+| T18 | `DivinationSessionHelper.java`, `SynthesizerFactory.java` | `maybeForceGetDivinationResult` + `divinationResultFetched` |
+| 摇一摇免 abort | `MessageHandler.java` | `[设备摇一摇事件]` listen/text 不触发 `ChatAbortedEvent` |
+| T15 (后端遗留) | `ConfigServiceImpl.java` | `isDefault` CHAR(1) 排序 bug 修复注释 |
+| T15 (后端遗留) | `TtsTestController.java` | Edge TTS 默认配置筛选逻辑 |
 
 ---
 
@@ -238,24 +255,39 @@ T13 (Session 模式) ─► T12
 
 ## 7. 总结
 
-### 7.1 Review 结论
+### 7.1 Review 结论（2026-07-15 更新）
 
-- **文档质量**：★★★☆☆（结构清晰、设计原则明确；但存在至少 17 个文档-代码不一致/设计漏洞）
-- **代码质量**：★★★★☆（核心状态机较完整，但异常 cleanup、双触发风险、magic number 等需要修复）
-- **关键风险**：
-  1. 链路 B callback 双触发 → **必须修复 T02**
-  2. 服务端无显式超时 → **必须修复 T06**
-  3. 文档承诺与代码实现不一致（如 `IsJarvisHudActive`/`IsJarvisWatchfaceVisible`）→ **必须修复 T10**
+- **文档质量**：★★★★☆（T15/T16 已补；主方案 `feature_shake_divination.md` 仍有少量常量名/行号漂移）
+- **代码质量**：★★★★☆（P0 核心路径已修；链路 B 2s timer 与 T03 黄金原则仍有边角）
+- **部署验证**：★★☆☆☆（本机无 mvn；FT/ET 用例均未打勾）
+- **已关闭的原 P0 风险**：BUG-01（T02）、BUG-05（T01）、P0 abort 空 tts:stop、MCP 双 callback 分离
+- **仍须关注**：§8 遗留项 R-01~R-08
 
-### 7.2 推荐迭代顺序
+### 7.2 推荐迭代顺序（更新）
 
-1. **本周（高优先级）**：完成 T01-T07，关闭 P0 缺陷
-2. **下周**：完成 T08-T14，提升稳定性
-3. **迭代收尾**：完成 T15-T24，体验优化与回归
+1. **他机部署服务端** → 清 Redis → 跑 `device_verification_checklist.md` FT-01/02
+2. **修复 §8 R-01/R-02**（设备黄金原则 + 链路 B 幂等）后重烧录
+3. **StreamSynthesizer 工具标记**（R-05）若 TTS provider 为 moss-tts-nano
+4. **T20–T24** QA 闭环
 
 ### 7.3 与项目记忆对齐
 
 项目记忆中的 lessons learned 已暗示了几条与本文档相关的修复方向：
 - "SwitchToDivination() not setting divination_waiting_for_tts_=true caused TTS decoding + running light animation memory competition" → 与 T04/T05 同源
 - "Directly calling SetOutputVolume in HTTP task (PSRAM stack) causes NVS flash write" → 文档未涉及但 HTTP handler 中应同步检查（潜在问题）
+
+---
+
+## 8. E2E 复核遗留项（2026-07-15）
+
+| ID | 严重度 | 问题 | 需求/原文档 | 当前代码 | 建议 |
+|----|--------|------|------------|---------|------|
+| **R-01** | P1 | 链路 A `assistant` TTS 未强制路由 JARVIS | 黄金原则 §2.1；T03 验收 | `SetChatMessage` 仅在 `IsJarvisHudActive()` 时调用 `RouteToJarvisStatusBar`；链路 A 占卜期间 JARVIS 隐藏 → **语音气泡不更新**（仅调试卡可见） | ✅ 已修：`assistant` 始终 + 占卜期 user/tool/system 走 `RouteToJarvisStatusBar` |
+| **R-02** | P1 | 链路 B `FinishFortuneDivination` 2s timer 与 `tts:stop` 可能双调 `SwitchBackFromDivination` | BUG-04 / T02 | `tts:stop` 先到时调 `SwitchBack`；2s 单次 timer 仍会触发 → 可能 **二次 FireDivinationCallbacks** | ✅ 已修：`divination_switch_back_done_` 幂等 + timer 可取消 |
+| **R-03** | P2 | 链路 A 跑马灯期间调试卡仍显示 | BUG-10（仅链路 B 修了 T09） | T09 只判断 `IsDivinationFromJarvis()` | ✅ 已修：Animating/Result 期间链路 A/B 均跳过调试卡 |
+| **R-04** | P2 | `StopFortuneDivinationUnlocked` 清空 `divination_deferred_callback_` 不触发 | implementation_supplement §1.3 | 若极端时序下 `tts:stop` 早于 deferred 触发，MCP 可能悬空 | ✅ 已修：Stop 前有 result 时先 `FireDivinationCallbacks` |
+| **R-05** | P1 | `StreamSynthesizer` 无 `toolMarkerCallback` | 摇一摇 prompt 依赖【调用工具】标记 | `FileSynthesizer` 有；`StreamSynthesizer` **无** → moss-tts-nano 路径工具标记可能不执行 | ✅ 已修：对齐 `setToolMarkerCallback` + `handleToolMarker` |
+| **R-06** | P2 | 全局 `MCP_TOOL_CALL_MAX_MS=5s` 未实现 | 主方案 §5.1；S-04 | 仅 GIF 工具有超时；设备 MCP 调用依赖框架默认 | 低优先级，可在 `DeviceMcpService` 加超时 |
+| **R-07** | P2 | 常量名文档漂移 | `FORTUNE_DIVINATION_SHOW_DEFERRED_MS` | 代码为 `FORTUNE_DIVINATION_DEFERRED_TIMEOUT_MS` | 统一主方案 §5.1 表 |
+| **R-08** | P3 | 主方案 `RouteToJarvisStatusBar` 描述写 `SetStatusText` | §2.1 示例代码 | 实现仅 `SetVoiceMessage` | 改文档或补 `SetStatusText` 双写 |
 

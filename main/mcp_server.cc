@@ -761,7 +761,7 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
                 ESP_LOGI(TAG, "Divination result deferred, waiting for animation to complete (id=%d)", id);
                 auto attitude_display = dynamic_cast<AttitudeDisplay*>(Board::GetInstance().GetDisplay());
                 if (attitude_display != nullptr) {
-                    attitude_display->SetDivinationCallback([this, id, attitude_display](int result) {
+                    attitude_display->SetDivinationDeferredCallback([this, id, attitude_display](int result) {
                         static const char* fortune_names[] = {
                             "今日运势", "财运", "事业运势", "感情运势", "心情卦",
                             "黄历宜忌", "节气提示", "系统设置", "健康运势",
@@ -792,8 +792,6 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
                         cJSON_Delete(result_json);
 
                         ReplyResultDeferred(id, result_str);
-                        // 回调已使用完毕，清空避免重复触发
-                        attitude_display->SetDivinationCallback(nullptr);
                     });
                 }
                 return;  // 不调用 ReplyResult，等回调触发

@@ -184,7 +184,7 @@ void AttitudeDisplay::RouteToJarvisStatusBar(const std::string& text) {
 | `FORTUNE_DIVINATION_SOUND_INTERVAL_MS` | 8745ms | `attitude_display.h:115` | 节拍音效间隔 |
 | `kShakeCooldownMs` | 2000ms | `esp32-s3-touch-lcd-1.85b.cc:612` | 摇晃冷却时间 |
 | `kShakeDeltaThreshold` | 15000 | `esp32-s3-touch-lcd-1.85b.cc:617` | 摇晃加速度差分阈值 |
-| `FORTUNE_DIVINATION_SHOW_DEFERRED_MS` | 35000ms | `attitude_display.cc:1086` | 摇一摇超时兜底 |
+| `FORTUNE_DIVINATION_DEFERRED_TIMEOUT_MS` | 35000ms | `attitude_display.h:121` | 摇一摇等待 TTS 超时兜底（原稿称 `FORTUNE_DIVINATION_SHOW_DEFERRED_MS`） |
 | `TTS_FIRST_CHUNK_MAX_MS` | 3000ms | 后端配置 | TTS 首块超时 |
 | `MCP_TOOL_CALL_MAX_MS` | 5000ms | 后端配置 | MCP 工具调用超时 |
 | `GIF_SEARCH_MAX_MS` | 5000ms | 后端配置 | GIF 搜索超时 |

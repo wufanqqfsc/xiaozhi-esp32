@@ -205,7 +205,7 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
         lv_obj_set_style_shadow_color(jarvis_bars_[i], lv_color_hex(0x20eaff), 0);
     }
 
-    // 状态栏：上缘贴内核环外边框 (y=260)，收窄高度与宽度以落入屏幕外环内
+    // 状态栏：上缘贴内核环外边框 (y=260)，底边中心贴外环内缘
     lv_obj_t* status_bar = AddBox(screen, STATUS_BAR_X_, STATUS_BAR_Y_, STATUS_BAR_W_, STATUS_BAR_H_,
                                   0x07182b, LV_RADIUS_CIRCLE);
     lv_obj_set_style_border_width(status_bar, 1, 0);
@@ -227,7 +227,7 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
     // 字体缩小到 14px 以容纳更多字符（约 14px/中文字符）
     lv_obj_set_style_text_font(status_label_, &font_puhui_14_1, 0);
     lv_obj_set_style_text_color(status_label_, lv_color_hex(0xc8f7ff), 0);
-    // 紧凑两行（14px * 2 + 行间距 2 = 30px）
+    // 两行文本区域（14px * 2 + 行间距 2 = 30px），在加高状态栏内垂直居中
     lv_obj_set_height(status_label_, 30);
     lv_obj_set_width(status_label_, STATUS_BAR_W_ - 20);
     lv_obj_center(status_label_);
