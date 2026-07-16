@@ -229,6 +229,22 @@ private:
     
     // State change handler called by state machine
     void OnStateChanged(DeviceState old_state, DeviceState new_state);
+
+    // ============== WebSocket 自动重连（方案 B）==============
+    // 与网络层 + 通道层协同；仅 idle / activating 状态尝试重连；
+    // 退避序列：5s -> 10s -> 20s -> 30s -> 60s（封顶 60s），最多 30 次
+    static constexpr int kMaxWsReconnectAttempts = 30;
+    static constexpr int kWsReconnectDelaysSec[5] = {5, 10, 20, 30, 60};
+
+    bool is_network_ready_ = false;        // 网络层是否就绪（WiFi 已连 + IP 已分）
+    int  ws_reconnect_attempts_ = 0;       // 当前已尝试的退避次数（达到上限后放弃）
+    bool ws_reconnect_pending_ = false;    // 是否已有一次退避任务在排队（幂等保护）
+    esp_timer_handle_t ws_reconnect_timer_ = nullptr;  // esp_timer 一次性定时器
+
+    // 排程一次退避重连（幂等：已排队则直接返回）
+    void ScheduleWebsocketReconnect();
+    // 立即尝试一次重连（状态门控：仅 idle / activating 才执行）
+    void TryWebsocketReconnectNow();
 };
 
 

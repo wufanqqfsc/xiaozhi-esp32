@@ -52,6 +52,10 @@ public:
     void UpdateOuterRingColor(lv_color_t color);
     void UpdateOuterRingColorUnlocked(lv_color_t color);
 
+    // 更新状态栏外框颜色（listening=粉红/speaking=金色/默认=青色）
+    void SetStatusBarBorderColor(lv_color_t color);
+    void SetStatusBarBorderColorUnlocked(lv_color_t color);
+
     // 获取覆盖层独立屏幕（供 AttitudeDisplay 做视图切换淡入淡出使用）
     lv_obj_t* GetOverlayScreen() { return overlay_screen_; }
 
@@ -106,16 +110,21 @@ private:
     static constexpr uint32_t kJarvisGoldBright_ = 0xFFD700;
     static constexpr uint32_t kJarvisGoldShadow_ = 0xB8860B;
 
-    // 状态栏：上缘贴内核环下缘 (y=260)，底边中心贴外环内缘（圆屏两侧自然裁切）
+    // 状态栏：椭圆形完全包裹在外环内部并底边接壤外环内壁
     // 外环 r=179、线宽 3 → 内缘半径 178，底边中心 y = CY + 178 = 358
+    // 几何核算（状态栏中心 X=CX=180）：
+    //   底部接壤外环内壁：Y_bottom = CY + 178 = 358
+    //   圆角半径 r=H/2=40，圆角最外点 (80, 318) 距离 = sqrt(100^2+138^2) ≈ 170.4 < 178 ✓
+    //   顶部 (180, 278) 距离 = 98，底部 (180, 358) 距离 = 178（接壤）✓
+    // 与原始 (W=258, H=97) 相比：宽度从 258→200、高度从 97→80，整体更紧凑（高度缩减约 17%）
     static constexpr int GOLD_RING_ARC_WIDTH_ = 3;
     static constexpr int OUTER_RING_INNER_R_ =
         (W_ / 2 - GOLD_RING_ARC_WIDTH_ / 2) - (GOLD_RING_ARC_WIDTH_ / 2);
-    static constexpr int STATUS_BAR_X_ = 51;
-    static constexpr int STATUS_BAR_Y_ = 260;
-    static constexpr int STATUS_BAR_W_ = 258;
-    static constexpr int STATUS_BAR_BOTTOM_Y_ = CY_ + OUTER_RING_INNER_R_;
-    static constexpr int STATUS_BAR_H_ = STATUS_BAR_BOTTOM_Y_ - STATUS_BAR_Y_;
+    static constexpr int STATUS_BAR_X_ = 80;                               // 中心 X=180 居中
+    static constexpr int STATUS_BAR_W_ = 200;
+    static constexpr int STATUS_BAR_H_ = 80;                               // 高度从 97 缩减到 80
+    static constexpr int STATUS_BAR_BOTTOM_Y_ = CY_ + OUTER_RING_INNER_R_; // = 358
+    static constexpr int STATUS_BAR_Y_ = STATUS_BAR_BOTTOM_Y_ - STATUS_BAR_H_; // = 278
 
     // 成员变量
     lv_obj_t* parent_container_ = nullptr;  // 父容器（attitude_container_）
@@ -130,6 +139,7 @@ private:
     lv_obj_t* jarvis_label_ = nullptr;
     lv_obj_t* jarvis_label_shadow_a_ = nullptr;
     lv_obj_t* jarvis_label_shadow_b_ = nullptr;
+    lv_obj_t* status_bar_ = nullptr;        // 状态栏容器（用于切换外框颜色）
     lv_obj_t* status_label_ = nullptr;
     lv_obj_t* orbit_dots_[ORBIT_COUNT_];
     lv_obj_t* tick_marks_[60];

@@ -17,6 +17,34 @@ static const char* TAG = "FortuneWatchfaceView";
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(font_puhui_14_1);
 
+// 状态栏外框颜色常量（与 JARVIS 主题保持一致）
+//   默认/扫描态   : 青色 0x20eaff（与脉冲弧/扫描弧同色）
+//   listening 态   : 粉红 0xff3f93（与内环 pulse_arc_ 同色，表达"听")
+//   speaking  态   : 金色 0xD4AF37（与 JARVIS 字体/外环同色，表达"说"）
+static constexpr uint32_t kStatusBarBorderDefault_  = 0x20eaff;
+static constexpr uint32_t kStatusBarBorderListen_   = 0xff3f93;
+static constexpr uint32_t kStatusBarBorderSpeak_    = 0xD4AF37;
+
+// 根据语音状态文案推断当前设备状态并切换状态栏外框颜色（调用方需持有 LVGL 锁）
+//   - "聆听中..." → listening → 粉红
+//   - "说话中..." → speaking  → 金色
+//   - 其它（如通知、占卜提示） → 保持默认青色
+static inline void ApplyStatusBarBorderByTextUnlocked(const char* text) {
+    if (text == nullptr) {
+        return;
+    }
+    if (strstr(text, "聆听中") != nullptr) {
+        FortuneWatchfaceView::GetInstance().SetStatusBarBorderColorUnlocked(
+            lv_color_hex(kStatusBarBorderListen_));
+    } else if (strstr(text, "说话中") != nullptr) {
+        FortuneWatchfaceView::GetInstance().SetStatusBarBorderColorUnlocked(
+            lv_color_hex(kStatusBarBorderSpeak_));
+    } else {
+        FortuneWatchfaceView::GetInstance().SetStatusBarBorderColorUnlocked(
+            lv_color_hex(kStatusBarBorderDefault_));
+    }
+}
+
 FortuneWatchfaceView& FortuneWatchfaceView::GetInstance() {
     static FortuneWatchfaceView instance;
     return instance;
@@ -205,30 +233,31 @@ void FortuneWatchfaceView::CreateDynamicWatchface() {
         lv_obj_set_style_shadow_color(jarvis_bars_[i], lv_color_hex(0x20eaff), 0);
     }
 
-    // 状态栏：上缘贴内核环外边框 (y=260)，底边中心贴外环内缘
-    lv_obj_t* status_bar = AddBox(screen, STATUS_BAR_X_, STATUS_BAR_Y_, STATUS_BAR_W_, STATUS_BAR_H_,
-                                  0x07182b, LV_RADIUS_CIRCLE);
-    lv_obj_set_style_border_width(status_bar, 1, 0);
-    lv_obj_set_style_border_color(status_bar, lv_color_hex(0x20eaff), 0);
-    lv_obj_set_style_shadow_width(status_bar, 10, 0);
-    lv_obj_set_style_shadow_color(status_bar, lv_color_hex(0x0b6d99), 0);
-    // 状态栏上下左右内边距
-    lv_obj_set_style_pad_left(status_bar, 10, 0);
-    lv_obj_set_style_pad_right(status_bar, 10, 0);
-    lv_obj_set_style_pad_top(status_bar, 2, 0);
-    lv_obj_set_style_pad_bottom(status_bar, 2, 0);
+    // 状态栏：椭圆形完全在外环内（W=200, H=80），底边接壤外环内壁（y=358）
+    // 圆角半径 = H/2 = 40，呈横向椭圆胶囊形
+    status_bar_ = AddBox(screen, STATUS_BAR_X_, STATUS_BAR_Y_, STATUS_BAR_W_, STATUS_BAR_H_,
+                         0x07182b, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_border_width(status_bar_, 2, 0);  // 加粗边框让颜色变化更明显
+    lv_obj_set_style_border_color(status_bar_, lv_color_hex(kStatusBarBorderDefault_), 0);  // 默认青色
+    lv_obj_set_style_shadow_width(status_bar_, 10, 0);
+    lv_obj_set_style_shadow_color(status_bar_, lv_color_hex(0x0b6d99), 0);
+    // 状态栏上下左右内边距（缩窄上下边距以容纳文本）
+    lv_obj_set_style_pad_left(status_bar_, 10, 0);
+    lv_obj_set_style_pad_right(status_bar_, 10, 0);
+    lv_obj_set_style_pad_top(status_bar_, 2, 0);
+    lv_obj_set_style_pad_bottom(status_bar_, 2, 0);
     // 设置文字行间距，让两行文字更紧凑
-    lv_obj_set_style_text_line_space(status_bar, 2, 0);
+    lv_obj_set_style_text_line_space(status_bar_, 2, 0);
 
-    status_label_ = lv_label_create(status_bar);
+    status_label_ = lv_label_create(status_bar_);
     lv_label_set_text(status_label_, "ESP32-S3  PSRAM 8M  BAT 96%");
     // 使用 SCROLL_CIRCULAR 模式：单行超出自动左右循环滚动
     lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     // 字体缩小到 14px 以容纳更多字符（约 14px/中文字符）
     lv_obj_set_style_text_font(status_label_, &font_puhui_14_1, 0);
     lv_obj_set_style_text_color(status_label_, lv_color_hex(0xc8f7ff), 0);
-    // 两行文本区域（14px * 2 + 行间距 2 = 30px），在加高状态栏内垂直居中
-    lv_obj_set_height(status_label_, 30);
+    // 单行文本区域（高度 H=80 - pad_top=2 - pad_bottom=2 = 76 足够单行垂直居中显示）
+    lv_obj_set_height(status_label_, STATUS_BAR_H_ - 4);
     lv_obj_set_width(status_label_, STATUS_BAR_W_ - 20);
     lv_obj_center(status_label_);
 
@@ -243,6 +272,7 @@ void FortuneWatchfaceView::ClearOverlayChildPointersUnlocked() {
     jarvis_label_ = nullptr;
     jarvis_label_shadow_a_ = nullptr;
     jarvis_label_shadow_b_ = nullptr;
+    status_bar_ = nullptr;
     status_label_ = nullptr;
     for (int i = 0; i < ORBIT_COUNT_; ++i) {
         orbit_dots_[i] = nullptr;
@@ -538,6 +568,9 @@ void FortuneWatchfaceView::SetStatusText(const char* text) {
         lv_label_set_text(status_label_, voice_status_text_.c_str());
     }
 
+    // 根据状态文案切换状态栏外框颜色（listening 粉红 / speaking 金色 / 其它默认青）
+    ApplyStatusBarBorderByTextUnlocked(voice_status_text_.c_str());
+
     ESP_LOGD(TAG, "SetStatusText: %s", voice_status_text_.c_str());
     lvgl_port_unlock();
 }
@@ -550,6 +583,11 @@ void FortuneWatchfaceView::ClearStatusText() {
 
     status_mode_ = kModeDefault;
     voice_status_text_.clear();
+
+    // 恢复状态栏外框为默认青色
+    if (status_bar_ != nullptr) {
+        lv_obj_set_style_border_color(status_bar_, lv_color_hex(kStatusBarBorderDefault_), 0);
+    }
 
     ESP_LOGD(TAG, "ClearStatusText: restored to default mode");
     lvgl_port_unlock();
@@ -571,6 +609,21 @@ void FortuneWatchfaceView::UpdateOuterRingColor(lv_color_t color) {
     lvgl_port_unlock();
 }
 
+void FortuneWatchfaceView::SetStatusBarBorderColorUnlocked(lv_color_t color) {
+    if (status_bar_ != nullptr) {
+        lv_obj_set_style_border_color(status_bar_, color, 0);
+    }
+}
+
+void FortuneWatchfaceView::SetStatusBarBorderColor(lv_color_t color) {
+    if (!lvgl_port_lock(300)) {
+        ESP_LOGW(TAG, "SetStatusBarBorderColor: LVGL lock timeout");
+        return;
+    }
+    SetStatusBarBorderColorUnlocked(color);
+    lvgl_port_unlock();
+}
+
 void FortuneWatchfaceView::SetVoiceMessage(const char* text) {
     if (!lvgl_port_lock(300)) {
         ESP_LOGW(TAG, "SetVoiceMessage: LVGL lock timeout");
@@ -588,6 +641,9 @@ void FortuneWatchfaceView::SetVoiceMessageUnlocked(const char* text) {
         lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_label_set_text(status_label_, voice_status_text_.c_str());
     }
+
+    // 根据状态文案切换状态栏外框颜色
+    ApplyStatusBarBorderByTextUnlocked(voice_status_text_.c_str());
 
     ESP_LOGD(TAG, "SetVoiceMessage: %s", voice_status_text_.c_str());
 }
@@ -608,6 +664,11 @@ void FortuneWatchfaceView::ClearVoiceMessageUnlocked() {
     if (status_label_ != nullptr) {
         lv_label_set_long_mode(status_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_label_set_text(status_label_, "ESP32-S3  JARVIS HUD  SCAN 00%");
+    }
+
+    // 恢复状态栏外框为默认青色
+    if (status_bar_ != nullptr) {
+        lv_obj_set_style_border_color(status_bar_, lv_color_hex(kStatusBarBorderDefault_), 0);
     }
 
     ESP_LOGD(TAG, "ClearVoiceMessage: restored to default mode");

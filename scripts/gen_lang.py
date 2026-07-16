@@ -150,7 +150,11 @@ def generate_header(lang_code, output_path):
         }};''')
     
     # 生成公共音效常量
+    # 排除已经由 base_sounds + current_sounds 处理过的同名文件，避免重复定义
+    # （历史 bug：notification.ogg 同时存在于 locales/en-US/ 和 common/，会导致 OGG_NOTIFICATION 重复定义）
     for file in sorted(common_sounds):
+        if file in all_sound_files:
+            continue
         base_name = os.path.splitext(file)[0]
         sounds.append(f'''
         extern const char ogg_{base_name}_start[] asm("_binary_{base_name}_ogg_start");

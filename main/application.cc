@@ -540,6 +540,11 @@ void Application::HandleNetworkConnectedEvent() {
     Schedule([]() {
         ServerConfig::RefreshUrlCache();
     });
+
+    // 标记网络就绪并清零退避计数（方案 B：网络恢复即补位重连）
+    is_network_ready_ = true;
+    ws_reconnect_attempts_ = 0;
+
     auto state = GetDeviceState();
 
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
@@ -660,9 +665,115 @@ void Application::HandleNetworkDisconnectedEvent() {
         protocol_->CloseAudioChannel();
     }
 
+    // 标记网络不可用，重连任务不会被触发；网络恢复后由 HandleNetworkConnectedEvent 补位
+    is_network_ready_ = false;
+
     // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
     display->UpdateStatusBar(true);
+}
+
+// 方案 B —— WebSocket 自动重连（网络层 + 通道层协同）
+//
+// 行为契约：
+// 1) 仅在 idle 状态尝试重连，避免与"用户主动唤醒 / 正在对话"竞争。
+// 2) 必须 protocol_ 已创建 + 网络就绪，否则延迟重试。
+// 3) 退避序列：5s -> 10s -> 20s -> 30s -> 60s（之后封顶 60s）；最多 30 次（约 30 分钟）。
+// 4) 成功重连后清零 attempts；IsAudioChannelOpened() 已为 true 时也清零 attempts。
+// 5) 幂等：多次调用 ScheduleWebsocketReconnect() 只挂一次退避任务。
+void Application::ScheduleWebsocketReconnect() {
+    if (ws_reconnect_pending_) {
+        return;  // 已有退避任务在排队，幂等
+    }
+    if (!protocol_) {
+        ESP_LOGW(TAG, "WS reconnect skipped: protocol_ not initialized");
+        return;
+    }
+    if (!is_network_ready_) {
+        ESP_LOGI(TAG, "WS reconnect deferred: network not ready, will resume when reconnected");
+        return;  // 等网络恢复事件触发补位
+    }
+    if (ws_reconnect_attempts_ >= kMaxWsReconnectAttempts) {
+        ESP_LOGW(TAG, "WS reconnect giving up after %d attempts", ws_reconnect_attempts_);
+        return;
+    }
+    // 计算本次退避秒数
+    int idx = ws_reconnect_attempts_;
+    if (idx < 0) idx = 0;
+    if (idx >= (int)(sizeof(kWsReconnectDelaysSec) / sizeof(kWsReconnectDelaysSec[0]))) {
+        idx = (int)(sizeof(kWsReconnectDelaysSec) / sizeof(kWsReconnectDelaysSec[0])) - 1;
+    }
+    int delay_sec = kWsReconnectDelaysSec[idx];
+    ws_reconnect_attempts_++;
+    ws_reconnect_pending_ = true;
+    int attempt = ws_reconnect_attempts_;
+    ESP_LOGI(TAG, "WS reconnect scheduled: attempt=%d delay=%ds", attempt, delay_sec);
+
+    // 用 esp_timer（一次性）实现秒级退避，不占用主任务 Schedule 队列
+    // esp_timer 回调中触发 Schedule 把工作交回主任务执行，避免锁 main_tasks_
+
+    // 取消旧 timer（若有）
+    if (ws_reconnect_timer_) {
+        esp_timer_stop(ws_reconnect_timer_);
+    }
+
+    // 创建一次性 esp_timer，到期在主任务上执行 TryWebsocketReconnectNow
+    if (!ws_reconnect_timer_) {
+        esp_timer_create_args_t timer_args = {
+            .callback = [](void* arg) {
+                Application* self = (Application*)arg;
+                self->Schedule([self]() {
+                    if (self->ws_reconnect_pending_) {
+                        self->TryWebsocketReconnectNow();
+                    }
+                });
+            },
+            .arg = this,
+            .name = "ws_reconnect",
+        };
+        esp_timer_create(&timer_args, &ws_reconnect_timer_);
+    }
+    int64_t delay_us = (int64_t)delay_sec * 1000000LL;
+    esp_timer_start_once(ws_reconnect_timer_, delay_us);
+    ESP_LOGI(TAG, "WS reconnect timer armed: %d sec (attempt=%d)", delay_sec, attempt);
+}
+
+// 立即尝试重连一次。状态机门控：仅 idle 且 channel 未开 才尝试。
+void Application::TryWebsocketReconnectNow() {
+    ws_reconnect_pending_ = false;
+
+    if (!protocol_) {
+        ESP_LOGW(TAG, "WS reconnect attempt aborted: protocol_ not initialized");
+        return;
+    }
+    if (!is_network_ready_) {
+        ESP_LOGI(TAG, "WS reconnect attempt aborted: network not ready");
+        return;
+    }
+    auto state = GetDeviceState();
+    if (state != kDeviceStateIdle && state != kDeviceStateActivating) {
+        // 用户已经在交互（listening/speaking/connecting），不要替用户强行开 channel
+        ESP_LOGD(TAG, "WS reconnect skipped: state=%s (user may be interacting)",
+                 DeviceStateMachine::GetStateName(state));
+        // 不重排，避免抢占用户；连接若仍异常会在用户下次唤醒或下一次断开时再触发
+        return;
+    }
+    if (protocol_->IsAudioChannelOpened()) {
+        // 已处于连接态（例如其它代码或用户唤醒已开），清零 attempts
+        ws_reconnect_attempts_ = 0;
+        ESP_LOGI(TAG, "WS reconnect no-op: channel already opened");
+        return;
+    }
+
+    ESP_LOGI(TAG, "WS reconnect attempt #%d", ws_reconnect_attempts_);
+    if (protocol_->OpenAudioChannel()) {
+        ws_reconnect_attempts_ = 0;
+        ESP_LOGI(TAG, "WS reconnect succeeded");
+    } else {
+        ESP_LOGW(TAG, "WS reconnect attempt #%d failed, will retry", ws_reconnect_attempts_);
+        // 失败则再排下一次退避（递增 attempts）
+        ScheduleWebsocketReconnect();
+    }
 }
 
 void Application::HandleActivationDoneEvent() {
@@ -968,6 +1079,12 @@ void Application::InitializeProtocol() {
                 ESP_LOGW(TAG, "OnAudioChannelClosed: stale event while in %s, ignored",
                          DeviceStateMachine::GetStateName(st));
             }
+        });
+
+        // 方案 B：通道断开后调度退避重连。幂等，已排队则不再排；
+        // 与"用户主动唤醒"竞争时由 TryWebsocketReconnectNow 内部的状态门控保护。
+        Schedule([this]() {
+            ScheduleWebsocketReconnect();
         });
     });
     
@@ -1302,6 +1419,9 @@ void Application::HandleToggleChatEvent() {
     } else if (state == kDeviceStateListening) {
         protocol_->CloseAudioChannel();
     }
+    // 用户主动唤醒 / 唤醒词 → 取消任何挂起的自动重连，避免与手动开 channel 抢资源
+    ws_reconnect_pending_ = false;
+    ws_reconnect_attempts_ = 0;
 }
 
 void Application::ContinueOpenAudioChannel(ListeningMode mode) {
